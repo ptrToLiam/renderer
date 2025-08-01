@@ -1,0 +1,499 @@
+const std = @import("std");
+
+const Arena = @import("Arena.zig");
+const Xml = @import("xml.zig");
+const linux = @import("linux.zig");
+
+pub fn main() !void {
+    Thread.ctx_init();
+    const program_arena: *Arena = .init(.default);
+    const xml_arena: *Arena = .init(.default);
+
+    defer {
+        Thread.ctx_deinit();
+        program_arena.release();
+        xml_arena.release();
+    }
+
+    var out_file: []const u8 = undefined;
+    var out_dir: []const u8 = undefined;
+    var protocol_files: StrList = .{};
+
+    var args = std.process.args();
+    _ = args.next();
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--out")) {
+            out_file = args.next().?;
+        } else if (std.mem.eql(u8, arg, "--prefix")) {
+            out_dir = args.next().?;
+        } else {
+            protocol_files.push(program_arena, arg);
+        }
+    }
+
+    // Parse protocol inputs
+    var protocols: ProtocolList = .{};
+    const allocator = program_arena.allocator();
+    while (protocol_files.top()) |spec_file| : (protocol_files.pop()) {
+        log.debug("parsing spec {s}", .{spec_file});
+        const spec_xml = try std.fs.cwd().readFileAlloc(
+            xml_arena.allocator(),
+            spec_file,
+            std.math.maxInt(usize),
+        );
+        const spec = try Xml.parse(xml_arena.allocator(), spec_xml);
+        defer xml_arena.clear();
+
+        var interfaces: InterfaceList = .{};
+        var xml_interfaces = spec.root.findChildrenByTag("interface");
+        while (xml_interfaces.next()) |xml_interface| {
+            // Enums/Bitfields
+            var enums: EnumList = .{};
+            {
+                var iter = xml_interface.findChildrenByTag("enum");
+                while (iter.next()) |xml_enum| {
+                    var entries: EntryList = .{};
+                    var entry_iter = xml_enum.findChildrenByTag("entry");
+                    while (entry_iter.next()) |xml_enum_entry| {
+                        const entry: Entry = .{
+                            .name = try allocator.dupe(u8, xml_enum_entry.getAttribute("name").?),
+                            .value = try allocator.dupe(u8, xml_enum_entry.getAttribute("value").?),
+                            .summary = if (xml_enum_entry.getAttribute("summary")) |summary| try allocator.dupe(u8, summary) else null,
+                        };
+                        entries.push(program_arena, entry);
+                    }
+
+                    const @"enum": EnumOrBitfield =
+                        if (xml_enum.getAttribute("bitfield")) |_|
+                            .{ .bitfield = .{
+                                .name = try allocator.dupe(u8, xml_enum.getAttribute("name").?),
+                                .description = if (xml_enum.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                                .entries = entries,
+                            } }
+                        else
+                            .{ .@"enum" = .{
+                                .name = try allocator.dupe(u8, xml_enum.getAttribute("name").?),
+                                .description = if (xml_enum.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                                .entries = entries,
+                            } };
+
+                    enums.push(program_arena, @"enum");
+                }
+            }
+
+            // Requests
+            var requests: RequestList = .{};
+            {
+                var iter = xml_interface.findChildrenByTag("request");
+                while (iter.next()) |xml_request| {
+                    var request_args: ArgList = .{};
+                    var arg_iter = xml_request.findChildrenByTag("arg");
+                    while (arg_iter.next()) |xml_arg| {
+                        const arg: Arg = .{
+                            .name = try allocator.dupe(u8, xml_arg.getAttribute("name").?),
+                            .type = if (xml_arg.getAttribute("enum")) |enum_t| .{
+                                .@"enum" = try allocator.dupe(u8, enum_t),
+                            } else .{ .type = try .from_string(xml_arg.getAttribute("type").?) },
+                            .interface = blk: {
+                                const interface_str = xml_arg.getAttribute("interface") orelse break :blk null;
+                                break :blk try allocator.dupe(u8, interface_str);
+                            },
+                            .summary = if (xml_arg.getAttribute("summary")) |summary| try allocator.dupe(u8, summary) else null,
+                        };
+                        request_args.push(program_arena, arg);
+                    }
+
+                    const request: Request = .{
+                        .name = try allocator.dupe(u8, xml_request.getAttribute("name").?),
+                        .description = if (xml_request.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                        .args = request_args,
+                    };
+                    requests.push(program_arena, request);
+                }
+            }
+
+            // Events
+            var events: EventList = .{};
+            {
+                var iter = xml_interface.findChildrenByTag("event");
+                while (iter.next()) |xml_event| {
+                    var event_args: ArgList = .{};
+                    var arg_iter = xml_event.findChildrenByTag("arg");
+                    while (arg_iter.next()) |xml_arg| {
+                        const arg: Arg = .{
+                            .name = try allocator.dupe(u8, xml_arg.getAttribute("name").?),
+                            .type = if (xml_arg.getAttribute("enum")) |enum_t| .{
+                                .@"enum" = try allocator.dupe(u8, enum_t),
+                            } else .{ .type = try .from_string(xml_arg.getAttribute("type").?) },
+                            .interface = blk: {
+                                const interface_str = xml_arg.getAttribute("interface") orelse break :blk null;
+                                break :blk try allocator.dupe(u8, interface_str);
+                            },
+                            .summary = if (xml_arg.getAttribute("summary")) |summary| try allocator.dupe(u8, summary) else null,
+                        };
+                        event_args.push(program_arena, arg);
+                    }
+
+                    const event: Event = .{
+                        .name = try allocator.dupe(u8, xml_event.getAttribute("name").?),
+                        .description = if (xml_event.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                        .args = event_args,
+                    };
+                    events.push(program_arena, event);
+                }
+            }
+
+            const interface: Interface = .{
+                .name = try allocator.dupe(u8, xml_interface.getAttribute("name").?),
+                .version = try allocator.dupe(u8, xml_interface.getAttribute("version").?),
+                .description = if (xml_interface.getCharData("description")) |interface_description|
+                    try allocator.dupe(u8, interface_description)
+                else
+                    null,
+                .enums = enums,
+                .requests = requests,
+                .events = events,
+            };
+            interfaces.push(program_arena, interface);
+        }
+
+        const protocol: Protocol = .{
+            .name = try allocator.dupe(u8, spec.root.getAttribute("name").?),
+            .interfaces = interfaces,
+        };
+        defer protocols.push(program_arena, protocol);
+    }
+
+    const stdout = std.fs.File.stdout();
+    _ = stdout;
+
+    // Write protocol output
+
+    log.debug("Writing unified output", .{});
+    var protocol_node_opt: ?*ProtocolList.Node = null;
+    var out_contents: std.io.Writer.Allocating = try .initCapacity(allocator, 2048);
+    try out_contents.writer.print(
+        \\// WARNING :: This file is auto-generated and should not be edited.
+        \\//            Any issues with this file should be addressed in the tool
+        \\//            that produced this file.
+        \\//            
+        \\//            - LM
+        \\ 
+        \\
+        , .{});
+
+    // Write protocol structs
+    {
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            // Write start of protocol
+            const protocol = protocol_node.val;
+            try out_contents.writer.print("pub const @\"{s}\" = struct {{\n", .{protocol.name});
+
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+
+                // Begin Interface
+                if (interface.description) |description| {
+                    var lines = std.mem.splitScalar(u8, description, '\n');
+                    while (lines.next()) |line|
+                        if (trim_leading_whitespace(line).len > 1)
+                            try out_contents.writer.print("  /// {s}\n", .{trim_leading_whitespace(line)});
+                }
+                try out_contents.writer.print("  pub const @\"{s}\" = struct {{\n", .{
+                    interface.name,
+                });
+
+                // Begin Interface Events
+                if (interface.events.count > 0) {
+                    var event_node_opt: ?*EventList.Node = null;
+                    try out_contents.writer.print("    pub const Event = union (enum) {{\n", .{});
+
+                    event_node_opt = interface.events.first;
+                    while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
+                        const event = event_node.val;
+                        try out_contents.writer.print("      @\"{s}\": @\"{s}\",\n", .{
+                            event.name, event.name,
+                        });
+                    }
+
+                    try out_contents.writer.print("\n", .{});
+                    event_node_opt = interface.events.first;
+                    while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
+                        const event = event_node.val;
+
+                        // Begin Event
+                        try out_contents.writer.print("\n", .{});
+                        if (event.description) |description| {
+                            var lines = std.mem.splitScalar(u8, description, '\n');
+                            while (lines.next()) |line|
+                                if (line.len > 1)
+                                    try out_contents.writer.print("      /// {s}\n", .{trim_leading_whitespace(line)});
+                        }
+                        try out_contents.writer.print("      pub const @\"{s}\" = ", .{
+                            event.name,
+                        });
+
+                        if (event.args.count > 0) {
+                            try out_contents.writer.print("struct {{\n", .{});
+                            var arg_node_opt: ?*ArgList.Node = event.args.first;
+                            while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
+                                const arg = arg_node.val;
+                                try out_contents.writer.print("        @\"{s}\": \"{s}\",\n", .{
+                                    arg.name,
+                                    switch (arg.type) {
+                                        .type => |zig_type| zig_type.to_zig_type_string().?,
+                                        .@"enum" => |enum_str| enum_str,
+                                    },
+                                });
+                            }
+
+                            // End Event
+                            try out_contents.writer.print("      }};\n", .{});
+                        } else try out_contents.writer.print("void;\n", .{});
+                    }
+
+                    // End Interface Events
+                    try out_contents.writer.print("    }};\n\n", .{});
+                }
+
+                // End Interface
+                try out_contents.writer.print(
+                    \\    pub const Name = "{s}";
+                    \\    pub const Version = {s};
+                    \\  }};
+                    \\
+                    \\
+                , .{ interface.name, interface.version });
+            }
+
+            // Write end of Protocol
+            try out_contents.writer.print("}};\n\n", .{});
+        }
+    }
+
+    // Write composite types
+    {
+        // Object
+        try out_contents.writer.print("pub const Object = union (enum) {{\n", .{});
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            const protocol = protocol_node.val;
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+                try out_contents.writer.print("  @\"{s}\": @\"{s}\",\n", .{
+                    interface.name,
+                    interface.name,
+                });
+            }
+        }
+        try out_contents.writer.print("}};\n\n", .{});
+
+        // Event
+        try out_contents.writer.print("pub const Event = union (enum) {{\n", .{});
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            const protocol = protocol_node.val;
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+                if (interface.events.count > 0)
+                    try out_contents.writer.print("  @\"{s}\": @\"{s}\".Event,\n", .{
+                        interface.name,
+                        interface.name,
+                    });
+            }
+        }
+        try out_contents.writer.print("}};\n\n", .{});
+    }
+
+    // Write interface aliases
+    {
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            const protocol = protocol_node.val;
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+                try out_contents.writer.print("const @\"{s}\" = @\"{s}\".@\"{s}\";\n", .{
+                    interface.name,
+                    protocol.name,
+                    interface.name,
+                });
+            }
+        }
+    }
+
+    // Validate & Format
+    const formatted = blk: {
+        // Validate Zig AST parse of output
+        const tree = try std.zig.Ast.parse(xml_arena.allocator(), try xml_arena.allocator().dupeZ(u8, out_contents.getWritten()), .zig);
+        // Format output
+        const i_formatted = if (tree.errors.len > 0) i_blk: {
+            break :i_blk try out_contents.toOwnedSlice();
+        } else 
+            try tree.renderAlloc(program_arena.allocator());
+
+        break :blk i_formatted;
+    };
+
+    log.debug(":: Formatted ::\n{s}", .{formatted});
+}
+
+const Protocol = struct {
+    name: []const u8,
+    interfaces: InterfaceList = .{},
+};
+
+const Interface = struct {
+    name: []const u8,
+    version: []const u8,
+    description: ?[]const u8 = null,
+    requests: RequestList = .{},
+    events: EventList = .{},
+    enums: EnumList = .{},
+};
+
+const Request = struct {
+    name: []const u8,
+    description: ?[]const u8,
+    args: ArgList = .{},
+};
+
+const Event = struct {
+    name: []const u8,
+    description: ?[]const u8,
+    args: ArgList = .{},
+};
+
+const Arg = struct {
+    name: []const u8,
+    type: union(enum) {
+        type: Type,
+        @"enum": []const u8,
+    },
+    interface: ?[]const u8,
+    summary: ?[]const u8,
+};
+
+const EnumOrBitfield = union(enum) {
+    @"enum": Enum,
+    bitfield: Bitfield,
+};
+
+const Enum = struct {
+    name: []const u8,
+    description: ?[]const u8,
+    entries: EntryList = .{},
+};
+
+const Bitfield = struct {
+    name: []const u8,
+    description: ?[]const u8,
+    entries: EntryList = .{},
+};
+
+const Entry = struct {
+    name: []const u8,
+    value: []const u8,
+    summary: ?[]const u8,
+};
+
+const Type = enum {
+    int,
+    uint,
+    fixed,
+    string,
+    object,
+    new_id,
+    array,
+    fd,
+
+    pub fn from_string(str: []const u8) !Type {
+        return std.meta.stringToEnum(Type, str) orelse {
+            return error.UnknownType;
+        };
+    }
+    pub fn to_zig_type_string(T: Type) ?[]const u8 {
+        return switch (T) {
+            .fd => "std.posix.fd_t",
+            .int => "i32",
+            .fixed => "f32",
+            .array => "[]const u8",
+            .string => "[:0]const u8",
+            .uint, .object, .new_id => "u32",
+        };
+    }
+};
+
+fn trim_leading_whitespace(str: []const u8) []const u8 {
+    var start_idx: usize = 0;
+        for (str, 0..) |char, idx| {
+        if (!(char == ' ' or 
+              char == '\t' or
+              char == '\x00')) {
+            start_idx = idx;
+            break;
+        }
+    }
+
+    return str[start_idx..];
+}
+
+pub fn List(comptime T: type) type {
+    return struct {
+        first: ?*Node = null,
+        last: ?*Node = null,
+        count: usize = 0,
+
+        pub fn push(noalias list: *ListT, noalias arena: *Arena, val: T) void {
+            const node = arena.create(Node);
+
+            defer list.count += 1;
+            defer list.last = node;
+
+            node.* = .{
+                .val = val,
+            };
+
+            if (list.last) |last| {
+                last.next = node;
+            } else {
+                list.first = node;
+            }
+        }
+
+        pub fn pop(list: *ListT) void {
+            if (list.first) |first| {
+                list.first = first.next;
+                list.count -= 1;
+            }
+        }
+
+        pub fn top(list: *ListT) ?T {
+            const node = list.first orelse return null;
+            return node.val;
+        }
+
+        pub const Node = struct {
+            next: ?*Node = null,
+            val: T,
+        };
+
+        const ListT = @This();
+    };
+}
+
+const StrList = List([]const u8);
+const ProtocolList = List(Protocol);
+const InterfaceList = List(Interface);
+const RequestList = List(Request);
+const EventList = List(Event);
+const ArgList = List(Arg);
+const EnumList = List(EnumOrBitfield);
+const EntryList = List(Entry);
+
+const Thread = linux.Thread;
+const log = std.log.scoped(.wl_codegen);
