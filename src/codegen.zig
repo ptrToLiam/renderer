@@ -276,20 +276,39 @@ pub fn main() !void {
     // Write composite types
     {
         // Object
-        try out_contents.writer.print("pub const Object = union (enum) {{\n", .{});
-        protocol_node_opt = protocols.first;
-        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
-            const protocol = protocol_node.val;
-            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
-            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
-                const interface = interface_node.val;
-                try out_contents.writer.print("  @\"{s}\": @\"{s}\",\n", .{
-                    interface.name,
-                    interface.name,
-                });
-            }
-        }
-        try out_contents.writer.print("}};\n\n", .{});
+        // try out_contents.writer.print("pub const Object = union (enum) {{\n", .{});
+        // protocol_node_opt = protocols.first;
+        // while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+        //     const protocol = protocol_node.val;
+        //     var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+        //     while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+        //         const interface = interface_node.val;
+        //         try out_contents.writer.print("  @\"{s}\": @\"{s}\",\n", .{
+        //             interface.name,
+        //             interface.name,
+        //         });
+        //     }
+        // }
+        // try out_contents.writer.print("}};\n\n", .{});
+
+        // TODO: Give every wl_interface an 'object()' function
+        // to return an 'Object' interface instance.
+        try out_contents.writer.print(
+            \\
+            \\pub const Object = struct {{
+            \\  ctx: *anyopaque,
+            \\  vtable: VTable,
+            \\
+            \\  pub fn write_msg(...) {{...}}
+            \\  pub fn parse_msg(...) {{...}}
+            \\
+            \\  pub const VTable = struct {{
+            \\    parse_msg: ...
+            \\    write_msg: ...
+            \\  }};
+            \\}};
+            \\
+            , .{});
 
         // Event
         try out_contents.writer.print("pub const Event = union (enum) {{\n", .{});
