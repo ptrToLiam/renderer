@@ -82,7 +82,7 @@ pub fn main() !void {
             }
 
             // Requests
-            var requests: RequestList = .{};
+            var requests: MessageList = .{};
             {
                 var iter = xml_interface.findChildrenByTag("request");
                 while (iter.next()) |xml_request| {
@@ -103,17 +103,19 @@ pub fn main() !void {
                         request_args.push(program_arena, arg);
                     }
 
-                    const request: Request = .{
-                        .name = try allocator.dupe(u8, xml_request.getAttribute("name").?),
-                        .description = if (xml_request.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
-                        .args = request_args,
+                    const request: Message = .{
+                        .request = .{
+                            .name = try allocator.dupe(u8, xml_request.getAttribute("name").?),
+                            .description = if (xml_request.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                            .args = request_args,
+                        },
                     };
                     requests.push(program_arena, request);
                 }
             }
 
             // Events
-            var events: EventList = .{};
+            var events: MessageList = .{};
             {
                 var iter = xml_interface.findChildrenByTag("event");
                 while (iter.next()) |xml_event| {
@@ -134,10 +136,12 @@ pub fn main() !void {
                         event_args.push(program_arena, arg);
                     }
 
-                    const event: Event = .{
-                        .name = try allocator.dupe(u8, xml_event.getAttribute("name").?),
-                        .description = if (xml_event.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
-                        .args = event_args,
+                    const event: Message = .{
+                        .event = .{
+                            .name = try allocator.dupe(u8, xml_event.getAttribute("name").?),
+                            .description = if (xml_event.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
+                            .args = event_args,
+                        },
                     };
                     events.push(program_arena, event);
                 }
@@ -207,7 +211,7 @@ pub fn main() !void {
 
                 // Begin Interface Events
                 if (interface.events.count > 0) {
-                    var event_node_opt: ?*EventList.Node = null;
+                    var event_node_opt: ?*MessageList.Node = null;
                     try out_contents.writer.print("    pub const Event = union (enum) {{\n", .{});
 
                     event_node_opt = interface.events.first;
@@ -291,24 +295,57 @@ pub fn main() !void {
         // }
         // try out_contents.writer.print("}};\n\n", .{});
 
-        // TODO: Give every wl_interface an 'object()' function
-        // to return an 'Object' interface instance.
+        // TODO
+        // - Give every wl_interface an 'object()' function
+        //   to return an 'Object' interface instance.
+        // - Finish writing `Object` interface methods for parse and write.
         try out_contents.writer.print(
             \\
             \\pub const Object = struct {{
-            \\  ctx: *anyopaque,
+            \\  ptr: *anyopaque,
             \\  vtable: VTable,
             \\
-            \\  pub fn write_msg(...) {{...}}
-            \\  pub fn parse_msg(...) {{...}}
+            \\  pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) Proxy.ParseError!void {{
+            \\  }}
+            \\
+            \\  pub inline fn write_msg(noalias object: *Object, op: u16) Proxy.WriteError!void {{
+            \\  }}
             \\
             \\  pub const VTable = struct {{
-            \\    parse_msg: ...
-            \\    write_msg: ...
+            \\    parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) Proxy.ParseError!void,
+            \\    write_msg: *const fn (ctx: *anyopaque, op: u16) Proxy.WriteError!void,
             \\  }};
             \\}};
             \\
             , .{});
+
+        try out_contents.writer.print(
+            \\\
+            \\\const Proxy = struct {
+            \\\    ctx: *anyopaque,
+            \\\    vtable: VTable,
+            \\\
+            \\\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
+            \\\        try @call(.auto, proxy.vtable.msg_parse_fn, .{args_out, data});
+            \\\    }
+            \\\    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
+            \\\        try @call(.auto, proxy.vtable.msg_write_fn, .{id, op, args});
+            \\\    }
+            \\\
+            \\\    const VTable = struct {
+            \\\        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+            \\\        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+            \\\    };
+            \\\
+            \\\    pub const ParseError = error{
+            \\\        ParseFailed,
+            \\\    };
+            \\\    pub const WriteError = error{
+            \\\        WriteFailed,
+            \\\    };
+            \\\};
+            \\\
+        , .{});
 
         // Event
         try out_contents.writer.print("pub const Event = union (enum) {{\n", .{});
@@ -370,21 +407,26 @@ const Interface = struct {
     name: []const u8,
     version: []const u8,
     description: ?[]const u8 = null,
-    requests: RequestList = .{},
-    events: EventList = .{},
+    requests: MessageList = .{},
+    events: MessageList = .{},
     enums: EnumList = .{},
 };
 
-const Request = struct {
-    name: []const u8,
-    description: ?[]const u8,
-    args: ArgList = .{},
-};
+const Message = union (enum) {
+    request: Request,
+    event: Event,
 
-const Event = struct {
-    name: []const u8,
-    description: ?[]const u8,
-    args: ArgList = .{},
+    const Request = struct {
+        name: []const u8,
+        description: ?[]const u8,
+        args: ArgList = .{},
+    };
+
+    const Event = struct {
+        name: []const u8,
+        description: ?[]const u8,
+        args: ArgList = .{},
+    };
 };
 
 const Arg = struct {
@@ -505,11 +547,127 @@ pub fn List(comptime T: type) type {
     };
 }
 
+const MessageArg = union (enum) {
+    int: i32,
+    uint: u32,
+    fixed: f32,
+    object: u32,
+    string: [:0]const u8,
+    array: []const u8,
+    new_id: u32,
+    fd: std.posix.fd_t,
+    @"enum": Enum,
+};
+
+const FdQueue = struct{};
+inline fn parse_u32(buf: []const u8) u32 {
+    return @bitCast(buf[0..4]);
+}
+
+const Proxy = struct {
+    ctx: *anyopaque,
+    vtable: VTable,
+
+    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
+        try @call(.auto, proxy.vtable.msg_parse_fn, .{args_out, data});
+    }
+    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
+        try @call(.auto, proxy.vtable.msg_write_fn, .{id, op, args});
+    }
+    pub inline fn next_fd(noalias proxy: *const Proxy) ?std.posix.fd_t {
+        try @call(.auto, proxy.vtable.next_fd_fn, .{});
+    }
+
+    const VTable = struct {
+        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+        next_fd_fn: *const fn(ctx: *anyopaque) ?std.posix.fd_t,
+    };
+
+    pub const ParseError = error{
+        ParseFailed,
+    };
+    pub const WriteError = error{
+        WriteFailed,
+    };
+};
+
+const Connection = struct {
+};
+
+// Interface::msg_parse(connection: *Connection) -> Event:
+// var args_out = [_]MessageArg{param_1, param_2, ..., param_n};
+// connection.msg_parse(&args_out)
+// return .{
+//   .Interface = .{
+//     .event = .{
+//       .param_1 = args_out[0],
+//       .param_2 = args_out[1],
+//       ...
+//       .param_n = args_out[n-1],
+//     }
+//   }
+// }
+fn msg_parse(connection: *Connection, args_out: []MessageArg, data: []const u8) void {
+    var offset: u32 = 0;
+    for (args_out) |*arg| {
+        switch (arg.*) {
+            .fd => |*arg_fd| {
+                arg_fd.* = connection.fd_queue.next().?;
+            },
+            .uint, .object, .new_id => |*uint_arg| {
+                uint_arg.* = std.mem.bytesToValue(u32, &data[offset..][0..4]);
+                offset += 4;
+            },
+            .int => |*int_arg| {
+                int_arg.* = std.mem.bytesToValue(i32, &data[offset..][0..4]);
+                offset += 4;
+            },
+            .@"enum" => |*enum_arg| {
+                const int_ptr: *u32 = @ptrCast(enum_arg);
+                int_ptr.* = std.mem.bytesToValue(u32, &data[offset..][0..4]);
+                offset += 4;
+            },
+            .fixed => |*fixed_arg| {
+                const int_val = std.mem.bytesToValue(i32, &data[offset..][0..4]);
+                offset += 4;
+                fixed_arg.* = @as(f32, @floatFromInt(int_val)) / 256;
+            },
+            .string => |*string_arg| {
+                const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
+                offset += 4;
+                const rounded_len = round_up(str_len, 4);
+                string_arg.* = @ptrCast(data[offset..][0..str_len-1:0]);
+                offset += rounded_len;
+            },
+            .array => |*array_arg| {
+                const arr_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
+                offset += 4;
+                const rounded_len = round_up(arr_len, 4);
+                array_arg.* = data[offset..][0..arr_len];
+                offset += rounded_len;
+            },
+        }
+    }
+}
+
+fn msg_write() !void {
+    //...
+}
+inline fn round_up(val: anytype, mul: @TypeOf(val)) @TypeOf(val) {
+    if (val == 0)
+        return 0
+    else
+        return if (val % mul == 0)
+            val
+        else
+            val + (mul - (val % mul));
+}
+
 const StrList = List([]const u8);
 const ProtocolList = List(Protocol);
 const InterfaceList = List(Interface);
-const RequestList = List(Request);
-const EventList = List(Event);
+const MessageList = List(Message);
 const ArgList = List(Arg);
 const EnumList = List(EnumOrBitfield);
 const EntryList = List(Entry);
