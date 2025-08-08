@@ -169,7 +169,6 @@ pub fn main() !void {
     }
 
     const stdout = std.fs.File.stdout();
-    _ = stdout;
 
     // Write protocol output
 
@@ -184,7 +183,7 @@ pub fn main() !void {
         \\//            - LM
         \\ 
         \\
-        , .{});
+    , .{});
 
     // Write protocol structs
     {
@@ -192,11 +191,16 @@ pub fn main() !void {
         while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
             // Write start of protocol
             const protocol = protocol_node.val;
-            try out_contents.writer.print("pub const @\"{s}\" = struct {{\n", .{protocol.name});
+            log.debug("Writing Protocol :: {f}", .{capitalize(protocol.name)});
+            try out_contents.writer.print("pub const @\"{f}\" = struct {{\n", .{to_pascal(protocol.name)});
 
             var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
             while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
                 const interface = interface_node.val;
+                log.debug("Writing {f} Interface :: {f}", .{
+                    capitalize(protocol.name),
+                    capitalize(interface.name),
+                });
 
                 // Begin Interface
                 if (interface.description) |description| {
@@ -205,27 +209,32 @@ pub fn main() !void {
                         if (trim_leading_whitespace(line).len > 1)
                             try out_contents.writer.print("  /// {s}\n", .{trim_leading_whitespace(line)});
                 }
-                try out_contents.writer.print("  pub const @\"{s}\" = struct {{\n", .{
-                    interface.name,
+                try out_contents.writer.print("  pub const @\"{f}\" = struct {{\n", .{
+                    to_identifier(interface.name),
                 });
 
                 // Begin Interface Events
+                log.debug("Writing {f}::{f} Event union", .{
+                    capitalize(protocol.name),
+                    capitalize(interface.name),
+                });
                 if (interface.events.count > 0) {
                     var event_node_opt: ?*MessageList.Node = null;
                     try out_contents.writer.print("    pub const Event = union (enum) {{\n", .{});
 
                     event_node_opt = interface.events.first;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
-                        const event = event_node.val;
-                        try out_contents.writer.print("      @\"{s}\": @\"{s}\",\n", .{
-                            event.name, event.name,
+                        const event = event_node.val.event;
+                        try out_contents.writer.print("      @\"{s}\": @This().@\"{f}\",\n", .{
+                            event.name,
+                            to_pascal(event.name),
                         });
                     }
 
                     try out_contents.writer.print("\n", .{});
                     event_node_opt = interface.events.first;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
-                        const event = event_node.val;
+                        const event = event_node.val.event;
 
                         // Begin Event
                         try out_contents.writer.print("\n", .{});
@@ -235,8 +244,8 @@ pub fn main() !void {
                                 if (line.len > 1)
                                     try out_contents.writer.print("      /// {s}\n", .{trim_leading_whitespace(line)});
                         }
-                        try out_contents.writer.print("      pub const @\"{s}\" = ", .{
-                            event.name,
+                        try out_contents.writer.print("      pub const @\"{f}\" = ", .{
+                            to_pascal(event.name),
                         });
 
                         if (event.args.count > 0) {
@@ -262,10 +271,89 @@ pub fn main() !void {
                     try out_contents.writer.print("    }};\n\n", .{});
                 }
 
+                // Begin Interface Enums
+                if (interface.enums.count > 0) {
+                    log.debug("Writing {f}::{f} Enums (count={d})", .{
+                        capitalize(protocol.name),
+                        capitalize(interface.name),
+                        interface.enums.count,
+                    });
+                    var enum_node_opt: ?*EnumList.Node = null;
+
+                    try out_contents.writer.print("    pub const Enum = union (enum) {{\n", .{});
+                    enum_node_opt = interface.enums.first;
+                    while (enum_node_opt) |enum_node| : (enum_node_opt = enum_node.next) {
+                        const @"enum" = enum_node.val;
+                        const name = switch (@"enum") {
+                            .@"enum" => |enum_val| enum_val.name,
+                            .bitfield => |bitfield_val| bitfield_val.name,
+                        };
+                        try out_contents.writer.print("      @\"{s}\": @\"{f}\",\n", .{
+                            name, to_pascal(name),
+                        });
+                    }
+                    try out_contents.writer.print("\n", .{});
+
+                    enum_node_opt = interface.enums.first;
+                    while (enum_node_opt) |enum_node| : (enum_node_opt = enum_node.next) {
+                        var entry_node_opt: ?*EntryList.Node = null;
+                        const @"enum" = enum_node.val;
+                        switch (@"enum") {
+                            .@"enum" => |enum_val| {
+                                log.debug("Writing {f}::{f} Enum {s}", .{
+                                    capitalize(protocol.name),
+                                    capitalize(interface.name),
+                                    enum_val.name,
+                                });
+                                try out_contents.writer.print("    pub const {f} = enum (u32) {{\n", .{ to_pascal(enum_val.name) });
+                                entry_node_opt = enum_val.entries.first;
+                                while (entry_node_opt) |entry_node| : (entry_node_opt = entry_node.next) {
+                                    const entry = entry_node.val;
+                                    log.debug("Writing {f}::{f}::{s} Entry {s}", .{
+                                        capitalize(protocol.name),
+                                        capitalize(interface.name),
+                                        enum_val.name,
+                                        entry.name,
+                                    });
+                                    try out_contents.writer.print("      @\"{s}\" = {s},\n", .{
+                                        entry.name,
+                                        entry.value,
+                                    });
+                                }
+                                try out_contents.writer.print("    }};\n\n", .{});
+                            },
+                            .bitfield => |bitfield_val| {
+                                try out_contents.writer.print("    pub const {f} = packed struct (u32) {{\n", .{ to_pascal(bitfield_val.name) });
+                                entry_node_opt = bitfield_val.entries.first;
+                                var bits_remaining: u16 = 32;
+                                while (entry_node_opt) |entry_node| : (entry_node_opt = entry_node.next) {
+                                    const entry = entry_node.val;
+                                    try out_contents.writer.print("      @\"{s}\": bool = false,\n", .{
+                                        entry.name,
+                                    });
+                                    bits_remaining -= 1;
+                                }
+                                try out_contents.writer.print("      __reserved_bits: u{d} = 0,\n", .{ bits_remaining });
+                                try out_contents.writer.print("    }};\n\n", .{});
+                            }
+                        }
+                    }
+                    try out_contents.writer.print("\n", .{});
+                    // Write composite `Enum` type
+                    log.debug("Writing {f}::{f} Enum Union", .{
+                        capitalize(protocol.name),
+                        capitalize(interface.name),
+                    });
+                    // End Interface Enums
+                    try out_contents.writer.print("    }};\n\n", .{});
+                }
+
+                // Begin Interface Enums
+
                 // End Interface
                 try out_contents.writer.print(
-                    \\    pub const Name = "{s}";
-                    \\    pub const Version = {s};
+                    \\    pub const InterfaceName = "{s}";
+                    \\    pub const InterfaceVersion = {s};
                     \\  }};
                     \\
                     \\
@@ -306,49 +394,67 @@ pub fn main() !void {
             \\  vtable: VTable,
             \\
             \\  pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) Proxy.ParseError!void {{
+            \\    try @call(.auto, object.vtable.parse_msg, .{{op, data}});
             \\  }}
             \\
-            \\  pub inline fn write_msg(noalias object: *Object, op: u16) Proxy.WriteError!void {{
+            \\  pub inline fn write_msg(noalias object: *Object, op: u16, args: []MessageArg) Proxy.WriteError!void {{
+            \\    try @call(.auto, object.vtable.write_msg, .{{op, args}});
             \\  }}
             \\
             \\  pub const VTable = struct {{
             \\    parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) Proxy.ParseError!void,
-            \\    write_msg: *const fn (ctx: *anyopaque, op: u16) Proxy.WriteError!void,
+            \\    write_msg: *const fn (ctx: *anyopaque, op: u16, args: []MessageArg) Proxy.WriteError!void,
             \\  }};
             \\}};
             \\
-            , .{});
+        , .{});
 
         try out_contents.writer.print(
-            \\\
-            \\\const Proxy = struct {
-            \\\    ctx: *anyopaque,
-            \\\    vtable: VTable,
-            \\\
-            \\\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
-            \\\        try @call(.auto, proxy.vtable.msg_parse_fn, .{args_out, data});
-            \\\    }
-            \\\    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
-            \\\        try @call(.auto, proxy.vtable.msg_write_fn, .{id, op, args});
-            \\\    }
-            \\\
-            \\\    const VTable = struct {
-            \\\        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-            \\\        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
-            \\\    };
-            \\\
-            \\\    pub const ParseError = error{
-            \\\        ParseFailed,
-            \\\    };
-            \\\    pub const WriteError = error{
-            \\\        WriteFailed,
-            \\\    };
-            \\\};
-            \\\
+            \\
+            \\const Proxy = struct {{
+            \\    ctx: *anyopaque,
+            \\    vtable: VTable,
+            \\
+            \\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {{
+            \\        try @call(.auto, proxy.vtable.msg_parse_fn, .{{args_out, data}});
+            \\    }}
+            \\    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {{
+            \\        try @call(.auto, proxy.vtable.msg_write_fn, .{{id, op, args}});
+            \\    }}
+            \\
+            \\    const VTable = struct {{
+            \\        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+            \\        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+            \\    }};
+            \\
+            \\    pub const ParseError = error{{
+            \\        ParseFailed,
+            \\    }};
+            \\    pub const WriteError = error{{
+            \\        WriteFailed,
+            \\    }};
+            \\}};
+            \\
+        , .{});
+
+        try out_contents.writer.print(
+            \\
+            \\const MessageArg = union(enum) {{
+            \\    int: i32,
+            \\    uint: u32,
+            \\    fixed: f32,
+            \\    object: u32,
+            \\    string: [:0]const u8,
+            \\    array: []const u8,
+            \\    new_id: u32,
+            \\    fd: std.posix.fd_t,
+            \\    @"enum": Enum,
+            \\}};
+            \\
         , .{});
 
         // Event
-        try out_contents.writer.print("pub const Event = union (enum) {{\n", .{});
+        try out_contents.writer.print("\npub const Event = union (enum) {{\n", .{});
         protocol_node_opt = protocols.first;
         while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
             const protocol = protocol_node.val;
@@ -357,6 +463,23 @@ pub fn main() !void {
                 const interface = interface_node.val;
                 if (interface.events.count > 0)
                     try out_contents.writer.print("  @\"{s}\": @\"{s}\".Event,\n", .{
+                        interface.name,
+                        interface.name,
+                    });
+            }
+        }
+        try out_contents.writer.print("}};\n\n", .{});
+
+        // Enum
+        try out_contents.writer.print("\npub const Enum = union (enum) {{\n", .{});
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            const protocol = protocol_node.val;
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+                if (interface.enums.count > 0)
+                    try out_contents.writer.print("  @\"{s}\": @\"{s}\".Enum,\n", .{
                         interface.name,
                         interface.name,
                     });
@@ -373,14 +496,16 @@ pub fn main() !void {
             var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
             while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
                 const interface = interface_node.val;
-                try out_contents.writer.print("const @\"{s}\" = @\"{s}\".@\"{s}\";\n", .{
+                try out_contents.writer.print("const @\"{s}\" = @\"{f}\".@\"{f}\";\n", .{
                     interface.name,
-                    protocol.name,
-                    interface.name,
+                    to_pascal(protocol.name),
+                    to_identifier(interface.name),
                 });
             }
         }
     }
+
+    try out_contents.writer.writeAll("\nconst std = @import(\"std\");");
 
     // Validate & Format
     const formatted = blk: {
@@ -389,13 +514,13 @@ pub fn main() !void {
         // Format output
         const i_formatted = if (tree.errors.len > 0) i_blk: {
             break :i_blk try out_contents.toOwnedSlice();
-        } else 
-            try tree.renderAlloc(program_arena.allocator());
+        } else try tree.renderAlloc(program_arena.allocator());
 
         break :blk i_formatted;
     };
 
     log.debug(":: Formatted ::\n{s}", .{formatted});
+    try stdout.writeAll(formatted);
 }
 
 const Protocol = struct {
@@ -412,7 +537,7 @@ const Interface = struct {
     enums: EnumList = .{},
 };
 
-const Message = union (enum) {
+const Message = union(enum) {
     request: Request,
     event: Event,
 
@@ -491,10 +616,11 @@ const Type = enum {
 
 fn trim_leading_whitespace(str: []const u8) []const u8 {
     var start_idx: usize = 0;
-        for (str, 0..) |char, idx| {
-        if (!(char == ' ' or 
-              char == '\t' or
-              char == '\x00')) {
+    for (str, 0..) |char, idx| {
+        if (!(char == ' ' or
+            char == '\t' or
+            char == '\x00'))
+        {
             start_idx = idx;
             break;
         }
@@ -547,7 +673,7 @@ pub fn List(comptime T: type) type {
     };
 }
 
-const MessageArg = union (enum) {
+const MessageArg = union(enum) {
     int: i32,
     uint: u32,
     fixed: f32,
@@ -559,7 +685,7 @@ const MessageArg = union (enum) {
     @"enum": Enum,
 };
 
-const FdQueue = struct{};
+const FdQueue = struct {};
 inline fn parse_u32(buf: []const u8) u32 {
     return @bitCast(buf[0..4]);
 }
@@ -569,19 +695,19 @@ const Proxy = struct {
     vtable: VTable,
 
     pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
-        try @call(.auto, proxy.vtable.msg_parse_fn, .{args_out, data});
+        try @call(.auto, proxy.vtable.msg_parse_fn, .{ args_out, data });
     }
     pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
-        try @call(.auto, proxy.vtable.msg_write_fn, .{id, op, args});
+        try @call(.auto, proxy.vtable.msg_write_fn, .{ id, op, args });
     }
     pub inline fn next_fd(noalias proxy: *const Proxy) ?std.posix.fd_t {
         try @call(.auto, proxy.vtable.next_fd_fn, .{});
     }
 
     const VTable = struct {
-        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
-        next_fd_fn: *const fn(ctx: *anyopaque) ?std.posix.fd_t,
+        msg_parse_fn: *const fn (ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+        msg_write_fn: *const fn (ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+        next_fd_fn: *const fn (ctx: *anyopaque) ?std.posix.fd_t,
     };
 
     pub const ParseError = error{
@@ -592,8 +718,7 @@ const Proxy = struct {
     };
 };
 
-const Connection = struct {
-};
+const Connection = struct {};
 
 // Interface::msg_parse(connection: *Connection) -> Event:
 // var args_out = [_]MessageArg{param_1, param_2, ..., param_n};
@@ -637,7 +762,7 @@ fn msg_parse(connection: *Connection, args_out: []MessageArg, data: []const u8) 
                 const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
                 offset += 4;
                 const rounded_len = round_up(str_len, 4);
-                string_arg.* = @ptrCast(data[offset..][0..str_len-1:0]);
+                string_arg.* = @ptrCast(data[offset..][0 .. str_len - 1 :0]);
                 offset += rounded_len;
             },
             .array => |*array_arg| {
@@ -651,33 +776,72 @@ fn msg_parse(connection: *Connection, args_out: []MessageArg, data: []const u8) 
     }
 }
 
+const PascalFromSnake = struct {
+    str: []const u8,
+
+    pub fn format(
+        self: *const PascalFromSnake,
+        writer: anytype,
+    ) !void {
+        var iter = std.mem.splitScalar(u8, self.str, '_');
+        if (iter.peek()) |_| {
+            while (iter.next()) |segment| try writer.print("{f}", .{
+                capitalize(segment),
+            });
+        }
+    }
+};
+
 const PrefixStripPascalFromSnake = struct {
     str: []const u8,
 
     pub fn format(
         self: *const PrefixStripPascalFromSnake,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
         writer: anytype,
-        ) !void {
-        _ = fmt;
-
+    ) !void {
         var iter = std.mem.splitScalar(u8, self.str, '_');
-        if (iter.first) {
+        if (iter.peek()) |_| {
             _ = iter.next();
-            while (iter.next()) |segment| {
-                if (segment.len > 1) {
-                    const char0 = std.ascii.toUpper(segment[0]);
-                    try writer.print("{c}{s}", .{
-                        char0,
-                        segment[1..],
-                    });
-
-                }
-            }
+            while (iter.next()) |segment| try writer.print("{f}", .{
+                capitalize(segment),
+            });
         }
     }
 };
+
+const CapitalString = struct {
+    str: []const u8,
+
+    pub fn format(
+        self: *const CapitalString,
+        writer: anytype,
+    ) !void {
+        if (self.str.len > 1) {
+            try writer.print("{c}{s}", .{
+                std.ascii.toUpper(self.str[0]),
+                self.str[1..],
+            });
+        }
+    }
+};
+
+inline fn to_pascal(str: []const u8) PascalFromSnake {
+    return .{
+        .str = str,
+    };
+}
+inline fn to_identifier(str: []const u8) PrefixStripPascalFromSnake {
+    return .{
+        .str = str,
+    };
+}
+
+inline fn capitalize(str: []const u8) CapitalString {
+    return .{
+        .str = str,
+    };
+}
+
 
 fn msg_write() !void {
     //...
