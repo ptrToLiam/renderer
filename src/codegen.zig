@@ -651,6 +651,34 @@ fn msg_parse(connection: *Connection, args_out: []MessageArg, data: []const u8) 
     }
 }
 
+const PrefixStripPascalFromSnake = struct {
+    str: []const u8,
+
+    pub fn format(
+        self: *const PrefixStripPascalFromSnake,
+        comptime fmt: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+        ) !void {
+        _ = fmt;
+
+        var iter = std.mem.splitScalar(u8, self.str, '_');
+        if (iter.first) {
+            _ = iter.next();
+            while (iter.next()) |segment| {
+                if (segment.len > 1) {
+                    const char0 = std.ascii.toUpper(segment[0]);
+                    try writer.print("{c}{s}", .{
+                        char0,
+                        segment[1..],
+                    });
+
+                }
+            }
+        }
+    }
+};
+
 fn msg_write() !void {
     //...
 }
