@@ -227,6 +227,21 @@ pub fn main() !void {
                     \\  pub const @"{f}" = struct {{
                     \\    id: u32,
                     \\
+                    \\  pub fn object(self: *const Self) Object {{
+                    \\    return .{{
+                    \\      .ptr = @ptrCast(self),
+                    \\      .vtable = .{{
+                    \\        .msg_parse_fn = msg_parse,
+                    \\        .msg_write_fn = undefined,
+                    \\      }},
+                    \\    }};
+                    \\  }}
+                    \\
+                    \\  fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
+                    \\    _ = ctx;    
+                    \\    return try Self.Event.parse(proxy, op, data);
+                    \\  }}
+                    \\
                     \\
                     ,.{
                     to_identifier(interface.name),
@@ -241,13 +256,13 @@ pub fn main() !void {
                 request_node_opt = interface.requests.first;
                 while (request_node_opt) |request_node| : (request_node_opt = request_node.next) {
                     const request = request_node.val.request;
-                    try out_contents.writer.print("  pub fn @\"{s}\"(proxy: *Proxy", .{
+                    try out_contents.writer.print("  pub fn @\"{s}\"(self: *const Self, proxy: *Proxy", .{
                         request.name,
                     });
                     if (request.args.count == 1 and
                         (request.args.first.?.val.type == .@"type") and
                         (request.args.first.?.val.type.@"type" == .new_id)) {
-                        try out_contents.writer.print(") {s} {{\n_ = proxy; }}\n\n", .{request.args.first.?.val.interface.?});
+                        try out_contents.writer.print(") {s} {{\n_ = self;_ = proxy; }}\n\n", .{request.args.first.?.val.interface.?});
                     } else if (request.args.count > 0) {
                         try out_contents.writer.print(", params: struct {{\n", .{});
                         var arg_node_opt: ?*ArgList.Node = null;
@@ -290,27 +305,27 @@ pub fn main() !void {
                                         var part_iter = std.mem.splitScalar(u8, enum_t, '.');
                                         const interface_namespace = to_identifier(part_iter.next().?);
                                         const enum_str = part_iter.next().?;
-                                        try out_contents.writer.print("@\"{f}\".Enum.@\"{s}\",\n", .{
+                                        try out_contents.writer.print("@\"{f}\".Enum.@\"{f}\",\n", .{
                                             interface_namespace,
-                                            enum_str,
+                                            to_pascal(enum_str),
                                         });
                                     } else {
-                                        try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{s}\",\n", .{
+                                        try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{f}\",\n", .{
                                             arg.name,
                                             if (arg.nullable) "?" else "",
                                                 to_identifier(interface.name),
-                                                enum_t,
+                                                to_pascal(enum_t),
                                         });
                                     }
                                 },
                             }
 
                         }
-                        try out_contents.writer.print("}},) {s} {{\n _ = proxy; _ = params; }}\n\n", .{
+                        try out_contents.writer.print("}},) {s} {{\n _ = self; _ = proxy; _ = params; }}\n\n", .{
                             return_t,
                         });
                     } else {
-                        try out_contents.writer.print(") void {{\n _ = proxy; }}\n\n", .{
+                        try out_contents.writer.print(") void {{\n _ = self; _ = proxy; }}\n\n", .{
                         });
                     }
                 }
@@ -339,7 +354,7 @@ pub fn main() !void {
                     // Event parse
                     event_node_opt = interface.events.first;
                     try out_contents.writer.print(
-                        \\      inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
+                        \\      inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
                         \\        const event: WaylandProtocols.Event = blk: {{
                         \\          switch (op) {{
                         \\      
@@ -420,6 +435,10 @@ pub fn main() !void {
                             });
                     }
                     try out_contents.writer.print(
+                        \\        else => {{
+                        \\          log.err("Unknown Event Code :: {{d}}", .{{op}});
+                        \\          return ParseError.InvalidOp;
+                        \\        }},
                         \\      }}
                         \\    }};
                         \\    return event;
@@ -454,10 +473,20 @@ pub fn main() !void {
                                     if (arg.nullable) "?" else "",
                                     switch (arg.type) {
                                         .type => |zig_type| zig_type.to_zig_type_string().?,
-                                        .@"enum" => |enum_str| try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{s}\"", .{
-                                            to_identifier(interface.name),
-                                            enum_str,
-                                        }),
+                                        .@"enum" => |enum_t| str: {
+                                    const interface_str, const enum_str = blk: {
+                                        if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
+                                            var iter = std.mem.splitScalar(u8, enum_t, '.');
+                                            break :blk .{ iter.next().?, iter.next().? };
+                                        } else {
+                                            break :blk .{ interface.name, enum_t };
+                                        }
+                                    };
+                                    break :str try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{f}\"", .{
+                                            to_identifier(interface_str),
+                                            to_pascal(enum_str),
+                                        });
+                                    },
                                     },
                                 });
                             }
@@ -541,7 +570,7 @@ pub fn main() !void {
                                     const entry = entry_node.val;
                                     log.debug("Writing {f}::{f}::{s} Entry {s}", .{
                                         capitalize(protocol.name),
-                                        capitalize(interface.name),
+                                        to_identifier(interface.name),
                                         enum_val.name,
                                         entry.name,
                                     });
@@ -600,6 +629,8 @@ pub fn main() !void {
 
                 // End Interface
                 try out_contents.writer.print(
+                    \\
+                    \\    pub const Self = @This();
                     \\    pub const InterfaceName = "{s}";
                     \\    pub const InterfaceVersion = {s};
                     \\  }};
@@ -616,21 +647,6 @@ pub fn main() !void {
     // Write composite types
     {
         // Object
-        // try out_contents.writer.print("pub const Object = union (enum) {{\n", .{});
-        // protocol_node_opt = protocols.first;
-        // while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
-        //     const protocol = protocol_node.val;
-        //     var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
-        //     while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
-        //         const interface = interface_node.val;
-        //         try out_contents.writer.print("  @\"{s}\": @\"{s}\",\n", .{
-        //             interface.name,
-        //             interface.name,
-        //         });
-        //     }
-        // }
-        // try out_contents.writer.print("}};\n\n", .{});
-
         // TODO
         // - Give every wl_interface an 'object()' function
         //   to return an 'Object' interface instance.
@@ -638,20 +654,20 @@ pub fn main() !void {
         try out_contents.writer.print(
             \\
             \\pub const Object = struct {{
-            \\  ptr: *anyopaque,
+            \\  ptr: *const anyopaque,
             \\  vtable: VTable,
             \\
-            \\  pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) ParseError!void {{
-            \\    try @call(.auto, object.vtable.parse_msg, .{{ object.ptr, op, data }});
+            \\  pub inline fn parse_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
+            \\    return try @call(.auto, object.vtable.msg_parse_fn, .{{ object.ptr, proxy, op, data }});
             \\  }}
             \\
-            \\  pub inline fn write_msg(noalias object: *Object, op: u16, args: []MessageArg) WriteError!void {{
-            \\    try @call(.auto, object.vtable.write_msg, .{{ object.ptr, op, args }});
+            \\  pub inline fn write_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event {{
+            \\    return try @call(.auto, object.vtable.msg_write_fn, .{{ object.ptr, proxy, op, args }});
             \\  }}
             \\
             \\  pub const VTable = struct {{
-            \\    parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) ParseError!void,
-            \\    write_msg: *const fn (ctx: *anyopaque, op: u16, args: []MessageArg) WriteError!void,
+            \\    msg_parse_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy , op: u16, data: []const u8) ParseError!WaylandProtocols.Event,
+            \\    msg_write_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event,
             \\  }};
             \\}};
             \\
@@ -659,8 +675,8 @@ pub fn main() !void {
 
         try out_contents.writer.print(
             \\
-            \\const Proxy = struct {{
-            \\    ctx: *anyopaque,
+            \\pub const Proxy = struct {{
+            \\    ctx: *const anyopaque,
             \\    vtable: VTable,
             \\
             \\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {{
@@ -671,14 +687,15 @@ pub fn main() !void {
             \\    }}
             \\
             \\    const VTable = struct {{
-            \\        msg_parse_fn: *const fn(ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-            \\        msg_write_fn: *const fn(ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+            \\        msg_parse_fn: *const fn(noalias ctx: *const anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+            \\        msg_write_fn: *const fn(noalias ctx: *const anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
             \\    }};
             \\
             \\}};
             \\
             \\pub const ParseError = error{{
             \\    ParseFailed,
+            \\    InvalidOp,
             \\}};
             \\pub const WriteError = error{{
             \\    WriteFailed,
@@ -688,7 +705,7 @@ pub fn main() !void {
 
         try out_contents.writer.print(
             \\
-            \\const MessageArg = union(enum) {{
+            \\pub const MessageArg = union(enum) {{
             \\    int: i32,
             \\    uint: u32,
             \\    fixed: f32,
@@ -754,6 +771,7 @@ pub fn main() !void {
         }
     }
 
+    try out_contents.writer.writeAll("\nconst log = std.log.scoped(.Wayland);\n");
     try out_contents.writer.writeAll("\nconst std = @import(\"std\");");
 
     // Validate & Format

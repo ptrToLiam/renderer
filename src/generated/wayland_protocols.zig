@@ -62,24 +62,44 @@ pub const LinuxDmabufV1 = struct {
     pub const LinuxDmabufV1 = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn create_params(proxy: *Proxy) zwp_linux_buffer_params_v1 {
+        pub fn create_params(self: *const Self, proxy: *Proxy) zwp_linux_buffer_params_v1 {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn get_default_feedback(proxy: *Proxy) zwp_linux_dmabuf_feedback_v1 {
+        pub fn get_default_feedback(self: *const Self, proxy: *Proxy) zwp_linux_dmabuf_feedback_v1 {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_surface_feedback(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -88,7 +108,7 @@ pub const LinuxDmabufV1 = struct {
             format: @This().Format,
             modifier: @This().Modifier,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -114,6 +134,10 @@ pub const LinuxDmabufV1 = struct {
                                     .modifier = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -175,6 +199,7 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "zwp_linux_dmabuf_v1";
         pub const InterfaceVersion = 5;
     };
@@ -195,11 +220,28 @@ pub const LinuxDmabufV1 = struct {
     pub const LinuxBufferParamsV1 = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn add(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 fd: std.posix.fd_t,
@@ -210,32 +252,37 @@ pub const LinuxDmabufV1 = struct {
                 modifier_lo: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn create(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1.Enum.flags,
+                flags: LinuxBufferParamsV1.Enum.Flags,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn create_immed(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1.Enum.flags,
+                flags: LinuxBufferParamsV1.Enum.Flags,
             },
         ) wl_buffer {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -244,7 +291,7 @@ pub const LinuxDmabufV1 = struct {
             created: @This().Created,
             failed: @This().Failed,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -266,6 +313,10 @@ pub const LinuxDmabufV1 = struct {
                                     .failed = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -327,6 +378,7 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "zwp_linux_buffer_params_v1";
         pub const InterfaceVersion = 5;
     };
@@ -356,7 +408,23 @@ pub const LinuxDmabufV1 = struct {
     pub const LinuxDmabufFeedbackV1 = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -369,7 +437,7 @@ pub const LinuxDmabufV1 = struct {
             tranche_formats: @This().TrancheFormats,
             tranche_flags: @This().TrancheFlags,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -449,6 +517,10 @@ pub const LinuxDmabufV1 = struct {
                                     .tranche_flags = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -592,7 +664,7 @@ pub const LinuxDmabufV1 = struct {
             /// This event is tied to a preference tranche, see the tranche_done event.
             ///
             pub const TrancheFlags = struct {
-                flags: LinuxDmabufFeedbackV1.Enum.tranche_flags,
+                flags: LinuxDmabufFeedbackV1.Enum.TrancheFlags,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -615,6 +687,7 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "zwp_linux_dmabuf_feedback_v1";
         pub const InterfaceVersion = 5;
     };
@@ -624,16 +697,34 @@ pub const PresentationTime = struct {
     pub const Presentation = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn feedback(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
         ) wp_presentation_feedback {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -641,7 +732,7 @@ pub const PresentationTime = struct {
         pub const Event = union(enum) {
             clock_id: @This().ClockId,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -654,6 +745,10 @@ pub const PresentationTime = struct {
                                     .clock_id = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -708,6 +803,7 @@ pub const PresentationTime = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wp_presentation";
         pub const InterfaceVersion = 2;
     };
@@ -726,12 +822,27 @@ pub const PresentationTime = struct {
     pub const PresentationFeedback = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub const Event = union(enum) {
             sync_output: @This().SyncOutput,
             presented: @This().Presented,
             discarded: @This().Discarded,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -774,6 +885,10 @@ pub const PresentationTime = struct {
                                     .discarded = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -844,7 +959,7 @@ pub const PresentationTime = struct {
                 refresh: u32,
                 seq_hi: u32,
                 seq_lo: u32,
-                flags: PresentationFeedback.Enum.kind,
+                flags: PresentationFeedback.Enum.Kind,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -880,6 +995,7 @@ pub const PresentationTime = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wp_presentation_feedback";
         pub const InterfaceVersion = 2;
     };
@@ -892,11 +1008,28 @@ pub const Wayland = struct {
     pub const Display = struct {
         id: u32,
 
-        pub fn sync(proxy: *Proxy) wl_callback {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn sync(self: *const Self, proxy: *Proxy) wl_callback {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn get_registry(proxy: *Proxy) wl_registry {
+        pub fn get_registry(self: *const Self, proxy: *Proxy) wl_registry {
+            _ = self;
             _ = proxy;
         }
 
@@ -904,7 +1037,7 @@ pub const Wayland = struct {
             @"error": @This().Error,
             delete_id: @This().DeleteId,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -930,6 +1063,10 @@ pub const Wayland = struct {
                                     .delete_id = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -990,6 +1127,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_display";
         pub const InterfaceVersion = 1;
     };
@@ -1016,12 +1154,29 @@ pub const Wayland = struct {
     pub const Registry = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn bind(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 name: u32,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -1030,7 +1185,7 @@ pub const Wayland = struct {
             global: @This().Global,
             global_remove: @This().GlobalRemove,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1056,6 +1211,10 @@ pub const Wayland = struct {
                                     .global_remove = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -1101,6 +1260,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_registry";
         pub const InterfaceVersion = 1;
     };
@@ -1113,10 +1273,25 @@ pub const Wayland = struct {
     pub const Callback = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub const Event = union(enum) {
             done: @This().Done,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1129,6 +1304,10 @@ pub const Wayland = struct {
                                     .done = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -1148,6 +1327,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_callback";
         pub const InterfaceVersion = 1;
     };
@@ -1159,14 +1339,32 @@ pub const Wayland = struct {
     pub const Compositor = struct {
         id: u32,
 
-        pub fn create_surface(proxy: *Proxy) wl_surface {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn create_surface(self: *const Self, proxy: *Proxy) wl_surface {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn create_region(proxy: *Proxy) wl_region {
+        pub fn create_region(self: *const Self, proxy: *Proxy) wl_region {
+            _ = self;
             _ = proxy;
         }
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_compositor";
         pub const InterfaceVersion = 6;
     };
@@ -1182,34 +1380,55 @@ pub const Wayland = struct {
     pub const ShmPool = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn create_buffer(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 offset: i32,
                 width: i32,
                 height: i32,
                 stride: i32,
-                format: Shm.Enum.format,
+                format: Shm.Enum.Format,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn resize(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 size: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_shm_pool";
         pub const InterfaceVersion = 2;
     };
@@ -1225,25 +1444,43 @@ pub const Wayland = struct {
     pub const Shm = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn create_pool(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 fd: std.posix.fd_t,
                 size: i32,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub const Event = union(enum) {
             format: @This().Format,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1261,6 +1498,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -1271,7 +1512,7 @@ pub const Wayland = struct {
             /// argb8888 and xrgb8888.
             ///
             pub const Format = struct {
-                format: Shm.Enum.format,
+                format: Shm.Enum.Format,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -1426,6 +1667,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_shm";
         pub const InterfaceVersion = 2;
     };
@@ -1447,14 +1689,30 @@ pub const Wayland = struct {
     pub const Buffer = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub const Event = union(enum) {
             release: @This().Release,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1465,6 +1723,10 @@ pub const Wayland = struct {
                                     .release = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -1486,6 +1748,7 @@ pub const Wayland = struct {
             pub const Release = void;
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_buffer";
         pub const InterfaceVersion = 1;
     };
@@ -1500,43 +1763,66 @@ pub const Wayland = struct {
     pub const DataOffer = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn accept(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
                 mime_type: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn receive(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 mime_type: [:0]const u8,
                 fd: std.posix.fd_t,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn finish(proxy: *Proxy) void {
+        pub fn finish(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_actions(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                dnd_actions: DataDeviceManager.Enum.dnd_action,
-                preferred_action: DataDeviceManager.Enum.dnd_action,
+                dnd_actions: DataDeviceManager.Enum.DndAction,
+                preferred_action: DataDeviceManager.Enum.DndAction,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -1546,7 +1832,7 @@ pub const Wayland = struct {
             source_actions: @This().SourceActions,
             action: @This().Action,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1590,6 +1876,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -1614,7 +1904,7 @@ pub const Wayland = struct {
             /// wl_data_source.set_actions.
             ///
             pub const SourceActions = struct {
-                source_actions: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
+                source_actions: DataDeviceManager.Enum.DndAction,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -1654,7 +1944,7 @@ pub const Wayland = struct {
             /// must happen before the call to wl_data_offer.finish.
             ///
             pub const Action = struct {
-                dnd_action: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
+                dnd_action: DataDeviceManager.Enum.DndAction,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -1679,6 +1969,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_data_offer";
         pub const InterfaceVersion = 3;
     };
@@ -1691,26 +1982,46 @@ pub const Wayland = struct {
     pub const DataSource = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn offer(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 mime_type: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_actions(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                dnd_actions: DataDeviceManager.Enum.dnd_action,
+                dnd_actions: DataDeviceManager.Enum.DndAction,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -1723,7 +2034,7 @@ pub const Wayland = struct {
             dnd_finished: @This().DndFinished,
             action: @This().Action,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -1790,6 +2101,10 @@ pub const Wayland = struct {
                                     .action = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -1886,7 +2201,7 @@ pub const Wayland = struct {
             /// they reflect the current action.
             ///
             pub const Action = struct {
-                dnd_action: DataSource.Enum.@"wl_data_device_manager.dnd_action",
+                dnd_action: DataDeviceManager.Enum.DndAction,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -1909,6 +2224,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_data_source";
         pub const InterfaceVersion = 3;
     };
@@ -1921,7 +2237,23 @@ pub const Wayland = struct {
     pub const DataDevice = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn start_drag(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 source: ?wl_data_source,
@@ -1930,22 +2262,26 @@ pub const Wayland = struct {
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_selection(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 source: ?wl_data_source,
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -1957,7 +2293,7 @@ pub const Wayland = struct {
             drop: @This().Drop,
             selection: @This().Selection,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -2027,6 +2363,10 @@ pub const Wayland = struct {
                                     .selection = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -2150,6 +2490,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_data_device";
         pub const InterfaceVersion = 3;
     };
@@ -2167,16 +2508,34 @@ pub const Wayland = struct {
     pub const DataDeviceManager = struct {
         id: u32,
 
-        pub fn create_data_source(proxy: *Proxy) wl_data_source {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn create_data_source(self: *const Self, proxy: *Proxy) wl_data_source {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_data_device(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -2197,6 +2556,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_data_device_manager";
         pub const InterfaceVersion = 3;
     };
@@ -2212,12 +2572,29 @@ pub const Wayland = struct {
     pub const Shell = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn get_shell_surface(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -2234,6 +2611,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_shell";
         pub const InterfaceVersion = 1;
     };
@@ -2251,69 +2629,96 @@ pub const Wayland = struct {
     pub const ShellSurface = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn pong(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn move(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn resize(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
-                edges: ShellSurface.Enum.resize,
+                edges: ShellSurface.Enum.Resize,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn set_toplevel(proxy: *Proxy) void {
+        pub fn set_toplevel(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_transient(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 parent: wl_surface,
                 x: i32,
                 y: i32,
-                flags: ShellSurface.Enum.transient,
+                flags: ShellSurface.Enum.Transient,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_fullscreen(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                method: ShellSurface.Enum.fullscreen_method,
+                method: ShellSurface.Enum.FullscreenMethod,
                 framerate: u32,
                 output: ?wl_output,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_popup(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
@@ -2321,39 +2726,46 @@ pub const Wayland = struct {
                 parent: wl_surface,
                 x: i32,
                 y: i32,
-                flags: ShellSurface.Enum.transient,
+                flags: ShellSurface.Enum.Transient,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_maximized(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 output: ?wl_output,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_title(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 title: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_class(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 class_: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -2363,7 +2775,7 @@ pub const Wayland = struct {
             configure: @This().Configure,
             popup_done: @This().PopupDone,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -2403,6 +2815,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -2436,7 +2852,7 @@ pub const Wayland = struct {
             /// in surface-local coordinates.
             ///
             pub const Configure = struct {
-                edges: ShellSurface.Enum.resize,
+                edges: ShellSurface.Enum.Resize,
                 width: i32,
                 height: i32,
 
@@ -2499,6 +2915,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_shell_surface";
         pub const InterfaceVersion = 1;
     };
@@ -2544,11 +2961,28 @@ pub const Wayland = struct {
     pub const Surface = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn attach(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 buffer: ?wl_buffer,
@@ -2556,11 +2990,13 @@ pub const Wayland = struct {
                 y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn damage(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -2569,59 +3005,71 @@ pub const Wayland = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn frame(proxy: *Proxy) wl_callback {
+        pub fn frame(self: *const Self, proxy: *Proxy) wl_callback {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_opaque_region(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 region: ?wl_region,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_input_region(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 region: ?wl_region,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn commit(proxy: *Proxy) void {
+        pub fn commit(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_buffer_transform(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                transform: Output.Enum.transform,
+                transform: Output.Enum.Transform,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_buffer_scale(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 scale: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn damage_buffer(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -2630,17 +3078,20 @@ pub const Wayland = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn offset(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -2651,7 +3102,7 @@ pub const Wayland = struct {
             preferred_buffer_scale: @This().PreferredBufferScale,
             preferred_buffer_transform: @This().PreferredBufferTransform,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -2701,6 +3152,10 @@ pub const Wayland = struct {
                                     .preferred_buffer_transform = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -2770,7 +3225,7 @@ pub const Wayland = struct {
             /// surface buffer more efficiently.
             ///
             pub const PreferredBufferTransform = struct {
-                transform: Surface.Enum.@"wl_output.transform",
+                transform: Output.Enum.Transform,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -2796,6 +3251,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_surface";
         pub const InterfaceVersion = 6;
     };
@@ -2808,19 +3264,38 @@ pub const Wayland = struct {
     pub const Seat = struct {
         id: u32,
 
-        pub fn get_pointer(proxy: *Proxy) wl_pointer {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn get_pointer(self: *const Self, proxy: *Proxy) wl_pointer {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn get_keyboard(proxy: *Proxy) wl_keyboard {
+        pub fn get_keyboard(self: *const Self, proxy: *Proxy) wl_keyboard {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn get_touch(proxy: *Proxy) wl_touch {
+        pub fn get_touch(self: *const Self, proxy: *Proxy) wl_touch {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -2828,7 +3303,7 @@ pub const Wayland = struct {
             capabilities: @This().Capabilities,
             name: @This().Name,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -2857,6 +3332,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -2884,7 +3363,7 @@ pub const Wayland = struct {
             /// keyboard and touch capabilities, respectively.
             ///
             pub const Capabilities = struct {
-                capabilities: Seat.Enum.capability,
+                capabilities: Seat.Enum.Capability,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -2941,6 +3420,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_seat";
         pub const InterfaceVersion = 10;
     };
@@ -2956,7 +3436,23 @@ pub const Wayland = struct {
     pub const Pointer = struct {
         id: u32,
 
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
         pub fn set_cursor(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
@@ -2965,11 +3461,13 @@ pub const Wayland = struct {
                 hotspot_y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -2986,7 +3484,7 @@ pub const Wayland = struct {
             axis_value120: @This().AxisValue120,
             axis_relative_direction: @This().AxisRelativeDirection,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -3155,6 +3653,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -3233,7 +3735,7 @@ pub const Wayland = struct {
                 serial: u32,
                 time: u32,
                 button: u32,
-                state: Pointer.Enum.button_state,
+                state: Pointer.Enum.ButtonState,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -3260,7 +3762,7 @@ pub const Wayland = struct {
             ///
             pub const Axis = struct {
                 time: u32,
-                axis: Pointer.Enum.axis,
+                axis: Pointer.Enum.Axis,
                 value: f32,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
@@ -3327,7 +3829,7 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisSource = struct {
-                axis_source: Pointer.Enum.axis_source,
+                axis_source: Pointer.Enum.AxisSource,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -3350,7 +3852,7 @@ pub const Wayland = struct {
             ///
             pub const AxisStop = struct {
                 time: u32,
-                axis: Pointer.Enum.axis,
+                axis: Pointer.Enum.Axis,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -3385,7 +3887,7 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisDiscrete = struct {
-                axis: Pointer.Enum.axis,
+                axis: Pointer.Enum.Axis,
                 discrete: i32,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
@@ -3414,7 +3916,7 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisValue120 = struct {
-                axis: Pointer.Enum.axis,
+                axis: Pointer.Enum.Axis,
                 value120: i32,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
@@ -3457,8 +3959,8 @@ pub const Wayland = struct {
             /// guaranteed.
             ///
             pub const AxisRelativeDirection = struct {
-                axis: Pointer.Enum.axis,
-                direction: Pointer.Enum.axis_relative_direction,
+                axis: Pointer.Enum.Axis,
+                direction: Pointer.Enum.AxisRelativeDirection,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -3523,6 +4025,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_pointer";
         pub const InterfaceVersion = 10;
     };
@@ -3540,7 +4043,23 @@ pub const Wayland = struct {
     pub const Keyboard = struct {
         id: u32,
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -3552,7 +4071,7 @@ pub const Wayland = struct {
             modifiers: @This().Modifiers,
             repeat_info: @This().RepeatInfo,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -3642,6 +4161,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -3654,7 +4177,7 @@ pub const Wayland = struct {
             /// the recipient, as MAP_SHARED may fail.
             ///
             pub const Keymap = struct {
-                format: Keyboard.Enum.keymap_format,
+                format: Keyboard.Enum.KeymapFormat,
                 fd: std.posix.fd_t,
                 size: u32,
 
@@ -3737,7 +4260,7 @@ pub const Wayland = struct {
                 serial: u32,
                 time: u32,
                 key: u32,
-                state: Keyboard.Enum.key_state,
+                state: Keyboard.Enum.KeyState,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -3826,6 +4349,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_keyboard";
         pub const InterfaceVersion = 10;
     };
@@ -3841,7 +4365,23 @@ pub const Wayland = struct {
     pub const Touch = struct {
         id: u32,
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -3854,7 +4394,7 @@ pub const Wayland = struct {
             shape: @This().Shape,
             orientation: @This().Orientation,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -3942,6 +4482,10 @@ pub const Wayland = struct {
                                     .orientation = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -4098,6 +4642,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_touch";
         pub const InterfaceVersion = 10;
     };
@@ -4112,7 +4657,23 @@ pub const Wayland = struct {
     pub const Output = struct {
         id: u32,
 
-        pub fn release(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn release(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -4124,7 +4685,7 @@ pub const Wayland = struct {
             name: @This().Name,
             description: @This().Description,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -4213,6 +4774,10 @@ pub const Wayland = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -4240,10 +4805,10 @@ pub const Wayland = struct {
                 y: i32,
                 physical_width: i32,
                 physical_height: i32,
-                subpixel: Output.Enum.subpixel,
+                subpixel: Output.Enum.Subpixel,
                 make: [:0]const u8,
                 model: [:0]const u8,
-                transform: Output.Enum.transform,
+                transform: Output.Enum.Transform,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -4287,7 +4852,7 @@ pub const Wayland = struct {
             /// refresh rate or the size.
             ///
             pub const Mode = struct {
-                flags: Output.Enum.mode,
+                flags: Output.Enum.Mode,
                 width: i32,
                 height: i32,
                 refresh: i32,
@@ -4435,6 +5000,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_output";
         pub const InterfaceVersion = 4;
     };
@@ -4446,11 +5012,28 @@ pub const Wayland = struct {
     pub const Region = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn add(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -4459,11 +5042,13 @@ pub const Wayland = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn subtract(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -4472,10 +5057,12 @@ pub const Wayland = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_region";
         pub const InterfaceVersion = 1;
     };
@@ -4500,17 +5087,35 @@ pub const Wayland = struct {
     pub const Subcompositor = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_subsurface(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
                 parent: wl_surface,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -4528,6 +5133,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_subcompositor";
         pub const InterfaceVersion = 1;
     };
@@ -4579,46 +5185,70 @@ pub const Wayland = struct {
     pub const Subsurface = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_position(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn place_above(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 sibling: wl_surface,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn place_below(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 sibling: wl_surface,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn set_sync(proxy: *Proxy) void {
+        pub fn set_sync(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn set_desync(proxy: *Proxy) void {
+        pub fn set_desync(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -4634,6 +5264,7 @@ pub const Wayland = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "wl_subsurface";
         pub const InterfaceVersion = 1;
     };
@@ -4662,20 +5293,39 @@ pub const XdgDecorationUnstableV1 = struct {
     pub const DecorationManagerV1 = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_toplevel_decoration(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 toplevel: xdg_toplevel,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
+        pub const Self = @This();
         pub const InterfaceName = "zxdg_decoration_manager_v1";
         pub const InterfaceVersion = 1;
     };
@@ -4689,28 +5339,47 @@ pub const XdgDecorationUnstableV1 = struct {
     pub const ToplevelDecorationV1 = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_mode(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                mode: ToplevelDecorationV1.Enum.mode,
+                mode: ToplevelDecorationV1.Enum.Mode,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn unset_mode(proxy: *Proxy) void {
+        pub fn unset_mode(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub const Event = union(enum) {
             configure: @This().Configure,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -4728,6 +5397,10 @@ pub const XdgDecorationUnstableV1 = struct {
                                 },
                             };
                         },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
                     }
                 };
                 return event;
@@ -4741,7 +5414,7 @@ pub const XdgDecorationUnstableV1 = struct {
             /// obeyed by the client.
             ///
             pub const Configure = struct {
-                mode: ToplevelDecorationV1.Enum.mode,
+                mode: ToplevelDecorationV1.Enum.Mode,
 
                 pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
                     return .{
@@ -4776,6 +5449,7 @@ pub const XdgDecorationUnstableV1 = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "zxdg_toplevel_decoration_v1";
         pub const InterfaceVersion = 1;
     };
@@ -4791,30 +5465,51 @@ pub const XdgShell = struct {
     pub const WmBase = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn create_positioner(proxy: *Proxy) xdg_positioner {
+        pub fn create_positioner(self: *const Self, proxy: *Proxy) xdg_positioner {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_xdg_surface(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn pong(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -4822,7 +5517,7 @@ pub const XdgShell = struct {
         pub const Event = union(enum) {
             ping: @This().Ping,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -4835,6 +5530,10 @@ pub const XdgShell = struct {
                                     .ping = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -4882,6 +5581,7 @@ pub const XdgShell = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "xdg_wm_base";
         pub const InterfaceVersion = 6;
     };
@@ -4906,22 +5606,41 @@ pub const XdgShell = struct {
     pub const Positioner = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_size(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_anchor_rect(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -4930,72 +5649,86 @@ pub const XdgShell = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_anchor(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                anchor: Positioner.Enum.anchor,
+                anchor: Positioner.Enum.Anchor,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_gravity(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                gravity: Positioner.Enum.gravity,
+                gravity: Positioner.Enum.Gravity,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_constraint_adjustment(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
-                constraint_adjustment: Positioner.Enum.constraint_adjustment,
+                constraint_adjustment: Positioner.Enum.ConstraintAdjustment,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_offset(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn set_reactive(proxy: *Proxy) void {
+        pub fn set_reactive(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_parent_size(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 parent_width: i32,
                 parent_height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_parent_configure(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -5062,6 +5795,7 @@ pub const XdgShell = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "xdg_positioner";
         pub const InterfaceVersion = 6;
     };
@@ -5109,26 +5843,46 @@ pub const XdgShell = struct {
     pub const Surface = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn get_toplevel(proxy: *Proxy) xdg_toplevel {
+        pub fn get_toplevel(self: *const Self, proxy: *Proxy) xdg_toplevel {
+            _ = self;
             _ = proxy;
         }
 
         pub fn get_popup(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 parent: ?xdg_surface,
                 positioner: xdg_positioner,
             },
         ) u32 {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_window_geometry(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 x: i32,
@@ -5137,16 +5891,19 @@ pub const XdgShell = struct {
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn ack_configure(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -5154,7 +5911,7 @@ pub const XdgShell = struct {
         pub const Event = union(enum) {
             configure: @This().Configure,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -5167,6 +5924,10 @@ pub const XdgShell = struct {
                                     .configure = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -5215,6 +5976,7 @@ pub const XdgShell = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "xdg_surface";
         pub const InterfaceVersion = 6;
     };
@@ -5241,41 +6003,64 @@ pub const XdgShell = struct {
     pub const Toplevel = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_parent(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 parent: ?xdg_toplevel,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_title(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 title: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_app_id(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 app_id: [:0]const u8,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn show_window_menu(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
@@ -5284,78 +6069,93 @@ pub const XdgShell = struct {
                 y: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn move(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn resize(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
-                edges: Toplevel.Enum.resize_edge,
+                edges: Toplevel.Enum.ResizeEdge,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_max_size(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn set_min_size(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn set_maximized(proxy: *Proxy) void {
+        pub fn set_maximized(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn unset_maximized(proxy: *Proxy) void {
+        pub fn unset_maximized(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn set_fullscreen(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 output: ?wl_output,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
-        pub fn unset_fullscreen(proxy: *Proxy) void {
+        pub fn unset_fullscreen(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
-        pub fn set_minimized(proxy: *Proxy) void {
+        pub fn set_minimized(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
@@ -5365,7 +6165,7 @@ pub const XdgShell = struct {
             configure_bounds: @This().ConfigureBounds,
             wm_capabilities: @This().WmCapabilities,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -5412,6 +6212,10 @@ pub const XdgShell = struct {
                                     .wm_capabilities = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -5571,6 +6375,7 @@ pub const XdgShell = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "xdg_toplevel";
         pub const InterfaceVersion = 6;
     };
@@ -5597,28 +6402,48 @@ pub const XdgShell = struct {
     pub const Popup = struct {
         id: u32,
 
-        pub fn destroy(proxy: *Proxy) void {
+        pub fn object(self: *const Self) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Self.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(self: *const Self, proxy: *Proxy) void {
+            _ = self;
             _ = proxy;
         }
 
         pub fn grab(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
 
         pub fn reposition(
+            self: *const Self,
             proxy: *Proxy,
             params: struct {
                 positioner: xdg_positioner,
                 token: u32,
             },
         ) void {
+            _ = self;
             _ = proxy;
             _ = params;
         }
@@ -5628,7 +6453,7 @@ pub const XdgShell = struct {
             popup_done: @This().PopupDone,
             repositioned: @This().Repositioned,
 
-            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+            inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
                 const event: WaylandProtocols.Event = blk: {
                     switch (op) {
                         0 => {
@@ -5664,6 +6489,10 @@ pub const XdgShell = struct {
                                     .repositioned = .fromMsgArgs(&event_fields),
                                 },
                             };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
                         },
                     }
                 };
@@ -5739,31 +6568,32 @@ pub const XdgShell = struct {
             };
         };
 
+        pub const Self = @This();
         pub const InterfaceName = "xdg_popup";
         pub const InterfaceVersion = 6;
     };
 };
 
 pub const Object = struct {
-    ptr: *anyopaque,
+    ptr: *const anyopaque,
     vtable: VTable,
 
-    pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) ParseError!void {
-        try @call(.auto, object.vtable.parse_msg, .{ object.ptr, op, data });
+    pub inline fn parse_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+        return try @call(.auto, object.vtable.msg_parse_fn, .{ object.ptr, proxy, op, data });
     }
 
-    pub inline fn write_msg(noalias object: *Object, op: u16, args: []MessageArg) WriteError!void {
-        try @call(.auto, object.vtable.write_msg, .{ object.ptr, op, args });
+    pub inline fn write_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event {
+        return try @call(.auto, object.vtable.msg_write_fn, .{ object.ptr, proxy, op, args });
     }
 
     pub const VTable = struct {
-        parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) ParseError!void,
-        write_msg: *const fn (ctx: *anyopaque, op: u16, args: []MessageArg) WriteError!void,
+        msg_parse_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event,
+        msg_write_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event,
     };
 };
 
-const Proxy = struct {
-    ctx: *anyopaque,
+pub const Proxy = struct {
+    ctx: *const anyopaque,
     vtable: VTable,
 
     pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
@@ -5774,19 +6604,20 @@ const Proxy = struct {
     }
 
     const VTable = struct {
-        msg_parse_fn: *const fn (ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-        msg_write_fn: *const fn (ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+        msg_parse_fn: *const fn (noalias ctx: *const anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+        msg_write_fn: *const fn (noalias ctx: *const anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
     };
 };
 
 pub const ParseError = error{
     ParseFailed,
+    InvalidOp,
 };
 pub const WriteError = error{
     WriteFailed,
 };
 
-const MessageArg = union(enum) {
+pub const MessageArg = union(enum) {
     int: i32,
     uint: u32,
     fixed: f32,
@@ -5888,5 +6719,7 @@ const xdg_positioner = XdgShell.Positioner;
 const xdg_surface = XdgShell.Surface;
 const xdg_toplevel = XdgShell.Toplevel;
 const xdg_popup = XdgShell.Popup;
+
+const log = std.log.scoped(.Wayland);
 
 const std = @import("std");
