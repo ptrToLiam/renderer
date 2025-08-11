@@ -4,6 +4,8 @@
 //
 //            - LM
 
+const WaylandProtocols = @This();
+
 pub const LinuxDmabufV1 = struct {
     /// Following the interfaces from:
     /// https://www.khronos.org/registry/egl/extensions/EXT/EGL_EXT_image_dma_buf_import.txt
@@ -58,6 +60,8 @@ pub const LinuxDmabufV1 = struct {
     /// mechanism.
     ///
     pub const LinuxDmabufV1 = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -84,6 +88,38 @@ pub const LinuxDmabufV1 = struct {
             format: @This().Format,
             modifier: @This().Modifier,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_v1 = .{
+                                    .format = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_v1 = .{
+                                    .modifier = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This event advertises one buffer format that the server supports.
             /// All the supported formats are advertised once when the client
             /// binds to this interface. A roundtrip after binding guarantees
@@ -96,6 +132,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const Format = struct {
                 format: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .format = msg_args[0].uint,
+                    };
+                }
             };
 
             /// This event advertises the formats that the server supports, along with
@@ -122,6 +164,14 @@ pub const LinuxDmabufV1 = struct {
                 format: u32,
                 modifier_hi: u32,
                 modifier_lo: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .format = msg_args[0].uint,
+                        .modifier_hi = msg_args[1].uint,
+                        .modifier_lo = msg_args[2].uint,
+                    };
+                }
             };
         };
 
@@ -143,6 +193,8 @@ pub const LinuxDmabufV1 = struct {
     /// be given in any order. Each plane index can be set only once.
     ///
     pub const LinuxBufferParamsV1 = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -192,6 +244,34 @@ pub const LinuxDmabufV1 = struct {
             created: @This().Created,
             failed: @This().Failed,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .new_id = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_buffer_params_v1 = .{
+                                    .created = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_buffer_params_v1 = .{
+                                    .failed = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This event indicates that the attempted buffer creation was
             /// successful. It provides the new wl_buffer referencing the dmabuf(s).
             /// Upon receiving this event, the client should destroy the
@@ -199,6 +279,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const Created = struct {
                 buffer: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .buffer = msg_args[0].new_id,
+                    };
+                }
             };
 
             /// This event indicates that the attempted buffer creation has
@@ -223,6 +309,10 @@ pub const LinuxDmabufV1 = struct {
                 invalid_dimensions = 5,
                 out_of_bounds = 6,
                 invalid_wl_buffer = 7,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Flags = packed struct(u32) {
@@ -230,6 +320,10 @@ pub const LinuxDmabufV1 = struct {
                 interlaced: bool = false,
                 bottom_first: bool = false,
                 __reserved_bits: u29 = 0,
+
+                pub inline fn fromInt(int: u32) Flags {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -260,6 +354,8 @@ pub const LinuxDmabufV1 = struct {
     /// done event.
     ///
     pub const LinuxDmabufFeedbackV1 = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -272,6 +368,92 @@ pub const LinuxDmabufV1 = struct {
             tranche_target_device: @This().TrancheTargetDevice,
             tranche_formats: @This().TrancheFormats,
             tranche_flags: @This().TrancheFlags,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .fd = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .format_table = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .main_device = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_target_device = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_formats = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        6 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .zwp_linux_dmabuf_feedback_v1 = .{ .tranche_flags = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_flags = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// This event is sent after all parameters of a wp_linux_dmabuf_feedback
             /// object have been sent.
@@ -295,6 +477,13 @@ pub const LinuxDmabufV1 = struct {
             pub const FormatTable = struct {
                 fd: std.posix.fd_t,
                 size: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .fd = msg_args[0].fd,
+                        .size = msg_args[1].uint,
+                    };
+                }
             };
 
             /// This event advertises the main device that the server prefers to use
@@ -319,6 +508,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const MainDevice = struct {
                 device: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .device = msg_args[0].array,
+                    };
+                }
             };
 
             /// This event splits tranche_target_device and tranche_formats events in
@@ -352,6 +547,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const TrancheTargetDevice = struct {
                 device: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .device = msg_args[0].array,
+                    };
+                }
             };
 
             /// This event advertises the format + modifier combinations that the
@@ -375,6 +576,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const TrancheFormats = struct {
                 indices: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .indices = msg_args[0].array,
+                    };
+                }
             };
 
             /// This event sets tranche-specific flags.
@@ -386,6 +593,12 @@ pub const LinuxDmabufV1 = struct {
             ///
             pub const TrancheFlags = struct {
                 flags: LinuxDmabufFeedbackV1.Enum.tranche_flags,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .flags = msg_args[0].@"enum".zwp_linux_dmabuf_feedback_v1.tranche_flags,
+                    };
+                }
             };
         };
 
@@ -395,6 +608,10 @@ pub const LinuxDmabufV1 = struct {
             pub const TrancheFlags = packed struct(u32) {
                 scanout: bool = false,
                 __reserved_bits: u31 = 0,
+
+                pub inline fn fromInt(int: u32) TrancheFlags {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -405,6 +622,8 @@ pub const LinuxDmabufV1 = struct {
 
 pub const PresentationTime = struct {
     pub const Presentation = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -421,6 +640,25 @@ pub const PresentationTime = struct {
 
         pub const Event = union(enum) {
             clock_id: @This().ClockId,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wp_presentation = .{
+                                    .clock_id = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// This event tells the client in which clock domain the
             /// compositor interprets the timestamps used by the presentation
@@ -448,6 +686,12 @@ pub const PresentationTime = struct {
             ///
             pub const ClockId = struct {
                 clk_id: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .clk_id = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -457,6 +701,10 @@ pub const PresentationTime = struct {
             pub const Error = enum(u32) {
                 invalid_timestamp = 0,
                 invalid_flag = 1,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -476,10 +724,61 @@ pub const PresentationTime = struct {
     /// or 'discarded' event it is automatically destroyed.
     ///
     pub const PresentationFeedback = struct {
+        id: u32,
+
         pub const Event = union(enum) {
             sync_output: @This().SyncOutput,
             presented: @This().Presented,
             discarded: @This().Discarded,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wp_presentation_feedback = .{
+                                    .sync_output = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [7]MessageArg = [7]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wp_presentation_feedback = .{ .kind = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wp_presentation_feedback = .{
+                                    .presented = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wp_presentation_feedback = .{
+                                    .discarded = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// As presentation can be synchronized to only one output at a
             /// time, this event tells which output it was. This event is only
@@ -491,6 +790,12 @@ pub const PresentationTime = struct {
             ///
             pub const SyncOutput = struct {
                 output: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .output = msg_args[0].object,
+                    };
+                }
             };
 
             /// The associated content update was displayed to the user at the
@@ -540,6 +845,18 @@ pub const PresentationTime = struct {
                 seq_hi: u32,
                 seq_lo: u32,
                 flags: PresentationFeedback.Enum.kind,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .tv_sec_hi = msg_args[0].uint,
+                        .tv_sec_lo = msg_args[1].uint,
+                        .tv_nsec = msg_args[2].uint,
+                        .refresh = msg_args[3].uint,
+                        .seq_hi = msg_args[4].uint,
+                        .seq_lo = msg_args[5].uint,
+                        .flags = msg_args[6].@"enum".wp_presentation_feedback.kind,
+                    };
+                }
             };
 
             /// The content update was never displayed to the user.
@@ -556,6 +873,10 @@ pub const PresentationTime = struct {
                 hw_completion: bool = false,
                 zero_copy: bool = false,
                 __reserved_bits: u28 = 0,
+
+                pub inline fn fromInt(int: u32) Kind {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -569,6 +890,8 @@ pub const Wayland = struct {
     /// is used for internal Wayland protocol features.
     ///
     pub const Display = struct {
+        id: u32,
+
         pub fn sync(proxy: *Proxy) wl_callback {
             _ = proxy;
         }
@@ -580,6 +903,38 @@ pub const Wayland = struct {
         pub const Event = union(enum) {
             @"error": @This().Error,
             delete_id: @This().DeleteId,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .object = 0 },
+                                .{ .uint = 0 },
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_display = .{
+                                    .@"error" = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_display = .{
+                                    .delete_id = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// The error event is sent out when a fatal (non-recoverable)
             /// error has occurred.  The object_id argument is the object
@@ -593,6 +948,14 @@ pub const Wayland = struct {
                 object_id: u32,
                 code: u32,
                 message: [:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .object_id = msg_args[0].object,
+                        .code = msg_args[1].uint,
+                        .message = msg_args[2].string,
+                    };
+                }
             };
 
             /// This event is used internally by the object ID management
@@ -603,6 +966,12 @@ pub const Wayland = struct {
             ///
             pub const DeleteId = struct {
                 id: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .id = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -614,6 +983,10 @@ pub const Wayland = struct {
                 invalid_method = 1,
                 no_memory = 2,
                 implementation = 3,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -641,6 +1014,8 @@ pub const Wayland = struct {
     /// the object.
     ///
     pub const Registry = struct {
+        id: u32,
+
         pub fn bind(
             proxy: *Proxy,
             params: struct {
@@ -655,6 +1030,38 @@ pub const Wayland = struct {
             global: @This().Global,
             global_remove: @This().GlobalRemove,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .string = "" },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_registry = .{
+                                    .global = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_registry = .{
+                                    .global_remove = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Notify the client of global objects.
             /// The event notifies the client that a global object with
             /// the given name is now available, and it implements the
@@ -664,6 +1071,14 @@ pub const Wayland = struct {
                 name: u32,
                 interface: [:0]const u8,
                 version: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .name = msg_args[0].uint,
+                        .interface = msg_args[1].string,
+                        .version = msg_args[2].uint,
+                    };
+                }
             };
 
             /// Notify the client of removed global objects.
@@ -677,6 +1092,12 @@ pub const Wayland = struct {
             ///
             pub const GlobalRemove = struct {
                 name: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .name = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -690,13 +1111,40 @@ pub const Wayland = struct {
     /// factory interfaces, the wl_callback interface is frozen at version 1.
     ///
     pub const Callback = struct {
+        id: u32,
+
         pub const Event = union(enum) {
             done: @This().Done,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_callback = .{
+                                    .done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// Notify the client when the related request is done.
             ///
             pub const Done = struct {
                 callback_data: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .callback_data = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -709,6 +1157,8 @@ pub const Wayland = struct {
     /// surfaces into one displayable output.
     ///
     pub const Compositor = struct {
+        id: u32,
+
         pub fn create_surface(proxy: *Proxy) wl_surface {
             _ = proxy;
         }
@@ -730,6 +1180,8 @@ pub const Wayland = struct {
     /// a surface or for many small buffers.
     ///
     pub const ShmPool = struct {
+        id: u32,
+
         pub fn create_buffer(
             proxy: *Proxy,
             params: struct {
@@ -737,7 +1189,7 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
                 stride: i32,
-                format: ShmPool.Enum.@"wl_shm.format",
+                format: Shm.Enum.format,
             },
         ) u32 {
             _ = proxy;
@@ -771,6 +1223,8 @@ pub const Wayland = struct {
     /// that can be used for buffers.
     ///
     pub const Shm = struct {
+        id: u32,
+
         pub fn create_pool(
             proxy: *Proxy,
             params: struct {
@@ -789,12 +1243,41 @@ pub const Wayland = struct {
         pub const Event = union(enum) {
             format: @This().Format,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_shm = .{ .format = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_shm = .{
+                                    .format = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Informs the client about a valid pixel format that
             /// can be used for buffers. Known formats include
             /// argb8888 and xrgb8888.
             ///
             pub const Format = struct {
                 format: Shm.Enum.format,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .format = msg_args[0].@"enum".wl_shm.format,
+                    };
+                }
             };
         };
 
@@ -806,6 +1289,10 @@ pub const Wayland = struct {
                 invalid_format = 0,
                 invalid_stride = 1,
                 invalid_fd = 2,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Format = enum(u32) {
@@ -932,6 +1419,10 @@ pub const Wayland = struct {
                 avuy8888 = 0x59555641,
                 xvuy8888 = 0x59555658,
                 p030 = 0x30333050,
+
+                pub inline fn fromInt(int: u32) Format {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -954,12 +1445,31 @@ pub const Wayland = struct {
     /// factory interfaces, the wl_buffer interface is frozen at version 1.
     ///
     pub const Buffer = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
 
         pub const Event = union(enum) {
             release: @This().Release,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_buffer = .{
+                                    .release = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// Sent when this wl_buffer is no longer used by the compositor.
             /// The client is now free to reuse or destroy this buffer and its
@@ -988,6 +1498,8 @@ pub const Wayland = struct {
     /// data directly from the source client.
     ///
     pub const DataOffer = struct {
+        id: u32,
+
         pub fn accept(
             proxy: *Proxy,
             params: struct {
@@ -1021,8 +1533,8 @@ pub const Wayland = struct {
         pub fn set_actions(
             proxy: *Proxy,
             params: struct {
-                dnd_actions: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
-                preferred_action: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
+                dnd_actions: DataDeviceManager.Enum.dnd_action,
+                preferred_action: DataDeviceManager.Enum.dnd_action,
             },
         ) void {
             _ = proxy;
@@ -1034,11 +1546,66 @@ pub const Wayland = struct {
             source_actions: @This().SourceActions,
             action: @This().Action,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_offer = .{
+                                    .offer = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_data_device_manager = .{ .dnd_action = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_offer = .{
+                                    .source_actions = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_data_device_manager = .{ .dnd_action = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_offer = .{
+                                    .action = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Sent immediately after creating the wl_data_offer object.  One
             /// event per offered mime type.
             ///
             pub const Offer = struct {
                 mime_type: [:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .mime_type = msg_args[0].string,
+                    };
+                }
             };
 
             /// This event indicates the actions offered by the data source. It
@@ -1048,6 +1615,12 @@ pub const Wayland = struct {
             ///
             pub const SourceActions = struct {
                 source_actions: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .source_actions = msg_args[0].@"enum".wl_data_offer.@"wl_data_device_manager.dnd_action",
+                    };
+                }
             };
 
             /// This event indicates the action selected by the compositor after
@@ -1082,6 +1655,12 @@ pub const Wayland = struct {
             ///
             pub const Action = struct {
                 dnd_action: DataOffer.Enum.@"wl_data_device_manager.dnd_action",
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .dnd_action = msg_args[0].@"enum".wl_data_offer.@"wl_data_device_manager.dnd_action",
+                    };
+                }
             };
         };
 
@@ -1093,6 +1672,10 @@ pub const Wayland = struct {
                 invalid_action_mask = 1,
                 invalid_action = 2,
                 invalid_offer = 3,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1106,6 +1689,8 @@ pub const Wayland = struct {
     /// to requests to transfer the data.
     ///
     pub const DataSource = struct {
+        id: u32,
+
         pub fn offer(
             proxy: *Proxy,
             params: struct {
@@ -1123,7 +1708,7 @@ pub const Wayland = struct {
         pub fn set_actions(
             proxy: *Proxy,
             params: struct {
-                dnd_actions: DataSource.Enum.@"wl_data_device_manager.dnd_action",
+                dnd_actions: DataDeviceManager.Enum.dnd_action,
             },
         ) void {
             _ = proxy;
@@ -1138,12 +1723,91 @@ pub const Wayland = struct {
             dnd_finished: @This().DndFinished,
             action: @This().Action,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .target = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .string = "" },
+                                .{ .fd = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .send = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .cancelled = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .dnd_drop_performed = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .dnd_finished = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_data_device_manager = .{ .dnd_action = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_source = .{
+                                    .action = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Sent when a target accepts pointer_focus or motion events.  If
             /// a target does not accept any of the offered types, type is NULL.
             /// Used for feedback during drag-and-drop.
             ///
             pub const Target = struct {
                 mime_type: ?[:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .mime_type = msg_args[0].string,
+                    };
+                }
             };
 
             /// Request for data from the client.  Send the data as the
@@ -1153,6 +1817,13 @@ pub const Wayland = struct {
             pub const Send = struct {
                 mime_type: [:0]const u8,
                 fd: std.posix.fd_t,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .mime_type = msg_args[0].string,
+                        .fd = msg_args[1].fd,
+                    };
+                }
             };
 
             /// This data source is no longer valid. There are several reasons why
@@ -1216,6 +1887,12 @@ pub const Wayland = struct {
             ///
             pub const Action = struct {
                 dnd_action: DataSource.Enum.@"wl_data_device_manager.dnd_action",
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .dnd_action = msg_args[0].@"enum".wl_data_source.@"wl_data_device_manager.dnd_action",
+                    };
+                }
             };
         };
 
@@ -1225,6 +1902,10 @@ pub const Wayland = struct {
             pub const Error = enum(u32) {
                 invalid_action_mask = 0,
                 invalid_source = 1,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1238,6 +1919,8 @@ pub const Wayland = struct {
     /// mechanisms such as copy-and-paste and drag-and-drop.
     ///
     pub const DataDevice = struct {
+        id: u32,
+
         pub fn start_drag(
             proxy: *Proxy,
             params: struct {
@@ -1274,6 +1957,82 @@ pub const Wayland = struct {
             drop: @This().Drop,
             selection: @This().Selection,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .new_id = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .data_offer = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [5]MessageArg = [5]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .enter = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .leave = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .motion = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .drop = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_data_device = .{
+                                    .selection = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// The data_offer event introduces a new wl_data_offer object,
             /// which will subsequently be used in either the
             /// data_device.enter event (for drag-and-drop) or the
@@ -1284,6 +2043,12 @@ pub const Wayland = struct {
             ///
             pub const DataOffer = struct {
                 id: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .id = msg_args[0].new_id,
+                    };
+                }
             };
 
             /// This event is sent when an active drag-and-drop pointer enters
@@ -1297,6 +2062,16 @@ pub const Wayland = struct {
                 x: f32,
                 y: f32,
                 id: ?u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .surface = msg_args[1].object,
+                        .x = msg_args[2].fixed,
+                        .y = msg_args[3].fixed,
+                        .id = msg_args[4].object,
+                    };
+                }
             };
 
             /// This event is sent when the drag-and-drop pointer leaves the
@@ -1314,6 +2089,14 @@ pub const Wayland = struct {
                 time: u32,
                 x: f32,
                 y: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .time = msg_args[0].uint,
+                        .x = msg_args[1].fixed,
+                        .y = msg_args[2].fixed,
+                    };
+                }
             };
 
             /// The event is sent when a drag-and-drop operation is ended
@@ -1345,6 +2128,12 @@ pub const Wayland = struct {
             ///
             pub const Selection = struct {
                 id: ?u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .id = msg_args[0].object,
+                    };
+                }
             };
         };
 
@@ -1354,6 +2143,10 @@ pub const Wayland = struct {
             pub const Error = enum(u32) {
                 role = 0,
                 used_source = 1,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1372,6 +2165,8 @@ pub const Wayland = struct {
     /// wl_data_offer.accept and wl_data_offer.finish for details.
     ///
     pub const DataDeviceManager = struct {
+        id: u32,
+
         pub fn create_data_source(proxy: *Proxy) wl_data_source {
             _ = proxy;
         }
@@ -1395,6 +2190,10 @@ pub const Wayland = struct {
                 move: bool = false,
                 ask: bool = false,
                 __reserved_bits: u28 = 0,
+
+                pub inline fn fromInt(int: u32) DndAction {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -1411,6 +2210,8 @@ pub const Wayland = struct {
     /// should not implement this interface.
     ///
     pub const Shell = struct {
+        id: u32,
+
         pub fn get_shell_surface(
             proxy: *Proxy,
             params: struct {
@@ -1426,6 +2227,10 @@ pub const Wayland = struct {
 
             pub const Error = enum(u32) {
                 role = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1444,6 +2249,8 @@ pub const Wayland = struct {
     /// the wl_surface object.
     ///
     pub const ShellSurface = struct {
+        id: u32,
+
         pub fn pong(
             proxy: *Proxy,
             params: struct {
@@ -1556,11 +2363,62 @@ pub const Wayland = struct {
             configure: @This().Configure,
             popup_done: @This().PopupDone,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_shell_surface = .{
+                                    .ping = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_shell_surface = .{ .resize = .fromInt(0) },
+                                    },
+                                },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_shell_surface = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_shell_surface = .{
+                                    .popup_done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Ping a client to check if it is receiving events and sending
             /// requests. A client is expected to reply with a pong request.
             ///
             pub const Ping = struct {
                 serial: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                    };
+                }
             };
 
             /// The configure event asks the client to resize its surface.
@@ -1581,6 +2439,14 @@ pub const Wayland = struct {
                 edges: ShellSurface.Enum.resize,
                 width: i32,
                 height: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .edges = msg_args[0].@"enum".wl_shell_surface.resize,
+                        .width = msg_args[1].int,
+                        .height = msg_args[2].int,
+                    };
+                }
             };
 
             /// The popup_done event is sent out when a popup grab is broken,
@@ -1606,11 +2472,19 @@ pub const Wayland = struct {
                 top_right: bool = false,
                 bottom_right: bool = false,
                 __reserved_bits: u23 = 0,
+
+                pub inline fn fromInt(int: u32) Resize {
+                    return @bitCast(int);
+                }
             };
 
             pub const Transient = packed struct(u32) {
                 inactive: bool = false,
                 __reserved_bits: u31 = 0,
+
+                pub inline fn fromInt(int: u32) Transient {
+                    return @bitCast(int);
+                }
             };
 
             pub const FullscreenMethod = enum(u32) {
@@ -1618,6 +2492,10 @@ pub const Wayland = struct {
                 scale = 1,
                 driver = 2,
                 fill = 3,
+
+                pub inline fn fromInt(int: u32) FullscreenMethod {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1664,6 +2542,8 @@ pub const Wayland = struct {
     /// switching is not allowed).
     ///
     pub const Surface = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -1724,7 +2604,7 @@ pub const Wayland = struct {
         pub fn set_buffer_transform(
             proxy: *Proxy,
             params: struct {
-                transform: Surface.Enum.@"wl_output.transform",
+                transform: Output.Enum.transform,
             },
         ) void {
             _ = proxy;
@@ -1771,6 +2651,62 @@ pub const Wayland = struct {
             preferred_buffer_scale: @This().PreferredBufferScale,
             preferred_buffer_transform: @This().PreferredBufferTransform,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_surface = .{
+                                    .enter = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_surface = .{
+                                    .leave = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_surface = .{
+                                    .preferred_buffer_scale = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_output = .{ .transform = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_surface = .{
+                                    .preferred_buffer_transform = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This is emitted whenever a surface's creation, movement, or resizing
             /// results in some part of it being within the scanout region of an
             /// output.
@@ -1778,6 +2714,12 @@ pub const Wayland = struct {
             ///
             pub const Enter = struct {
                 output: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .output = msg_args[0].object,
+                    };
+                }
             };
 
             /// This is emitted whenever a surface's creation, movement, or resizing
@@ -1791,6 +2733,12 @@ pub const Wayland = struct {
             ///
             pub const Leave = struct {
                 output: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .output = msg_args[0].object,
+                    };
+                }
             };
 
             /// This event indicates the preferred buffer scale for this surface. It is
@@ -1805,6 +2753,12 @@ pub const Wayland = struct {
             ///
             pub const PreferredBufferScale = struct {
                 factor: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .factor = msg_args[0].int,
+                    };
+                }
             };
 
             /// This event indicates the preferred buffer transform for this surface.
@@ -1817,6 +2771,12 @@ pub const Wayland = struct {
             ///
             pub const PreferredBufferTransform = struct {
                 transform: Surface.Enum.@"wl_output.transform",
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .transform = msg_args[0].@"enum".wl_surface.@"wl_output.transform",
+                    };
+                }
             };
         };
 
@@ -1829,6 +2789,10 @@ pub const Wayland = struct {
                 invalid_size = 2,
                 invalid_offset = 3,
                 defunct_role_object = 4,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1842,6 +2806,8 @@ pub const Wayland = struct {
     /// maintains a keyboard focus and a pointer focus.
     ///
     pub const Seat = struct {
+        id: u32,
+
         pub fn get_pointer(proxy: *Proxy) wl_pointer {
             _ = proxy;
         }
@@ -1861,6 +2827,40 @@ pub const Wayland = struct {
         pub const Event = union(enum) {
             capabilities: @This().Capabilities,
             name: @This().Name,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_seat = .{ .capability = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_seat = .{
+                                    .capabilities = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_seat = .{
+                                    .name = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// This is emitted whenever a seat gains or loses the pointer,
             /// keyboard or touch capabilities.  The argument is a capability
@@ -1885,6 +2885,12 @@ pub const Wayland = struct {
             ///
             pub const Capabilities = struct {
                 capabilities: Seat.Enum.capability,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .capabilities = msg_args[0].@"enum".wl_seat.capability,
+                    };
+                }
             };
 
             /// In a multi-seat configuration the seat name can be used by clients to
@@ -1902,6 +2908,12 @@ pub const Wayland = struct {
             ///
             pub const Name = struct {
                 name: [:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .name = msg_args[0].string,
+                    };
+                }
             };
         };
 
@@ -1914,10 +2926,18 @@ pub const Wayland = struct {
                 keyboard: bool = false,
                 touch: bool = false,
                 __reserved_bits: u29 = 0,
+
+                pub inline fn fromInt(int: u32) Capability {
+                    return @bitCast(int);
+                }
             };
 
             pub const Error = enum(u32) {
                 missing_capability = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -1934,6 +2954,8 @@ pub const Wayland = struct {
     /// and scrolling.
     ///
     pub const Pointer = struct {
+        id: u32,
+
         pub fn set_cursor(
             proxy: *Proxy,
             params: struct {
@@ -1964,6 +2986,180 @@ pub const Wayland = struct {
             axis_value120: @This().AxisValue120,
             axis_relative_direction: @This().AxisRelativeDirection,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .enter = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .leave = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .motion = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .button_state = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .button = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis = .fromInt(0) },
+                                    },
+                                },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .frame = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        6 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis_source = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis_source = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        7 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .uint = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis_stop = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        8 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis = .fromInt(0) },
+                                    },
+                                },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis_discrete = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        9 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis = .fromInt(0) },
+                                    },
+                                },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis_value120 = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        10 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis = .fromInt(0) },
+                                    },
+                                },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_pointer = .{ .axis_relative_direction = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_pointer = .{
+                                    .axis_relative_direction = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// Notification that this seat's pointer is focused on a certain
             /// surface.
             /// When a seat's focus enters a surface, the pointer image
@@ -1975,6 +3171,15 @@ pub const Wayland = struct {
                 surface: u32,
                 surface_x: f32,
                 surface_y: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .surface = msg_args[1].object,
+                        .surface_x = msg_args[2].fixed,
+                        .surface_y = msg_args[3].fixed,
+                    };
+                }
             };
 
             /// Notification that this seat's pointer is no longer focused on
@@ -1985,6 +3190,13 @@ pub const Wayland = struct {
             pub const Leave = struct {
                 serial: u32,
                 surface: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .surface = msg_args[1].object,
+                    };
+                }
             };
 
             /// Notification of pointer location change. The arguments
@@ -1995,6 +3207,14 @@ pub const Wayland = struct {
                 time: u32,
                 surface_x: f32,
                 surface_y: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .time = msg_args[0].uint,
+                        .surface_x = msg_args[1].fixed,
+                        .surface_y = msg_args[2].fixed,
+                    };
+                }
             };
 
             /// Mouse button click and release notifications.
@@ -2014,6 +3234,15 @@ pub const Wayland = struct {
                 time: u32,
                 button: u32,
                 state: Pointer.Enum.button_state,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .time = msg_args[1].uint,
+                        .button = msg_args[2].uint,
+                        .state = msg_args[3].@"enum".wl_pointer.button_state,
+                    };
+                }
             };
 
             /// Scroll and other axis notifications.
@@ -2033,6 +3262,14 @@ pub const Wayland = struct {
                 time: u32,
                 axis: Pointer.Enum.axis,
                 value: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .time = msg_args[0].uint,
+                        .axis = msg_args[1].@"enum".wl_pointer.axis,
+                        .value = msg_args[2].fixed,
+                    };
+                }
             };
 
             /// Indicates the end of a set of events that logically belong together.
@@ -2091,6 +3328,12 @@ pub const Wayland = struct {
             ///
             pub const AxisSource = struct {
                 axis_source: Pointer.Enum.axis_source,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .axis_source = msg_args[0].@"enum".wl_pointer.axis_source,
+                    };
+                }
             };
 
             /// Stop notification for scroll and other axes.
@@ -2108,6 +3351,13 @@ pub const Wayland = struct {
             pub const AxisStop = struct {
                 time: u32,
                 axis: Pointer.Enum.axis,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .time = msg_args[0].uint,
+                        .axis = msg_args[1].@"enum".wl_pointer.axis,
+                    };
+                }
             };
 
             /// Discrete step information for scroll and other axes.
@@ -2137,6 +3387,13 @@ pub const Wayland = struct {
             pub const AxisDiscrete = struct {
                 axis: Pointer.Enum.axis,
                 discrete: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .axis = msg_args[0].@"enum".wl_pointer.axis,
+                        .discrete = msg_args[1].int,
+                    };
+                }
             };
 
             /// Discrete high-resolution scroll information.
@@ -2159,6 +3416,13 @@ pub const Wayland = struct {
             pub const AxisValue120 = struct {
                 axis: Pointer.Enum.axis,
                 value120: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .axis = msg_args[0].@"enum".wl_pointer.axis,
+                        .value120 = msg_args[1].int,
+                    };
+                }
             };
 
             /// Relative directional information of the entity causing the axis
@@ -2195,6 +3459,13 @@ pub const Wayland = struct {
             pub const AxisRelativeDirection = struct {
                 axis: Pointer.Enum.axis,
                 direction: Pointer.Enum.axis_relative_direction,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .axis = msg_args[0].@"enum".wl_pointer.axis,
+                        .direction = msg_args[1].@"enum".wl_pointer.axis_relative_direction,
+                    };
+                }
             };
         };
 
@@ -2207,16 +3478,28 @@ pub const Wayland = struct {
 
             pub const Error = enum(u32) {
                 role = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const ButtonState = enum(u32) {
                 released = 0,
                 pressed = 1,
+
+                pub inline fn fromInt(int: u32) ButtonState {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Axis = enum(u32) {
                 vertical_scroll = 0,
                 horizontal_scroll = 1,
+
+                pub inline fn fromInt(int: u32) Axis {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const AxisSource = enum(u32) {
@@ -2224,11 +3507,19 @@ pub const Wayland = struct {
                 finger = 1,
                 continuous = 2,
                 wheel_tilt = 3,
+
+                pub inline fn fromInt(int: u32) AxisSource {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const AxisRelativeDirection = enum(u32) {
                 identical = 0,
                 inverted = 1,
+
+                pub inline fn fromInt(int: u32) AxisRelativeDirection {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -2247,6 +3538,8 @@ pub const Wayland = struct {
     /// are empty, the active modifiers and the active group are 0.
     ///
     pub const Keyboard = struct {
+        id: u32,
+
         pub fn release(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2259,6 +3552,101 @@ pub const Wayland = struct {
             modifiers: @This().Modifiers,
             repeat_info: @This().RepeatInfo,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_keyboard = .{ .keymap_format = .fromInt(0) },
+                                    },
+                                },
+                                .{ .fd = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .keymap = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .enter = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .leave = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_keyboard = .{ .key_state = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .key = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [5]MessageArg = [5]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .modifiers = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_keyboard = .{
+                                    .repeat_info = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This event provides a file descriptor to the client which can be
             /// memory-mapped in read-only mode to provide a keyboard mapping
             /// description.
@@ -2269,6 +3657,14 @@ pub const Wayland = struct {
                 format: Keyboard.Enum.keymap_format,
                 fd: std.posix.fd_t,
                 size: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .format = msg_args[0].@"enum".wl_keyboard.keymap_format,
+                        .fd = msg_args[1].fd,
+                        .size = msg_args[2].uint,
+                    };
+                }
             };
 
             /// Notification that this seat's keyboard focus is on a certain
@@ -2286,6 +3682,14 @@ pub const Wayland = struct {
                 serial: u32,
                 surface: u32,
                 keys: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .surface = msg_args[1].object,
+                        .keys = msg_args[2].array,
+                    };
+                }
             };
 
             /// Notification that this seat's keyboard focus is no longer on
@@ -2300,6 +3704,13 @@ pub const Wayland = struct {
             pub const Leave = struct {
                 serial: u32,
                 surface: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .surface = msg_args[1].object,
+                    };
+                }
             };
 
             /// A key was pressed or released.
@@ -2327,6 +3738,15 @@ pub const Wayland = struct {
                 time: u32,
                 key: u32,
                 state: Keyboard.Enum.key_state,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .time = msg_args[1].uint,
+                        .key = msg_args[2].uint,
+                        .state = msg_args[3].@"enum".wl_keyboard.key_state,
+                    };
+                }
             };
 
             /// Notifies clients that the modifier and/or group state has
@@ -2347,6 +3767,16 @@ pub const Wayland = struct {
                 mods_latched: u32,
                 mods_locked: u32,
                 group: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .mods_depressed = msg_args[1].uint,
+                        .mods_latched = msg_args[2].uint,
+                        .mods_locked = msg_args[3].uint,
+                        .group = msg_args[4].uint,
+                    };
+                }
             };
 
             /// Informs the client about the keyboard's repeat rate and delay.
@@ -2362,6 +3792,13 @@ pub const Wayland = struct {
             pub const RepeatInfo = struct {
                 rate: i32,
                 delay: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .rate = msg_args[0].int,
+                        .delay = msg_args[1].int,
+                    };
+                }
             };
         };
 
@@ -2372,12 +3809,20 @@ pub const Wayland = struct {
             pub const KeymapFormat = enum(u32) {
                 no_keymap = 0,
                 xkb_v1 = 1,
+
+                pub inline fn fromInt(int: u32) KeymapFormat {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const KeyState = enum(u32) {
                 released = 0,
                 pressed = 1,
                 repeated = 2,
+
+                pub inline fn fromInt(int: u32) KeyState {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -2394,6 +3839,8 @@ pub const Wayland = struct {
     /// contact point can be identified by the ID of the sequence.
     ///
     pub const Touch = struct {
+        id: u32,
+
         pub fn release(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2407,6 +3854,100 @@ pub const Wayland = struct {
             shape: @This().Shape,
             orientation: @This().Orientation,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [6]MessageArg = [6]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .object = 0 },
+                                .{ .int = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .down = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .up = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .int = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .motion = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .frame = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .cancel = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .int = 0 },
+                                .{ .fixed = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .shape = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        6 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .int = 0 },
+                                .{ .fixed = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_touch = .{
+                                    .orientation = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// A new touch point has appeared on the surface. This touch point is
             /// assigned a unique ID. Future events from this touch point reference
             /// this ID. The ID ceases to be valid after a touch up event and may be
@@ -2419,6 +3960,17 @@ pub const Wayland = struct {
                 id: i32,
                 x: f32,
                 y: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .time = msg_args[1].uint,
+                        .surface = msg_args[2].object,
+                        .id = msg_args[3].int,
+                        .x = msg_args[4].fixed,
+                        .y = msg_args[5].fixed,
+                    };
+                }
             };
 
             /// The touch point has disappeared. No further events will be sent for
@@ -2429,6 +3981,14 @@ pub const Wayland = struct {
                 serial: u32,
                 time: u32,
                 id: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                        .time = msg_args[1].uint,
+                        .id = msg_args[2].int,
+                    };
+                }
             };
 
             /// A touch point has changed coordinates.
@@ -2438,6 +3998,15 @@ pub const Wayland = struct {
                 id: i32,
                 x: f32,
                 y: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .time = msg_args[0].uint,
+                        .id = msg_args[1].int,
+                        .x = msg_args[2].fixed,
+                        .y = msg_args[3].fixed,
+                    };
+                }
             };
 
             /// Indicates the end of a set of events that logically belong together.
@@ -2486,6 +4055,14 @@ pub const Wayland = struct {
                 id: i32,
                 major: f32,
                 minor: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .id = msg_args[0].int,
+                        .major = msg_args[1].fixed,
+                        .minor = msg_args[2].fixed,
+                    };
+                }
             };
 
             /// Sent when a touchpoint has changed its orientation.
@@ -2511,6 +4088,13 @@ pub const Wayland = struct {
             pub const Orientation = struct {
                 id: i32,
                 orientation: f32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .id = msg_args[0].int,
+                        .orientation = msg_args[1].fixed,
+                    };
+                }
             };
         };
 
@@ -2526,6 +4110,8 @@ pub const Wayland = struct {
     /// as global during start up, or when a monitor is hotplugged.
     ///
     pub const Output = struct {
+        id: u32,
+
         pub fn release(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2537,6 +4123,100 @@ pub const Wayland = struct {
             scale: @This().Scale,
             name: @This().Name,
             description: @This().Description,
+
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [8]MessageArg = [8]MessageArg{
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_output = .{ .subpixel = .fromInt(0) },
+                                    },
+                                },
+                                .{ .string = "" },
+                                .{ .string = "" },
+                                .{
+                                    .@"enum" = .{
+                                        .wl_output = .{ .transform = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .geometry = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .wl_output = .{ .mode = .fromInt(0) },
+                                    },
+                                },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .mode = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .scale = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .name = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .string = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .wl_output = .{
+                                    .description = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
 
             /// The geometry event describes geometric properties of the output.
             /// The event is sent when binding to the output object and whenever
@@ -2564,6 +4244,19 @@ pub const Wayland = struct {
                 make: [:0]const u8,
                 model: [:0]const u8,
                 transform: Output.Enum.transform,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .x = msg_args[0].int,
+                        .y = msg_args[1].int,
+                        .physical_width = msg_args[2].int,
+                        .physical_height = msg_args[3].int,
+                        .subpixel = msg_args[4].@"enum".wl_output.subpixel,
+                        .make = msg_args[5].string,
+                        .model = msg_args[6].string,
+                        .transform = msg_args[7].@"enum".wl_output.transform,
+                    };
+                }
             };
 
             /// The mode event describes an available mode for the output.
@@ -2598,6 +4291,15 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
                 refresh: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .flags = msg_args[0].@"enum".wl_output.mode,
+                        .width = msg_args[1].int,
+                        .height = msg_args[2].int,
+                        .refresh = msg_args[3].int,
+                    };
+                }
             };
 
             /// This event is sent after all other properties have been
@@ -2626,6 +4328,12 @@ pub const Wayland = struct {
             ///
             pub const Scale = struct {
                 factor: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .factor = msg_args[0].int,
+                    };
+                }
             };
 
             /// Many compositors will assign user-friendly names to their outputs, show
@@ -2652,6 +4360,12 @@ pub const Wayland = struct {
             ///
             pub const Name = struct {
                 name: [:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .name = msg_args[0].string,
+                    };
+                }
             };
 
             /// Many compositors can produce human-readable descriptions of their
@@ -2668,6 +4382,12 @@ pub const Wayland = struct {
             ///
             pub const Description = struct {
                 description: [:0]const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .description = msg_args[0].string,
+                    };
+                }
             };
         };
 
@@ -2683,6 +4403,10 @@ pub const Wayland = struct {
                 horizontal_bgr = 3,
                 vertical_rgb = 4,
                 vertical_bgr = 5,
+
+                pub inline fn fromInt(int: u32) Subpixel {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Transform = enum(u32) {
@@ -2694,12 +4418,20 @@ pub const Wayland = struct {
                 flipped_90 = 5,
                 flipped_180 = 6,
                 flipped_270 = 7,
+
+                pub inline fn fromInt(int: u32) Transform {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Mode = packed struct(u32) {
                 current: bool = false,
                 preferred: bool = false,
                 __reserved_bits: u30 = 0,
+
+                pub inline fn fromInt(int: u32) Mode {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -2712,6 +4444,8 @@ pub const Wayland = struct {
     /// regions of a surface.
     ///
     pub const Region = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2764,6 +4498,8 @@ pub const Wayland = struct {
     /// processing to dedicated overlay hardware when possible.
     ///
     pub const Subcompositor = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2785,6 +4521,10 @@ pub const Wayland = struct {
             pub const Error = enum(u32) {
                 bad_surface = 0,
                 bad_parent = 1,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -2837,6 +4577,8 @@ pub const Wayland = struct {
     /// instead to move the sub-surface.
     ///
     pub const Subsurface = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2885,6 +4627,10 @@ pub const Wayland = struct {
 
             pub const Error = enum(u32) {
                 bad_surface = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -2914,6 +4660,8 @@ pub const XdgDecorationUnstableV1 = struct {
     /// interface version number is reset.
     ///
     pub const DecorationManagerV1 = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2939,6 +4687,8 @@ pub const XdgDecorationUnstableV1 = struct {
     /// xdg_toplevel.
     ///
     pub const ToplevelDecorationV1 = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -2960,6 +4710,29 @@ pub const XdgDecorationUnstableV1 = struct {
         pub const Event = union(enum) {
             configure: @This().Configure,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .zxdg_toplevel_decoration_v1 = .{ .mode = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zxdg_toplevel_decoration_v1 = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// The configure event configures the effective decoration mode. The
             /// configured state should not be applied immediately. Clients must send an
             /// ack_configure in response to this event. See xdg_surface.configure and
@@ -2969,6 +4742,12 @@ pub const XdgDecorationUnstableV1 = struct {
             ///
             pub const Configure = struct {
                 mode: ToplevelDecorationV1.Enum.mode,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .mode = msg_args[0].@"enum".zxdg_toplevel_decoration_v1.mode,
+                    };
+                }
             };
         };
 
@@ -2981,11 +4760,19 @@ pub const XdgDecorationUnstableV1 = struct {
                 already_constructed = 1,
                 orphaned = 2,
                 invalid_mode = 3,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Mode = enum(u32) {
                 client_side = 1,
                 server_side = 2,
+
+                pub inline fn fromInt(int: u32) Mode {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -3002,6 +4789,8 @@ pub const XdgShell = struct {
     /// creating transient windows such as popup menus.
     ///
     pub const WmBase = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -3033,6 +4822,25 @@ pub const XdgShell = struct {
         pub const Event = union(enum) {
             ping: @This().Ping,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_wm_base = .{
+                                    .ping = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// The ping event asks the client if it's still alive. Pass the
             /// serial specified in the event back to the compositor by sending
             /// a "pong" request back with the specified serial. See xdg_wm_base.pong.
@@ -3047,6 +4855,12 @@ pub const XdgShell = struct {
             ///
             pub const Ping = struct {
                 serial: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -3061,6 +4875,10 @@ pub const XdgShell = struct {
                 invalid_surface_state = 4,
                 invalid_positioner = 5,
                 unresponsive = 6,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -3086,6 +4904,8 @@ pub const XdgShell = struct {
     /// positioning a surface raises an invalid_positioner error.
     ///
     pub const Positioner = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -3188,6 +5008,10 @@ pub const XdgShell = struct {
 
             pub const Error = enum(u32) {
                 invalid_input = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Anchor = enum(u32) {
@@ -3200,6 +5024,10 @@ pub const XdgShell = struct {
                 bottom_left = 6,
                 top_right = 7,
                 bottom_right = 8,
+
+                pub inline fn fromInt(int: u32) Anchor {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const Gravity = enum(u32) {
@@ -3212,6 +5040,10 @@ pub const XdgShell = struct {
                 bottom_left = 6,
                 top_right = 7,
                 bottom_right = 8,
+
+                pub inline fn fromInt(int: u32) Gravity {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const ConstraintAdjustment = packed struct(u32) {
@@ -3223,6 +5055,10 @@ pub const XdgShell = struct {
                 resize_x: bool = false,
                 resize_y: bool = false,
                 __reserved_bits: u25 = 0,
+
+                pub inline fn fromInt(int: u32) ConstraintAdjustment {
+                    return @bitCast(int);
+                }
             };
         };
 
@@ -3271,6 +5107,8 @@ pub const XdgShell = struct {
     /// again before attaching a buffer.
     ///
     pub const Surface = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -3316,6 +5154,25 @@ pub const XdgShell = struct {
         pub const Event = union(enum) {
             configure: @This().Configure,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_surface = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// The configure event marks the end of a configure sequence. A configure
             /// sequence is a set of one or more events configuring the state of the
             /// xdg_surface, including the final xdg_surface.configure event.
@@ -3332,6 +5189,12 @@ pub const XdgShell = struct {
             ///
             pub const Configure = struct {
                 serial: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .serial = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -3345,6 +5208,10 @@ pub const XdgShell = struct {
                 invalid_serial = 4,
                 invalid_size = 5,
                 defunct_role_object = 6,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -3372,6 +5239,8 @@ pub const XdgShell = struct {
     /// Attaching a null buffer to a toplevel unmaps the surface.
     ///
     pub const Toplevel = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -3496,6 +5365,59 @@ pub const XdgShell = struct {
             configure_bounds: @This().ConfigureBounds,
             wm_capabilities: @This().WmCapabilities,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_toplevel = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_toplevel = .{
+                                    .close = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_toplevel = .{
+                                    .configure_bounds = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_toplevel = .{
+                                    .wm_capabilities = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This configure event asks the client to resize its toplevel surface or
             /// to change its state. The configured state should not be applied
             /// immediately. See xdg_surface.configure for details.
@@ -3516,6 +5438,14 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
                 states: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .width = msg_args[0].int,
+                        .height = msg_args[1].int,
+                        .states = msg_args[2].array,
+                    };
+                }
             };
 
             /// The close event is sent by the compositor when the user
@@ -3544,6 +5474,13 @@ pub const XdgShell = struct {
             pub const ConfigureBounds = struct {
                 width: i32,
                 height: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .width = msg_args[0].int,
+                        .height = msg_args[1].int,
+                    };
+                }
             };
 
             /// This event advertises the capabilities supported by the compositor. If
@@ -3565,6 +5502,12 @@ pub const XdgShell = struct {
             ///
             pub const WmCapabilities = struct {
                 capabilities: []const u8,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .capabilities = msg_args[0].array,
+                    };
+                }
             };
         };
 
@@ -3578,6 +5521,10 @@ pub const XdgShell = struct {
                 invalid_resize_edge = 0,
                 invalid_parent = 1,
                 invalid_size = 2,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const ResizeEdge = enum(u32) {
@@ -3590,6 +5537,10 @@ pub const XdgShell = struct {
                 right = 8,
                 top_right = 9,
                 bottom_right = 10,
+
+                pub inline fn fromInt(int: u32) ResizeEdge {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const State = enum(u32) {
@@ -3602,6 +5553,10 @@ pub const XdgShell = struct {
                 tiled_top = 7,
                 tiled_bottom = 8,
                 suspended = 9,
+
+                pub inline fn fromInt(int: u32) State {
+                    return @enumFromInt(int);
+                }
             };
 
             pub const WmCapabilities = enum(u32) {
@@ -3609,6 +5564,10 @@ pub const XdgShell = struct {
                 maximize = 2,
                 fullscreen = 3,
                 minimize = 4,
+
+                pub inline fn fromInt(int: u32) WmCapabilities {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -3636,6 +5595,8 @@ pub const XdgShell = struct {
     /// for the xdg_popup state to take effect.
     ///
     pub const Popup = struct {
+        id: u32,
+
         pub fn destroy(proxy: *Proxy) void {
             _ = proxy;
         }
@@ -3667,6 +5628,48 @@ pub const XdgShell = struct {
             popup_done: @This().PopupDone,
             repositioned: @This().Repositioned,
 
+            inline fn parse(proxy: *Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [4]MessageArg = [4]MessageArg{
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                                .{ .int = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_popup = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [0]MessageArg = [0]MessageArg{};
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_popup = .{
+                                    .popup_done = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .xdg_popup = .{
+                                    .repositioned = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                    }
+                };
+                return event;
+            }
+
             /// This event asks the popup surface to configure itself given the
             /// configuration. The configured state should not be applied immediately.
             /// See xdg_surface.configure for details.
@@ -3683,6 +5686,15 @@ pub const XdgShell = struct {
                 y: i32,
                 width: i32,
                 height: i32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .x = msg_args[0].int,
+                        .y = msg_args[1].int,
+                        .width = msg_args[2].int,
+                        .height = msg_args[3].int,
+                    };
+                }
             };
 
             /// The popup_done event is sent out when a popup is dismissed by the
@@ -3706,6 +5718,12 @@ pub const XdgShell = struct {
             ///
             pub const Repositioned = struct {
                 token: u32,
+
+                pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {
+                    return .{
+                        .token = msg_args[0].uint,
+                    };
+                }
             };
         };
 
@@ -3714,6 +5732,10 @@ pub const XdgShell = struct {
 
             pub const Error = enum(u32) {
                 invalid_grab = 0,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
             };
         };
 
@@ -3726,17 +5748,17 @@ pub const Object = struct {
     ptr: *anyopaque,
     vtable: VTable,
 
-    pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) Proxy.ParseError!void {
-        try @call(.auto, object.vtable.parse_msg, .{ op, data });
+    pub inline fn parse_msg(noalias object: *Object, op: u16, data: []const u8) ParseError!void {
+        try @call(.auto, object.vtable.parse_msg, .{ object.ptr, op, data });
     }
 
-    pub inline fn write_msg(noalias object: *Object, op: u16, args: []MessageArg) Proxy.WriteError!void {
-        try @call(.auto, object.vtable.write_msg, .{ op, args });
+    pub inline fn write_msg(noalias object: *Object, op: u16, args: []MessageArg) WriteError!void {
+        try @call(.auto, object.vtable.write_msg, .{ object.ptr, op, args });
     }
 
     pub const VTable = struct {
-        parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) Proxy.ParseError!void,
-        write_msg: *const fn (ctx: *anyopaque, op: u16, args: []MessageArg) Proxy.WriteError!void,
+        parse_msg: *const fn (ctx: *anyopaque, op: u16, data: []const u8) ParseError!void,
+        write_msg: *const fn (ctx: *anyopaque, op: u16, args: []MessageArg) WriteError!void,
     };
 };
 
@@ -3745,23 +5767,23 @@ const Proxy = struct {
     vtable: VTable,
 
     pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
-        try @call(.auto, proxy.vtable.msg_parse_fn, .{ args_out, data });
+        try @call(.auto, proxy.vtable.msg_parse_fn, .{ proxy.ctx, args_out, data });
     }
     pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
-        try @call(.auto, proxy.vtable.msg_write_fn, .{ id, op, args });
+        try @call(.auto, proxy.vtable.msg_write_fn, .{ proxy.ctx, id, op, args });
     }
 
     const VTable = struct {
         msg_parse_fn: *const fn (ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
         msg_write_fn: *const fn (ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
     };
+};
 
-    pub const ParseError = error{
-        ParseFailed,
-    };
-    pub const WriteError = error{
-        WriteFailed,
-    };
+pub const ParseError = error{
+    ParseFailed,
+};
+pub const WriteError = error{
+    WriteFailed,
 };
 
 const MessageArg = union(enum) {
