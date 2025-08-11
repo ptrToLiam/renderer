@@ -15,18 +15,18 @@ pub fn main() !void {
         xml_arena.release();
     }
 
-    var out_file: []const u8 = "";
-    var out_dir: []const u8 = "";
+    var filename: []const u8 = "";
+    var pathname: []const u8 = "";
     var protocol_files: StrList = .{};
     var write_to_cli: bool = false;
 
     var args = std.process.args();
     _ = args.next();
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--out")) {
-            out_file = args.next().?;
+        if (std.mem.eql(u8, arg, "--name")) {
+            filename = args.next().?;
         } else if (std.mem.eql(u8, arg, "--prefix")) {
-            out_dir = args.next().?;
+            pathname = args.next().?;
         } else if (std.mem.eql(u8, arg, "--cli")) {
             write_to_cli = true;
         } else {
@@ -34,7 +34,7 @@ pub fn main() !void {
         }
     }
 
-    if (!write_to_cli and out_file.len == 0) {
+    if (!write_to_cli and filename.len == 0) {
         log.warn("No output file provided, will write to CLI", .{});
         write_to_cli = true;
     }
@@ -769,18 +769,18 @@ pub fn main() !void {
     };
 
     // check if prefix dir is present, if not, create
-    if (out_file.len > 0) {
+    if (filename.len > 0) {
         const cwd = std.fs.cwd();
-        const dir_out = if (out_dir.len > 0)
-            cwd.openDir(out_dir, .{}) catch dir: {
+        const dir_out = if (pathname.len > 0)
+            cwd.openDir(pathname, .{}) catch dir: {
             log.warn("Directory '{s}/{s}' does not exist. Attempting to create it now.", .{
                 try cwd.realpathAlloc(allocator, "."),
-                out_dir,
+                pathname,
             });
-            break :dir cwd.makeOpenPath(out_dir, .{}) catch |err| {
+            break :dir cwd.makeOpenPath(pathname, .{}) catch |err| {
                 log.err("Failed to create path '{s}/{s}' with error :: {s}", .{
                     try cwd.realpathAlloc(allocator, "."),
-                    out_dir,
+                    pathname,
                     @errorName(err),
                 });
                 return error.FailedToCreateOutputDir;
@@ -789,11 +789,11 @@ pub fn main() !void {
         else 
             cwd;
 
-        const file_out = dir_out.createFile(out_file, .{}) catch |err| {
+        const file_out = dir_out.createFile(filename, .{}) catch |err| {
                 log.err("Failed to create file '{s}/{s}/{s}' with error :: {s}", .{
                     try cwd.realpathAlloc(allocator, "."),
-                    out_dir,
-                    out_file,
+                    pathname,
+                    filename,
                     @errorName(err),
                 });
                 return error.FailedToCreateOutputFile;
