@@ -99,6 +99,7 @@ pub fn main() !void {
                                 break :blk try allocator.dupe(u8, interface_str);
                             },
                             .summary = if (xml_arg.getAttribute("summary")) |summary| try allocator.dupe(u8, summary) else null,
+                            .nullable = if (xml_arg.getAttribute("allow-null")) |_| true else false,
                         };
                         request_args.push(program_arena, arg);
                     }
@@ -108,6 +109,7 @@ pub fn main() !void {
                             .name = try allocator.dupe(u8, xml_request.getAttribute("name").?),
                             .description = if (xml_request.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
                             .args = request_args,
+                            .destructor = if (xml_request.getAttribute("type")) |_| true else false,
                         },
                     };
                     requests.push(program_arena, request);
@@ -132,6 +134,7 @@ pub fn main() !void {
                                 break :blk try allocator.dupe(u8, interface_str);
                             },
                             .summary = if (xml_arg.getAttribute("summary")) |summary| try allocator.dupe(u8, summary) else null,
+                            .nullable = if (xml_arg.getAttribute("allow-null")) |_| true else false,
                         };
                         event_args.push(program_arena, arg);
                     }
@@ -141,6 +144,7 @@ pub fn main() !void {
                             .name = try allocator.dupe(u8, xml_event.getAttribute("name").?),
                             .description = if (xml_event.getCharData("description")) |description| try allocator.dupe(u8, description) else null,
                             .args = event_args,
+                            .destructor = if (xml_event.getAttribute("type")) |_| true else false,
                         },
                     };
                     events.push(program_arena, event);
@@ -213,10 +217,78 @@ pub fn main() !void {
                     to_identifier(interface.name),
                 });
 
+                // Begin Interface Requests
+                log.debug("Writing {f}::{f} Requests", .{
+                    capitalize(protocol.name),
+                    to_identifier(interface.name),
+                });
+                var request_node_opt: ?*MessageList.Node = null;
+                request_node_opt = interface.requests.first;
+                while (request_node_opt) |request_node| : (request_node_opt = request_node.next) {
+                    const request = request_node.val.request;
+                    try out_contents.writer.print("  pub fn @\"{s}\"(proxy: *Proxy", .{
+                        request.name,
+                    });
+                    if (request.args.count == 1 and
+                        (request.args.first.?.val.type == .@"type") and
+                        (request.args.first.?.val.type.@"type" == .new_id)) {
+                        try out_contents.writer.print(") {s} {{\n_ = proxy; }}\n\n", .{request.args.first.?.val.interface.?});
+                    } else if (request.args.count > 0) {
+                        try out_contents.writer.print(", params: struct {{\n", .{});
+                        var arg_node_opt: ?*ArgList.Node = null;
+                        var return_t: []const u8 = "void"[0..];
+                        arg_node_opt = request.args.first;
+                        while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
+                            const arg = arg_node.val;
+                            switch (arg.type) {
+                                .@"type" => |arg_t| {
+                                    switch (arg_t) {
+                                        .new_id => {
+                                            if (!std.mem.eql(u8, "id", arg.name)) {
+                                                return_t = arg.interface.?;
+                                            } else {
+                                                return_t = arg_t.to_zig_type_string().?;
+                                            }
+                                        },
+                                        .object => {
+                                            try out_contents.writer.print("@\"{s}\": {s}{s},\n", .{
+                                                arg.name,
+                                                if (arg.nullable) "?" else "",
+                                                arg.interface.?,
+                                            });
+                                        },
+                                        else => {
+                                            try out_contents.writer.print("@\"{s}\": {s},\n", .{
+                                                arg.name,
+                                                arg_t.to_zig_type_string().?,
+                                            });
+                                        }
+                                    }
+                                },
+                                .@"enum" => |enum_t| {
+                                    try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{s}\",\n", .{
+                                        arg.name,
+                                        if (arg.nullable) "?" else "",
+                                        to_identifier(interface.name),
+                                        enum_t,
+                                    });
+                                },
+                            }
+
+                        }
+                        try out_contents.writer.print("}},) {s} {{\n _ = proxy; _ = params; }}\n\n", .{
+                            return_t,
+                        });
+                    } else {
+                        try out_contents.writer.print(") void {{\n _ = proxy; }}\n\n", .{
+                        });
+                    }
+                }
+
                 // Begin Interface Events
                 log.debug("Writing {f}::{f} Event union", .{
                     capitalize(protocol.name),
-                    capitalize(interface.name),
+                    to_identifier(interface.name),
                 });
                 if (interface.events.count > 0) {
                     var event_node_opt: ?*MessageList.Node = null;
@@ -241,7 +313,7 @@ pub fn main() !void {
                         if (event.description) |description| {
                             var lines = std.mem.splitScalar(u8, description, '\n');
                             while (lines.next()) |line|
-                                if (line.len > 1)
+                                if (trim_leading_whitespace(line).len > 1)
                                     try out_contents.writer.print("      /// {s}\n", .{trim_leading_whitespace(line)});
                         }
                         try out_contents.writer.print("      pub const @\"{f}\" = ", .{
@@ -253,11 +325,15 @@ pub fn main() !void {
                             var arg_node_opt: ?*ArgList.Node = event.args.first;
                             while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
                                 const arg = arg_node.val;
-                                try out_contents.writer.print("        @\"{s}\": \"{s}\",\n", .{
+                                try out_contents.writer.print("        @\"{s}\": {s}{s},\n", .{
                                     arg.name,
+                                    if (arg.nullable) "?" else "",
                                     switch (arg.type) {
                                         .type => |zig_type| zig_type.to_zig_type_string().?,
-                                        .@"enum" => |enum_str| enum_str,
+                                        .@"enum" => |enum_str| try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{s}\"", .{
+                                            to_identifier(interface.name),
+                                            enum_str,
+                                        }),
                                     },
                                 });
                             }
@@ -545,12 +621,14 @@ const Message = union(enum) {
         name: []const u8,
         description: ?[]const u8,
         args: ArgList = .{},
+        destructor: bool = false,
     };
 
     const Event = struct {
         name: []const u8,
         description: ?[]const u8,
         args: ArgList = .{},
+        destructor: bool = false,
     };
 };
 
@@ -560,6 +638,7 @@ const Arg = struct {
         type: Type,
         @"enum": []const u8,
     },
+    nullable: bool,
     interface: ?[]const u8,
     summary: ?[]const u8,
 };
@@ -619,7 +698,8 @@ fn trim_leading_whitespace(str: []const u8) []const u8 {
     for (str, 0..) |char, idx| {
         if (!(char == ' ' or
             char == '\t' or
-            char == '\x00'))
+            char == '\x00') or
+            (idx == str.len))
         {
             start_idx = idx;
             break;
