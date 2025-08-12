@@ -227,7 +227,7 @@ pub fn main() !void {
                     \\  pub const @"{f}" = struct {{
                     \\    id: u32,
                     \\
-                    \\  pub fn object(self: *const Self) Object {{
+                    \\  pub fn object(self: *const Interface) Object {{
                     \\    return .{{
                     \\      .ptr = @ptrCast(self),
                     \\      .vtable = .{{
@@ -237,13 +237,18 @@ pub fn main() !void {
                     \\    }};
                     \\  }}
                     \\
-                    \\  fn msg_parse(noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
+                    \\  fn msg_parse(noalias ctx: *const anyopaque,
+                    \\               noalias proxy: *const Proxy,
+                    \\               op: u16,
+                    \\               data: []const u8,
+                    \\  ) ParseError!WaylandProtocols.Event {{
+                    \\
                     \\    _ = ctx;    
-                    \\    return try Self.Event.parse(proxy, op, data);
+                    \\    return try Interface.Event.parse(proxy, op, data);
                     \\  }}
                     \\
                     \\
-                    ,.{
+                , .{
                     to_identifier(interface.name),
                 });
 
@@ -256,12 +261,13 @@ pub fn main() !void {
                 request_node_opt = interface.requests.first;
                 while (request_node_opt) |request_node| : (request_node_opt = request_node.next) {
                     const request = request_node.val.request;
-                    try out_contents.writer.print("  pub fn @\"{s}\"(self: *const Self, proxy: *Proxy", .{
+                    try out_contents.writer.print("  pub fn @\"{s}\"(self: *const Interface, proxy: *Proxy", .{
                         request.name,
                     });
                     if (request.args.count == 1 and
-                        (request.args.first.?.val.type == .@"type") and
-                        (request.args.first.?.val.type.@"type" == .new_id)) {
+                        (request.args.first.?.val.type == .type) and
+                        (request.args.first.?.val.type.type == .new_id))
+                    {
                         try out_contents.writer.print(") {s} {{\n_ = self;_ = proxy; }}\n\n", .{request.args.first.?.val.interface.?});
                     } else if (request.args.count > 0) {
                         try out_contents.writer.print(", params: struct {{\n", .{});
@@ -271,7 +277,7 @@ pub fn main() !void {
                         while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
                             const arg = arg_node.val;
                             switch (arg.type) {
-                                .@"type" => |arg_t| {
+                                .type => |arg_t| {
                                     switch (arg_t) {
                                         .new_id => {
                                             if (!std.mem.eql(u8, "id", arg.name)) {
@@ -292,12 +298,11 @@ pub fn main() !void {
                                                 arg.name,
                                                 arg_t.to_zig_type_string().?,
                                             });
-                                        }
+                                        },
                                     }
                                 },
                                 .@"enum" => |enum_t| {
                                     if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
-
                                         try out_contents.writer.print("@\"{s}\": {s}", .{
                                             arg.name,
                                             if (arg.nullable) "?" else "",
@@ -313,20 +318,18 @@ pub fn main() !void {
                                         try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{f}\",\n", .{
                                             arg.name,
                                             if (arg.nullable) "?" else "",
-                                                to_identifier(interface.name),
-                                                to_pascal(enum_t),
+                                            to_identifier(interface.name),
+                                            to_pascal(enum_t),
                                         });
                                     }
                                 },
                             }
-
                         }
                         try out_contents.writer.print("}},) {s} {{\n _ = self; _ = proxy; _ = params; }}\n\n", .{
                             return_t,
                         });
                     } else {
-                        try out_contents.writer.print(") void {{\n _ = self; _ = proxy; }}\n\n", .{
-                        });
+                        try out_contents.writer.print(") void {{\n _ = self; _ = proxy; }}\n\n", .{});
                     }
                 }
 
@@ -343,7 +346,7 @@ pub fn main() !void {
                     event_node_opt = interface.events.first;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
                         const event = event_node.val.event;
-                        try out_contents.writer.print("      @\"{s}\": @This().@\"{f}\",\n", .{
+                        try out_contents.writer.print("      @\"{s}\": Interface.Event.@\"{f}\",\n", .{
                             event.name,
                             to_pascal(event.name),
                         });
@@ -354,85 +357,101 @@ pub fn main() !void {
                     // Event parse
                     event_node_opt = interface.events.first;
                     try out_contents.writer.print(
-                        \\      inline fn parse(proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {{
+                        \\      inline fn parse(proxy: *const Proxy, op: u16, data: []const u8,) ParseError!WaylandProtocols.Event {{
                         \\        const event: WaylandProtocols.Event = blk: {{
                         \\          switch (op) {{
                         \\      
-                            , .{});
+                    , .{});
 
                     var event_idx: u32 = 0;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
                         try out_contents.writer.print(
                             \\          {d} => {{
                             \\
-                            , .{event_idx});
+                        , .{event_idx});
                         defer event_idx += 1;
                         const event = event_node.val.event;
-                        try out_contents.writer.print(
-                            \\ var event_fields: [{d}]MessageArg = [{d}]MessageArg {{
+                        if (event.args.count > 0) {
+                            try out_contents.writer.print(
+                                \\ var event_fields: [{d}]MessageArg = [{d}]MessageArg {{
                             , .{
                                 event.args.count,
                                 event.args.count,
-                        });
-                        var arg_node_opt: ?*ArgList.Node = event.args.first;
-                        while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
-                            const arg = arg_node.val;
-                            switch (arg.type) {
-                                .@"enum" => |enum_t| {
-                                    const interface_str, const enum_str = blk: {
-                                        if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
-                                            var iter = std.mem.splitScalar(u8, enum_t, '.');
-                                            break :blk .{ iter.next().?, iter.next().? };
-                                        } else {
-                                            break :blk .{ interface.name, enum_t };
-                                        }
-                                    };
-                                    try out_contents.writer.print(
-                                        \\ .{{
-                                        \\   .@"enum" = .{{
-                                        \\     .@"{s}" = .{{
-                                        \\       .@"{s}" = .fromInt(0)
-                                        \\     }},
-                                        \\   }},
-                                        \\ }},
-                                        \\
-                                    , .{
-                                        interface_str,
-                                        enum_str,
-                                    });
-                                },
-                                .@"type" => |@"type"| switch (@"type") {
-                                    .string, .array => |type_field| try out_contents.writer.print(
-                                        \\ .{{
-                                        \\   .{s} = ""
-                                        \\ }},
-                                        \\
-                                    , .{@tagName(type_field)}),
+                            });
+                            var arg_node_opt: ?*ArgList.Node = event.args.first;
+                            while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
+                                const arg = arg_node.val;
+                                switch (arg.type) {
+                                    .@"enum" => |enum_t| {
+                                        const interface_str, const enum_str = blk: {
+                                            if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
+                                                var iter = std.mem.splitScalar(u8, enum_t, '.');
+                                                break :blk .{ iter.next().?, iter.next().? };
+                                            } else {
+                                                break :blk .{ interface.name, enum_t };
+                                            }
+                                        };
+                                        try out_contents.writer.print(
+                                            \\ .{{
+                                            \\   .@"enum" = .{{
+                                            \\     .@"{s}" = .{{
+                                            \\       .@"{s}" = .fromInt(0)
+                                            \\     }},
+                                            \\   }},
+                                            \\ }},
+                                            \\
+                                        , .{
+                                            interface_str,
+                                            enum_str,
+                                        });
+                                    },
+                                    .type => |@"type"| switch (@"type") {
+                                        .string, .array => |type_field| try out_contents.writer.print(
+                                            \\ .{{
+                                            \\   .{s} = ""
+                                            \\ }},
+                                            \\
+                                        , .{@tagName(type_field)}),
 
-                                    else => |type_field| try out_contents.writer.print(
-                                        \\ .{{
-                                        \\   .{s} = 0
-                                        \\ }},
-                                        \\
-                                    , .{@tagName(type_field)}),
+                                        else => |type_field| try out_contents.writer.print(
+                                            \\ .{{
+                                            \\   .{s} = 0
+                                            \\ }},
+                                            \\
+                                        , .{@tagName(type_field)}),
+                                    },
                                 }
                             }
-                        }
 
-                        try out_contents.writer.print(
-                            \\ }};
-                            \\ try proxy.msg_parse(&event_fields, data);
-                            \\ break :blk .{{
-                            \\   .@"{s}" = .{{
-                            \\     .@"{s}" = .fromMsgArgs(&event_fields),
-                            \\   }},
-                            \\ }};
-                            \\ }},
-                            \\ 
+                            try out_contents.writer.print(
+                                \\ }};
+                                \\ try proxy.msg_parse(&event_fields, data);
+                                \\ break :blk .{{
+                                \\   .@"{s}" = .{{
+                                \\     .@"{s}" = .fromMsgArgs(&event_fields),
+                                \\   }},
+                                \\ }};
+                                \\ }},
+                                \\ 
                             , .{
                                 interface.name,
                                 event.name,
                             });
+                        } else {
+                            try out_contents.writer.print(
+                                \\ _ = &proxy; _ = &data;
+                                \\ break :blk .{{
+                                \\   .@"{s}" = .{{
+                                \\     .@"{s}" = {{}},
+                                \\   }},
+                                \\ }};
+                                \\ }},
+                                \\ 
+                            , .{
+                                interface.name,
+                                event.name,
+                            });
+                        }
                     }
                     try out_contents.writer.print(
                         \\        else => {{
@@ -443,7 +462,7 @@ pub fn main() !void {
                         \\    }};
                         \\    return event;
                         \\
-                        , .{});
+                    , .{});
                     try out_contents.writer.print("    }}\n\n", .{});
 
                     // Event Type Definitions
@@ -472,55 +491,67 @@ pub fn main() !void {
                                     arg.name,
                                     if (arg.nullable) "?" else "",
                                     switch (arg.type) {
-                                        .type => |zig_type| zig_type.to_zig_type_string().?,
+                                        .type => |@"type"| switch (@"type") {
+                                            .object => |T| arg.interface orelse T.to_zig_type_string().?,
+                                            else => |T| T.to_zig_type_string().?,
+                                        },
                                         .@"enum" => |enum_t| str: {
-                                    const interface_str, const enum_str = blk: {
-                                        if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
-                                            var iter = std.mem.splitScalar(u8, enum_t, '.');
-                                            break :blk .{ iter.next().?, iter.next().? };
-                                        } else {
-                                            break :blk .{ interface.name, enum_t };
-                                        }
-                                    };
-                                    break :str try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{f}\"", .{
-                                            to_identifier(interface_str),
-                                            to_pascal(enum_str),
-                                        });
-                                    },
+                                            const interface_str, const enum_str = blk: {
+                                                if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
+                                                    var iter = std.mem.splitScalar(u8, enum_t, '.');
+                                                    break :blk .{ iter.next().?, iter.next().? };
+                                                } else {
+                                                    break :blk .{ interface.name, enum_t };
+                                                }
+                                            };
+                                            break :str try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{f}\"", .{
+                                                to_identifier(interface_str),
+                                                to_pascal(enum_str),
+                                            });
+                                        },
                                     },
                                 });
                             }
 
                             try out_contents.writer.print(
                                 \\
-                                \\        pub inline fn fromMsgArgs(msg_args: []MessageArg) @This() {{
+                                \\        pub inline fn fromMsgArgs(msg_args: []MessageArg,) Interface.Event.@"{f}" {{
                                 \\          return .{{
                                 \\
-                                , .{
-                                });
+                            , .{
+                                to_pascal(event.name),
+                            });
                             arg_node_opt = event.args.first;
                             var arg_idx: u32 = 0;
                             while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
                                 defer arg_idx += 1;
                                 const arg = arg_node.val;
-                                try out_contents.writer.print("       .@\"{s}\" = msg_args[{d}].{s},\n", .{
-                                    arg.name,
-                                    arg_idx,
-                                    switch (arg.type) {
-                                        .type => |zig_type| @tagName(zig_type),
-                                        .@"enum" => |enum_str| try std.fmt.allocPrint(allocator, "@\"enum\".@\"{s}\".@\"{s}\"", .{
-                                            interface.name,
-                                            enum_str,
-                                        }),
-                                    },
-                                });
+                                if (arg.interface) |_| {
+                                    try out_contents.writer.print("       .@\"{s}\" = .{{ .id = msg_args[{d}].{s} }},\n", .{
+                                        arg.name,
+                                        arg_idx,
+                                        @tagName(arg.type.type),
+                                    });
+                                } else {
+                                    try out_contents.writer.print("       .@\"{s}\" = msg_args[{d}].{s},\n", .{
+                                        arg.name,
+                                        arg_idx,
+                                        switch (arg.type) {
+                                            .type => |@"type"| @tagName(@"type"),
+                                            .@"enum" => |enum_str| try std.fmt.allocPrint(allocator, "@\"enum\".@\"{s}\".@\"{s}\"", .{
+                                                interface.name,
+                                                enum_str,
+                                            }),
+                                        },
+                                    });
+                                }
                             }
                             try out_contents.writer.print(
                                 \\
                                 \\          }};
                                 \\        }}
                                 \\
-                                , .{});
+                            , .{});
                             // End Event
                             try out_contents.writer.print("      }};\n", .{});
                         } else try out_contents.writer.print("void;\n", .{});
@@ -564,7 +595,7 @@ pub fn main() !void {
                                     capitalize(interface.name),
                                     enum_val.name,
                                 });
-                                try out_contents.writer.print("    pub const {f} = enum (u32) {{\n", .{ to_pascal(enum_val.name) });
+                                try out_contents.writer.print("    pub const {f} = enum (u32) {{\n", .{to_pascal(enum_val.name)});
                                 entry_node_opt = enum_val.entries.first;
                                 while (entry_node_opt) |entry_node| : (entry_node_opt = entry_node.next) {
                                     const entry = entry_node.val;
@@ -585,13 +616,13 @@ pub fn main() !void {
                                     \\        return @enumFromInt(int);
                                     \\      }}
                                     \\
-                                    , .{
-                                        to_pascal(enum_val.name),
-                                    });
+                                , .{
+                                    to_pascal(enum_val.name),
+                                });
                                 try out_contents.writer.print("    }};\n\n", .{});
                             },
                             .bitfield => |bitfield_val| {
-                                try out_contents.writer.print("    pub const {f} = packed struct (u32) {{\n", .{ to_pascal(bitfield_val.name) });
+                                try out_contents.writer.print("    pub const {f} = packed struct (u32) {{\n", .{to_pascal(bitfield_val.name)});
                                 entry_node_opt = bitfield_val.entries.first;
                                 var bits_remaining: u16 = 32;
                                 while (entry_node_opt) |entry_node| : (entry_node_opt = entry_node.next) {
@@ -601,18 +632,18 @@ pub fn main() !void {
                                     });
                                     bits_remaining -= 1;
                                 }
-                                try out_contents.writer.print("      __reserved_bits: u{d} = 0,\n", .{ bits_remaining });
+                                try out_contents.writer.print("      __reserved_bits: u{d} = 0,\n", .{bits_remaining});
                                 try out_contents.writer.print(
                                     \\
                                     \\      pub inline fn fromInt(int: u32) {f} {{
                                     \\        return @bitCast(int);
                                     \\      }}
                                     \\
-                                    , .{
-                                        to_pascal(bitfield_val.name),
-                                    });
+                                , .{
+                                    to_pascal(bitfield_val.name),
+                                });
                                 try out_contents.writer.print("    }};\n\n", .{});
-                            }
+                            },
                         }
                     }
                     try out_contents.writer.print("\n", .{});
@@ -630,7 +661,7 @@ pub fn main() !void {
                 // End Interface
                 try out_contents.writer.print(
                     \\
-                    \\    pub const Self = @This();
+                    \\    pub const Interface = @This();
                     \\    pub const InterfaceName = "{s}";
                     \\    pub const InterfaceVersion = {s};
                     \\  }};
@@ -676,7 +707,7 @@ pub fn main() !void {
         try out_contents.writer.print(
             \\
             \\pub const Proxy = struct {{
-            \\    ctx: *const anyopaque,
+            \\    ctx: *anyopaque,
             \\    vtable: VTable,
             \\
             \\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {{
@@ -687,10 +718,9 @@ pub fn main() !void {
             \\    }}
             \\
             \\    const VTable = struct {{
-            \\        msg_parse_fn: *const fn(noalias ctx: *const anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-            \\        msg_write_fn: *const fn(noalias ctx: *const anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+            \\        msg_parse_fn: *const fn(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+            \\        msg_write_fn: *const fn(noalias ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
             \\    }};
-            \\
             \\}};
             \\
             \\pub const ParseError = error{{
@@ -791,30 +821,30 @@ pub fn main() !void {
         const cwd = std.fs.cwd();
         const dir_out = if (pathname.len > 0)
             cwd.openDir(pathname, .{}) catch dir: {
-            log.warn("Directory '{s}/{s}' does not exist. Attempting to create it now.", .{
-                try cwd.realpathAlloc(allocator, "."),
-                pathname,
-            });
-            break :dir cwd.makeOpenPath(pathname, .{}) catch |err| {
-                log.err("Failed to create path '{s}/{s}' with error :: {s}", .{
+                log.warn("Directory '{s}/{s}' does not exist. Attempting to create it now.", .{
                     try cwd.realpathAlloc(allocator, "."),
                     pathname,
-                    @errorName(err),
                 });
-                return error.FailedToCreateOutputDir;
-            };
-        }
-        else 
+                break :dir cwd.makeOpenPath(pathname, .{}) catch |err| {
+                    log.err("Failed to create path '{s}/{s}' with error :: {s}", .{
+                        try cwd.realpathAlloc(allocator, "."),
+                        pathname,
+                        @errorName(err),
+                    });
+                    return error.FailedToCreateOutputDir;
+                };
+            }
+        else
             cwd;
 
         const file_out = dir_out.createFile(filename, .{}) catch |err| {
-                log.err("Failed to create file '{s}/{s}/{s}' with error :: {s}", .{
-                    try cwd.realpathAlloc(allocator, "."),
-                    pathname,
-                    filename,
-                    @errorName(err),
-                });
-                return error.FailedToCreateOutputFile;
+            log.err("Failed to create file '{s}/{s}/{s}' with error :: {s}", .{
+                try cwd.realpathAlloc(allocator, "."),
+                pathname,
+                filename,
+                @errorName(err),
+            });
+            return error.FailedToCreateOutputFile;
         };
         try file_out.writeAll(formatted);
     }
@@ -1038,49 +1068,6 @@ const Connection = struct {};
 //     }
 //   }
 // }
-fn msg_parse(connection: *Connection, args_out: []MessageArg, data: []const u8) void {
-    var offset: u32 = 0;
-    for (args_out) |*arg| {
-        switch (arg.*) {
-            .fd => |*arg_fd| {
-                arg_fd.* = connection.fd_queue.next().?;
-            },
-            .uint, .object, .new_id => |*uint_arg| {
-                uint_arg.* = std.mem.bytesToValue(u32, &data[offset..][0..4]);
-                offset += 4;
-            },
-            .int => |*int_arg| {
-                int_arg.* = std.mem.bytesToValue(i32, &data[offset..][0..4]);
-                offset += 4;
-            },
-            .@"enum" => |*enum_arg| {
-                const int_ptr: *u32 = @ptrCast(enum_arg);
-                int_ptr.* = std.mem.bytesToValue(u32, &data[offset..][0..4]);
-                offset += 4;
-            },
-            .fixed => |*fixed_arg| {
-                const int_val = std.mem.bytesToValue(i32, &data[offset..][0..4]);
-                offset += 4;
-                fixed_arg.* = @as(f32, @floatFromInt(int_val)) / 256;
-            },
-            .string => |*string_arg| {
-                const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
-                offset += 4;
-                const rounded_len = round_up(str_len, 4);
-                string_arg.* = @ptrCast(data[offset..][0 .. str_len - 1 :0]);
-                offset += rounded_len;
-            },
-            .array => |*array_arg| {
-                const arr_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
-                offset += 4;
-                const rounded_len = round_up(arr_len, 4);
-                array_arg.* = data[offset..][0..arr_len];
-                offset += rounded_len;
-            },
-        }
-    }
-}
-
 const PascalFromSnake = struct {
     str: []const u8,
 
@@ -1145,20 +1132,6 @@ inline fn capitalize(str: []const u8) CapitalString {
     return .{
         .str = str,
     };
-}
-
-
-fn msg_write() !void {
-    //...
-}
-inline fn round_up(val: anytype, mul: @TypeOf(val)) @TypeOf(val) {
-    if (val == 0)
-        return 0
-    else
-        return if (val % mul == 0)
-            val
-        else
-            val + (mul - (val % mul));
 }
 
 const StrList = List([]const u8);

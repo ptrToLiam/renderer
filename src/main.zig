@@ -1,5 +1,6 @@
 const std = @import("std");
 const renderer = @import("renderer");
+const Arena = @import("Arena");
 
 const WaylandProtocols = @import("generated/wayland_protocols.zig");
 const WaylandHeader = packed struct(u64) {
@@ -16,7 +17,7 @@ const WireEvent = struct {
 const Connection = struct {
     fd_queue: FdQueue = .{},
 
-    pub fn proxy(conn: *const Connection) WaylandProtocols.Proxy {
+    pub fn proxy(conn: *Connection) WaylandProtocols.Proxy {
         return .{
             .ctx = @ptrCast(conn),
             .vtable = .{
@@ -26,7 +27,7 @@ const Connection = struct {
         };
     }
 
-    fn msg_parse(noalias ctx: *const anyopaque, args_out: []WaylandProtocols.MessageArg, data: []const u8) !void {
+    fn msg_parse(noalias ctx: *anyopaque, args_out: []WaylandProtocols.MessageArg, data: []const u8) !void {
         const connection: *Connection = @constCast(@ptrCast(@alignCast(ctx)));
         var offset: u32 = 0;
         for (args_out) |*arg| {
@@ -114,7 +115,7 @@ const Connection = struct {
 };
 
 pub fn main() !void {
-    const conn: Connection = .{};
+    var conn: Connection = .{};
 
     const name: u32 = 3;
     const name_bytes = std.mem.asBytes(&name);

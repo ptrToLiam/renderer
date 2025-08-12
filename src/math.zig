@@ -350,4 +350,4 @@ pub const sin = math.sin;
 pub const maxInt = math.maxInt;
 pub const maxFloat = math.floatMax;
 
-const log = std.log.scoped(.MATH);
+const log = std.log.scoped(.Math);

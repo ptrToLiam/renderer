@@ -8,6 +8,14 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const math_mod = b.addModule("Math", .{
+        .root_source_file = b.path("src/math.zig"),
+        .target = target,
+    });
+    const arena_mod = b.addModule("Arena", .{
+        .root_source_file = b.path("src/Arena.zig"),
+        .target = target,
+    });
     const exe = b.addExecutable(.{
         .name = "renderer",
         .root_module = b.createModule(.{
@@ -16,6 +24,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "renderer", .module = mod },
+                .{ .name = "Arena", .module = arena_mod },
+                .{ .name = "Math", .module = math_mod },
             },
         }),
     });
