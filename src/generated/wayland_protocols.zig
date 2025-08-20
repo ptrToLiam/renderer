@@ -6,1076 +6,14 @@
 
 const WaylandProtocols = @This();
 
-pub const LinuxDmabufV1 = struct {
-    /// Following the interfaces from:
-    /// https://www.khronos.org/registry/egl/extensions/EXT/EGL_EXT_image_dma_buf_import.txt
-    /// https://www.khronos.org/registry/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import_modifiers.txt
-    /// and the Linux DRM sub-system's AddFb2 ioctl.
-    /// This interface offers ways to create generic dmabuf-based wl_buffers.
-    /// Clients can use the get_surface_feedback request to get dmabuf feedback
-    /// for a particular surface. If the client wants to retrieve feedback not
-    /// tied to a surface, they can use the get_default_feedback request.
-    /// The following are required from clients:
-    /// - Clients must ensure that either all data in the dma-buf is
-    /// coherent for all subsequent read access or that coherency is
-    /// correctly handled by the underlying kernel-side dma-buf
-    /// implementation.
-    /// - Don't make any more attachments after sending the buffer to the
-    /// compositor. Making more attachments later increases the risk of
-    /// the compositor not being able to use (re-import) an existing
-    /// dmabuf-based wl_buffer.
-    /// The underlying graphics stack must ensure the following:
-    /// - The dmabuf file descriptors relayed to the server will stay valid
-    /// for the whole lifetime of the wl_buffer. This means the server may
-    /// at any time use those fds to import the dmabuf into any kernel
-    /// sub-system that might accept it.
-    /// However, when the underlying graphics stack fails to deliver the
-    /// promise, because of e.g. a device hot-unplug which raises internal
-    /// errors, after the wl_buffer has been successfully created the
-    /// compositor must not raise protocol errors to the client when dmabuf
-    /// import later fails.
-    /// To create a wl_buffer from one or more dmabufs, a client creates a
-    /// zwp_linux_dmabuf_params_v1 object with a zwp_linux_dmabuf_v1.create_params
-    /// request. All planes required by the intended format are added with
-    /// the 'add' request. Finally, a 'create' or 'create_immed' request is
-    /// issued, which has the following outcome depending on the import success.
-    /// The 'create' request,
-    /// - on success, triggers a 'created' event which provides the final
-    /// wl_buffer to the client.
-    /// - on failure, triggers a 'failed' event to convey that the server
-    /// cannot use the dmabufs received from the client.
-    /// For the 'create_immed' request,
-    /// - on success, the server immediately imports the added dmabufs to
-    /// create a wl_buffer. No event is sent from the server in this case.
-    /// - on failure, the server can choose to either:
-    /// - terminate the client by raising a fatal error.
-    /// - mark the wl_buffer as failed, and send a 'failed' event to the
-    /// client. If the client uses a failed wl_buffer as an argument to any
-    /// request, the behaviour is compositor implementation-defined.
-    /// For all DRM formats and unless specified in another protocol extension,
-    /// pre-multiplied alpha is used for pixel values.
-    /// Unless specified otherwise in another protocol extension, implicit
-    /// synchronization is used. In other words, compositors and clients must
-    /// wait and signal fences implicitly passed via the DMA-BUF's reservation
-    /// mechanism.
-    ///
-    pub const LinuxDmabufV1 = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn create_params(self: *const Interface, proxy: *Proxy) zwp_linux_buffer_params_v1 {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn get_default_feedback(self: *const Interface, proxy: *Proxy) zwp_linux_dmabuf_feedback_v1 {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn get_surface_feedback(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                surface: wl_surface,
-            },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub const Event = union(enum) {
-            format: Interface.Event.Format,
-            modifier: Interface.Event.Modifier,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .uint = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_v1 = .{
-                                    .format = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        1 => {
-                            var event_fields: [3]MessageArg = [3]MessageArg{
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_v1 = .{
-                                    .modifier = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// This event advertises one buffer format that the server supports.
-            /// All the supported formats are advertised once when the client
-            /// binds to this interface. A roundtrip after binding guarantees
-            /// that the client has received all supported formats.
-            /// For the definition of the format codes, see the
-            /// zwp_linux_buffer_params_v1::create request.
-            /// Starting version 4, the format event is deprecated and must not be
-            /// sent by compositors. Instead, use get_default_feedback or
-            /// get_surface_feedback.
-            ///
-            pub const Format = struct {
-                format: u32,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.Format {
-                    return .{
-                        .format = msg_args[0].uint,
-                    };
-                }
-            };
-
-            /// This event advertises the formats that the server supports, along with
-            /// the modifiers supported for each format. All the supported modifiers
-            /// for all the supported formats are advertised once when the client
-            /// binds to this interface. A roundtrip after binding guarantees that
-            /// the client has received all supported format-modifier pairs.
-            /// For legacy support, DRM_FORMAT_MOD_INVALID (that is, modifier_hi ==
-            /// 0x00ffffff and modifier_lo == 0xffffffff) is allowed in this event.
-            /// It indicates that the server can support the format with an implicit
-            /// modifier. When a plane has DRM_FORMAT_MOD_INVALID as its modifier, it
-            /// is as if no explicit modifier is specified. The effective modifier
-            /// will be derived from the dmabuf.
-            /// A compositor that sends valid modifiers and DRM_FORMAT_MOD_INVALID for
-            /// a given format supports both explicit modifiers and implicit modifiers.
-            /// For the definition of the format and modifier codes, see the
-            /// zwp_linux_buffer_params_v1::create and zwp_linux_buffer_params_v1::add
-            /// requests.
-            /// Starting version 4, the modifier event is deprecated and must not be
-            /// sent by compositors. Instead, use get_default_feedback or
-            /// get_surface_feedback.
-            ///
-            pub const Modifier = struct {
-                format: u32,
-                modifier_hi: u32,
-                modifier_lo: u32,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.Modifier {
-                    return .{
-                        .format = msg_args[0].uint,
-                        .modifier_hi = msg_args[1].uint,
-                        .modifier_lo = msg_args[2].uint,
-                    };
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "zwp_linux_dmabuf_v1";
-        pub const InterfaceVersion = 5;
-    };
-
-    /// This temporary object is a collection of dmabufs and other
-    /// parameters that together form a single logical buffer. The temporary
-    /// object may eventually create one wl_buffer unless cancelled by
-    /// destroying it before requesting 'create'.
-    /// Single-planar formats only require one dmabuf, however
-    /// multi-planar formats may require more than one dmabuf. For all
-    /// formats, an 'add' request must be called once per plane (even if the
-    /// underlying dmabuf fd is identical).
-    /// You must use consecutive plane indices ('plane_idx' argument for 'add')
-    /// from zero to the number of planes used by the drm_fourcc format code.
-    /// All planes required by the format must be given exactly once, but can
-    /// be given in any order. Each plane index can be set only once.
-    ///
-    pub const LinuxBufferParamsV1 = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn add(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                fd: std.posix.fd_t,
-                plane_idx: u32,
-                offset: u32,
-                stride: u32,
-                modifier_hi: u32,
-                modifier_lo: u32,
-            },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub fn create(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                width: i32,
-                height: i32,
-                format: u32,
-                flags: LinuxBufferParamsV1.Enum.Flags,
-            },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub fn create_immed(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                width: i32,
-                height: i32,
-                format: u32,
-                flags: LinuxBufferParamsV1.Enum.Flags,
-            },
-        ) wl_buffer {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub const Event = union(enum) {
-            created: Interface.Event.Created,
-            failed: Interface.Event.Failed,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .new_id = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_buffer_params_v1 = .{
-                                    .created = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        1 => {
-                            _ = &proxy;
-                            _ = &data;
-                            break :blk .{
-                                .zwp_linux_buffer_params_v1 = .{
-                                    .failed = {},
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// This event indicates that the attempted buffer creation was
-            /// successful. It provides the new wl_buffer referencing the dmabuf(s).
-            /// Upon receiving this event, the client should destroy the
-            /// zwp_linux_buffer_params_v1 object.
-            ///
-            pub const Created = struct {
-                buffer: u32,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.Created {
-                    return .{
-                        .buffer = .{ .id = msg_args[0].new_id },
-                    };
-                }
-            };
-
-            /// This event indicates that the attempted buffer creation has
-            /// failed. It usually means that one of the dmabuf constraints
-            /// has not been fulfilled.
-            /// Upon receiving this event, the client should destroy the
-            /// zwp_linux_buffer_params_v1 object.
-            ///
-            pub const Failed = void;
-        };
-
-        pub const Enum = union(enum) {
-            @"error": Error,
-            flags: Flags,
-
-            pub const Error = enum(u32) {
-                already_used = 0,
-                plane_idx = 1,
-                plane_set = 2,
-                incomplete = 3,
-                invalid_format = 4,
-                invalid_dimensions = 5,
-                out_of_bounds = 6,
-                invalid_wl_buffer = 7,
-
-                pub inline fn fromInt(int: u32) Error {
-                    return @enumFromInt(int);
-                }
-            };
-
-            pub const Flags = packed struct(u32) {
-                y_invert: bool = false,
-                interlaced: bool = false,
-                bottom_first: bool = false,
-                __reserved_bits: u29 = 0,
-
-                pub inline fn fromInt(int: u32) Flags {
-                    return @bitCast(int);
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "zwp_linux_buffer_params_v1";
-        pub const InterfaceVersion = 5;
-    };
-
-    /// This object advertises dmabuf parameters feedback. This includes the
-    /// preferred devices and the supported formats/modifiers.
-    /// The parameters are sent once when this object is created and whenever they
-    /// change. The done event is always sent once after all parameters have been
-    /// sent. When a single parameter changes, all parameters are re-sent by the
-    /// compositor.
-    /// Compositors can re-send the parameters when the current client buffer
-    /// allocations are sub-optimal. Compositors should not re-send the
-    /// parameters if re-allocating the buffers would not result in a more optimal
-    /// configuration. In particular, compositors should avoid sending the exact
-    /// same parameters multiple times in a row.
-    /// The tranche_target_device and tranche_formats events are grouped by
-    /// tranches of preference. For each tranche, a tranche_target_device, one
-    /// tranche_flags and one or more tranche_formats events are sent, followed
-    /// by a tranche_done event finishing the list. The tranches are sent in
-    /// descending order of preference. All formats and modifiers in the same
-    /// tranche have the same preference.
-    /// To send parameters, the compositor sends one main_device event, tranches
-    /// (each consisting of one tranche_target_device event, one tranche_flags
-    /// event, tranche_formats events and then a tranche_done event), then one
-    /// done event.
-    ///
-    pub const LinuxDmabufFeedbackV1 = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub const Event = union(enum) {
-            done: Interface.Event.Done,
-            format_table: Interface.Event.FormatTable,
-            main_device: Interface.Event.MainDevice,
-            tranche_done: Interface.Event.TrancheDone,
-            tranche_target_device: Interface.Event.TrancheTargetDevice,
-            tranche_formats: Interface.Event.TrancheFormats,
-            tranche_flags: Interface.Event.TrancheFlags,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            _ = &proxy;
-                            _ = &data;
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .done = {},
-                                },
-                            };
-                        },
-                        1 => {
-                            var event_fields: [2]MessageArg = [2]MessageArg{
-                                .{ .fd = 0 },
-                                .{ .uint = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .format_table = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        2 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .array = "" },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .main_device = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        3 => {
-                            _ = &proxy;
-                            _ = &data;
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .tranche_done = {},
-                                },
-                            };
-                        },
-                        4 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .array = "" },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .tranche_target_device = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        5 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .array = "" },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .tranche_formats = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        6 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{
-                                    .@"enum" = .{
-                                        .zwp_linux_dmabuf_feedback_v1 = .{ .tranche_flags = .fromInt(0) },
-                                    },
-                                },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zwp_linux_dmabuf_feedback_v1 = .{
-                                    .tranche_flags = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// This event is sent after all parameters of a wp_linux_dmabuf_feedback
-            /// object have been sent.
-            /// This allows changes to the wp_linux_dmabuf_feedback parameters to be
-            /// seen as atomic, even if they happen via multiple events.
-            ///
-            pub const Done = void;
-
-            /// This event provides a file descriptor which can be memory-mapped to
-            /// access the format and modifier table.
-            /// The table contains a tightly packed array of consecutive format +
-            /// modifier pairs. Each pair is 16 bytes wide. It contains a format as a
-            /// 32-bit unsigned integer, followed by 4 bytes of unused padding, and a
-            /// modifier as a 64-bit unsigned integer. The native endianness is used.
-            /// The client must map the file descriptor in read-only private mode.
-            /// Compositors are not allowed to mutate the table file contents once this
-            /// event has been sent. Instead, compositors must create a new, separate
-            /// table file and re-send feedback parameters. Compositors are allowed to
-            /// store duplicate format + modifier pairs in the table.
-            ///
-            pub const FormatTable = struct {
-                fd: std.posix.fd_t,
-                size: u32,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.FormatTable {
-                    return .{
-                        .fd = msg_args[0].fd,
-                        .size = msg_args[1].uint,
-                    };
-                }
-            };
-
-            /// This event advertises the main device that the server prefers to use
-            /// when direct scan-out to the target device isn't possible. The
-            /// advertised main device may be different for each
-            /// wp_linux_dmabuf_feedback object, and may change over time.
-            /// There is exactly one main device. The compositor must send at least
-            /// one preference tranche with tranche_target_device equal to main_device.
-            /// Clients need to create buffers that the main device can import and
-            /// read from, otherwise creating the dmabuf wl_buffer will fail (see the
-            /// wp_linux_buffer_params.create and create_immed requests for details).
-            /// The main device will also likely be kept active by the compositor,
-            /// so clients can use it instead of waking up another device for power
-            /// savings.
-            /// In general the device is a DRM node. The DRM node type (primary vs.
-            /// render) is unspecified. Clients must not rely on the compositor sending
-            /// a particular node type. Clients cannot check two devices for equality
-            /// by comparing the dev_t value.
-            /// If explicit modifiers are not supported and the client performs buffer
-            /// allocations on a different device than the main device, then the client
-            /// must force the buffer to have a linear layout.
-            ///
-            pub const MainDevice = struct {
-                device: []const u8,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.MainDevice {
-                    return .{
-                        .device = msg_args[0].array,
-                    };
-                }
-            };
-
-            /// This event splits tranche_target_device and tranche_formats events in
-            /// preference tranches. It is sent after a set of tranche_target_device
-            /// and tranche_formats events; it represents the end of a tranche. The
-            /// next tranche will have a lower preference.
-            ///
-            pub const TrancheDone = void;
-
-            /// This event advertises the target device that the server prefers to use
-            /// for a buffer created given this tranche. The advertised target device
-            /// may be different for each preference tranche, and may change over time.
-            /// There is exactly one target device per tranche.
-            /// The target device may be a scan-out device, for example if the
-            /// compositor prefers to directly scan-out a buffer created given this
-            /// tranche. The target device may be a rendering device, for example if
-            /// the compositor prefers to texture from said buffer.
-            /// The client can use this hint to allocate the buffer in a way that makes
-            /// it accessible from the target device, ideally directly. The buffer must
-            /// still be accessible from the main device, either through direct import
-            /// or through a potentially more expensive fallback path. If the buffer
-            /// can't be directly imported from the main device then clients must be
-            /// prepared for the compositor changing the tranche priority or making
-            /// wl_buffer creation fail (see the wp_linux_buffer_params.create and
-            /// create_immed requests for details).
-            /// If the device is a DRM node, the DRM node type (primary vs. render) is
-            /// unspecified. Clients must not rely on the compositor sending a
-            /// particular node type. Clients cannot check two devices for equality by
-            /// comparing the dev_t value.
-            /// This event is tied to a preference tranche, see the tranche_done event.
-            ///
-            pub const TrancheTargetDevice = struct {
-                device: []const u8,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.TrancheTargetDevice {
-                    return .{
-                        .device = msg_args[0].array,
-                    };
-                }
-            };
-
-            /// This event advertises the format + modifier combinations that the
-            /// compositor supports.
-            /// It carries an array of indices, each referring to a format + modifier
-            /// pair in the last received format table (see the format_table event).
-            /// Each index is a 16-bit unsigned integer in native endianness.
-            /// For legacy support, DRM_FORMAT_MOD_INVALID is an allowed modifier.
-            /// It indicates that the server can support the format with an implicit
-            /// modifier. When a buffer has DRM_FORMAT_MOD_INVALID as its modifier, it
-            /// is as if no explicit modifier is specified. The effective modifier
-            /// will be derived from the dmabuf.
-            /// A compositor that sends valid modifiers and DRM_FORMAT_MOD_INVALID for
-            /// a given format supports both explicit modifiers and implicit modifiers.
-            /// Compositors must not send duplicate format + modifier pairs within the
-            /// same tranche or across two different tranches with the same target
-            /// device and flags.
-            /// This event is tied to a preference tranche, see the tranche_done event.
-            /// For the definition of the format and modifier codes, see the
-            /// wp_linux_buffer_params.create request.
-            ///
-            pub const TrancheFormats = struct {
-                indices: []const u8,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.TrancheFormats {
-                    return .{
-                        .indices = msg_args[0].array,
-                    };
-                }
-            };
-
-            /// This event sets tranche-specific flags.
-            /// The scanout flag is a hint that direct scan-out may be attempted by the
-            /// compositor on the target device if the client appropriately allocates a
-            /// buffer. How to allocate a buffer that can be scanned out on the target
-            /// device is implementation-defined.
-            /// This event is tied to a preference tranche, see the tranche_done event.
-            ///
-            pub const TrancheFlags = struct {
-                flags: LinuxDmabufFeedbackV1.Enum.TrancheFlags,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.TrancheFlags {
-                    return .{
-                        .flags = msg_args[0].@"enum".zwp_linux_dmabuf_feedback_v1.tranche_flags,
-                    };
-                }
-            };
-        };
-
-        pub const Enum = union(enum) {
-            tranche_flags: TrancheFlags,
-
-            pub const TrancheFlags = packed struct(u32) {
-                scanout: bool = false,
-                __reserved_bits: u31 = 0,
-
-                pub inline fn fromInt(int: u32) TrancheFlags {
-                    return @bitCast(int);
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "zwp_linux_dmabuf_feedback_v1";
-        pub const InterfaceVersion = 5;
-    };
-};
-
-pub const PresentationTime = struct {
-    pub const Presentation = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn feedback(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                surface: wl_surface,
-            },
-        ) wp_presentation_feedback {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub const Event = union(enum) {
-            clock_id: Interface.Event.ClockId,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .uint = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .wp_presentation = .{
-                                    .clock_id = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// This event tells the client in which clock domain the
-            /// compositor interprets the timestamps used by the presentation
-            /// extension. This clock is called the presentation clock.
-            /// The compositor sends this event when the client binds to the
-            /// presentation interface. The presentation clock does not change
-            /// during the lifetime of the client connection.
-            /// The clock identifier is platform dependent. On POSIX platforms, the
-            /// identifier value is one of the clockid_t values accepted by
-            /// clock_gettime(). clock_gettime() is defined by POSIX.1-2001.
-            /// Timestamps in this clock domain are expressed as tv_sec_hi,
-            /// tv_sec_lo, tv_nsec triples, each component being an unsigned
-            /// 32-bit value. Whole seconds are in tv_sec which is a 64-bit
-            /// value combined from tv_sec_hi and tv_sec_lo, and the
-            /// additional fractional part in tv_nsec as nanoseconds. Hence,
-            /// for valid timestamps tv_nsec must be in [0, 999999999].
-            /// Note that clock_id applies only to the presentation clock,
-            /// and implies nothing about e.g. the timestamps used in the
-            /// Wayland core protocol input events.
-            /// Compositors should prefer a clock which does not jump and is
-            /// not slewed e.g. by NTP. The absolute value of the clock is
-            /// irrelevant. Precision of one millisecond or better is
-            /// recommended. Clients must be able to query the current clock
-            /// value directly, not by asking the compositor.
-            ///
-            pub const ClockId = struct {
-                clk_id: u32,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.ClockId {
-                    return .{
-                        .clk_id = msg_args[0].uint,
-                    };
-                }
-            };
-        };
-
-        pub const Enum = union(enum) {
-            @"error": Error,
-
-            pub const Error = enum(u32) {
-                invalid_timestamp = 0,
-                invalid_flag = 1,
-
-                pub inline fn fromInt(int: u32) Error {
-                    return @enumFromInt(int);
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "wp_presentation";
-        pub const InterfaceVersion = 2;
-    };
-
-    /// A presentation_feedback object returns an indication that a
-    /// wl_surface content update has become visible to the user.
-    /// One object corresponds to one content update submission
-    /// (wl_surface.commit). There are two possible outcomes: the
-    /// content update is presented to the user, and a presentation
-    /// timestamp delivered; or, the user did not see the content
-    /// update because it was superseded or its surface destroyed,
-    /// and the content update is discarded.
-    /// Once a presentation_feedback object has delivered a 'presented'
-    /// or 'discarded' event it is automatically destroyed.
-    ///
-    pub const PresentationFeedback = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub const Event = union(enum) {
-            sync_output: Interface.Event.SyncOutput,
-            presented: Interface.Event.Presented,
-            discarded: Interface.Event.Discarded,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{ .object = 0 },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .wp_presentation_feedback = .{
-                                    .sync_output = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        1 => {
-                            var event_fields: [7]MessageArg = [7]MessageArg{
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{ .uint = 0 },
-                                .{
-                                    .@"enum" = .{
-                                        .wp_presentation_feedback = .{ .kind = .fromInt(0) },
-                                    },
-                                },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .wp_presentation_feedback = .{
-                                    .presented = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        2 => {
-                            _ = &proxy;
-                            _ = &data;
-                            break :blk .{
-                                .wp_presentation_feedback = .{
-                                    .discarded = {},
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// As presentation can be synchronized to only one output at a
-            /// time, this event tells which output it was. This event is only
-            /// sent prior to the presented event.
-            /// As clients may bind to the same global wl_output multiple
-            /// times, this event is sent for each bound instance that matches
-            /// the synchronized output. If a client has not bound to the
-            /// right wl_output global at all, this event is not sent.
-            ///
-            pub const SyncOutput = struct {
-                output: wl_output,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.SyncOutput {
-                    return .{
-                        .output = .{ .id = msg_args[0].object },
-                    };
-                }
-            };
-
-            /// The associated content update was displayed to the user at the
-            /// indicated time (tv_sec_hi/lo, tv_nsec). For the interpretation of
-            /// the timestamp, see presentation.clock_id event.
-            /// The timestamp corresponds to the time when the content update
-            /// turned into light the first time on the surface's main output.
-            /// Compositors may approximate this from the framebuffer flip
-            /// completion events from the system, and the latency of the
-            /// physical display path if known.
-            /// This event is preceded by all related sync_output events
-            /// telling which output's refresh cycle the feedback corresponds
-            /// to, i.e. the main output for the surface. Compositors are
-            /// recommended to choose the output containing the largest part
-            /// of the wl_surface, or keeping the output they previously
-            /// chose. Having a stable presentation output association helps
-            /// clients predict future output refreshes (vblank).
-            /// The 'refresh' argument gives the compositor's prediction of how
-            /// many nanoseconds after tv_sec, tv_nsec the very next output
-            /// refresh may occur. This is to further aid clients in
-            /// predicting future refreshes, i.e., estimating the timestamps
-            /// targeting the next few vblanks. If such prediction cannot
-            /// usefully be done, the argument is zero.
-            /// For version 2 and later, if the output does not have a constant
-            /// refresh rate, explicit video mode switches excluded, then the
-            /// refresh argument must be either an appropriate rate picked by the
-            /// compositor (e.g. fastest rate), or 0 if no such rate exists.
-            /// For version 1, if the output does not have a constant refresh rate,
-            /// the refresh argument must be zero.
-            /// The 64-bit value combined from seq_hi and seq_lo is the value
-            /// of the output's vertical retrace counter when the content
-            /// update was first scanned out to the display. This value must
-            /// be compatible with the definition of MSC in
-            /// GLX_OML_sync_control specification. Note, that if the display
-            /// path has a non-zero latency, the time instant specified by
-            /// this counter may differ from the timestamp's.
-            /// If the output does not have a concept of vertical retrace or a
-            /// refresh cycle, or the output device is self-refreshing without
-            /// a way to query the refresh count, then the arguments seq_hi
-            /// and seq_lo must be zero.
-            ///
-            pub const Presented = struct {
-                tv_sec_hi: u32,
-                tv_sec_lo: u32,
-                tv_nsec: u32,
-                refresh: u32,
-                seq_hi: u32,
-                seq_lo: u32,
-                flags: PresentationFeedback.Enum.Kind,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.Presented {
-                    return .{
-                        .tv_sec_hi = msg_args[0].uint,
-                        .tv_sec_lo = msg_args[1].uint,
-                        .tv_nsec = msg_args[2].uint,
-                        .refresh = msg_args[3].uint,
-                        .seq_hi = msg_args[4].uint,
-                        .seq_lo = msg_args[5].uint,
-                        .flags = msg_args[6].@"enum".wp_presentation_feedback.kind,
-                    };
-                }
-            };
-
-            /// The content update was never displayed to the user.
-            ///
-            pub const Discarded = void;
-        };
-
-        pub const Enum = union(enum) {
-            kind: Kind,
-
-            pub const Kind = packed struct(u32) {
-                vsync: bool = false,
-                hw_clock: bool = false,
-                hw_completion: bool = false,
-                zero_copy: bool = false,
-                __reserved_bits: u28 = 0,
-
-                pub inline fn fromInt(int: u32) Kind {
-                    return @bitCast(int);
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "wp_presentation_feedback";
-        pub const InterfaceVersion = 2;
-    };
-};
-
 pub const Wayland = struct {
     /// The core global object.  This is a special singleton object.  It
     /// is used for internal Wayland protocol features.
     ///
-    pub const Display = struct {
-        id: u32,
+    pub const Display = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Display) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1085,6 +23,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Display {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Display) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1092,15 +38,15 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Display.Event.parse(proxy, op, data);
         }
 
-        pub fn sync(self: *const Interface, proxy: *Proxy) wl_callback {
+        pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) wl_callback {
             _ = self;
             _ = proxy;
         }
 
-        pub fn get_registry(self: *const Interface, proxy: *Proxy) wl_registry {
+        pub fn get_registry(noalias self: *const Display, noalias proxy: *Proxy) wl_registry {
             _ = self;
             _ = proxy;
         }
@@ -1231,10 +177,10 @@ pub const Wayland = struct {
     /// emit events to the client and lets the client invoke requests on
     /// the object.
     ///
-    pub const Registry = struct {
-        id: u32,
+    pub const Registry = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Registry) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1244,6 +190,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Registry {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Registry) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1251,12 +205,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Registry.Event.parse(proxy, op, data);
         }
 
         pub fn bind(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Registry,
+            noalias proxy: *Proxy,
             params: struct {
                 name: u32,
             },
@@ -1363,10 +317,10 @@ pub const Wayland = struct {
     /// Note, because wl_callback objects are created from multiple independent
     /// factory interfaces, the wl_callback interface is frozen at version 1.
     ///
-    pub const Callback = struct {
-        id: u32,
+    pub const Callback = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Callback) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1376,6 +330,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Callback {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Callback) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1383,7 +345,7 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Callback.Event.parse(proxy, op, data);
         }
 
         pub const Event = union(enum) {
@@ -1440,10 +402,10 @@ pub const Wayland = struct {
     /// compositor is in charge of combining the contents of multiple
     /// surfaces into one displayable output.
     ///
-    pub const Compositor = struct {
-        id: u32,
+    pub const Compositor = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Compositor) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1453,6 +415,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Compositor {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Compositor) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1460,15 +430,15 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Compositor.Event.parse(proxy, op, data);
         }
 
-        pub fn create_surface(self: *const Interface, proxy: *Proxy) wl_surface {
+        pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) wl_surface {
             _ = self;
             _ = proxy;
         }
 
-        pub fn create_region(self: *const Interface, proxy: *Proxy) wl_region {
+        pub fn create_region(noalias self: *const Compositor, noalias proxy: *Proxy) wl_region {
             _ = self;
             _ = proxy;
         }
@@ -1486,10 +456,10 @@ pub const Wayland = struct {
     /// setup/teardown overhead and is useful when interactively resizing
     /// a surface or for many small buffers.
     ///
-    pub const ShmPool = struct {
-        id: u32,
+    pub const ShmPool = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const ShmPool) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1499,6 +469,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) ShmPool {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: ShmPool) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1506,12 +484,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try ShmPool.Event.parse(proxy, op, data);
         }
 
         pub fn create_buffer(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShmPool,
+            noalias proxy: *Proxy,
             params: struct {
                 offset: i32,
                 width: i32,
@@ -1525,14 +503,14 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const ShmPool, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn resize(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShmPool,
+            noalias proxy: *Proxy,
             params: struct {
                 size: i32,
             },
@@ -1555,10 +533,10 @@ pub const Wayland = struct {
     /// are emitted to inform clients about the valid pixel formats
     /// that can be used for buffers.
     ///
-    pub const Shm = struct {
-        id: u32,
+    pub const Shm = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Shm) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1568,6 +546,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Shm {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Shm) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1575,12 +561,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Shm.Event.parse(proxy, op, data);
         }
 
         pub fn create_pool(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Shm,
+            noalias proxy: *Proxy,
             params: struct {
                 fd: std.posix.fd_t,
                 size: i32,
@@ -1591,7 +577,7 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Shm, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -1811,10 +797,10 @@ pub const Wayland = struct {
     /// Note, because wl_buffer objects are created from multiple independent
     /// factory interfaces, the wl_buffer interface is frozen at version 1.
     ///
-    pub const Buffer = struct {
-        id: u32,
+    pub const Buffer = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Buffer) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1824,6 +810,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Buffer {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Buffer) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1831,10 +825,10 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Buffer.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -1894,10 +888,10 @@ pub const Wayland = struct {
     /// converted to and provides the mechanism for transferring the
     /// data directly from the source client.
     ///
-    pub const DataOffer = struct {
-        id: u32,
+    pub const DataOffer = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const DataOffer) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -1907,6 +901,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) DataOffer {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: DataOffer) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -1914,12 +916,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try DataOffer.Event.parse(proxy, op, data);
         }
 
         pub fn accept(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataOffer,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
                 mime_type: [:0]const u8,
@@ -1931,8 +933,8 @@ pub const Wayland = struct {
         }
 
         pub fn receive(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataOffer,
+            noalias proxy: *Proxy,
             params: struct {
                 mime_type: [:0]const u8,
                 fd: std.posix.fd_t,
@@ -1943,19 +945,19 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const DataOffer, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn finish(self: *const Interface, proxy: *Proxy) void {
+        pub fn finish(noalias self: *const DataOffer, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_actions(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataOffer,
+            noalias proxy: *Proxy,
             params: struct {
                 dnd_actions: DataDeviceManager.Enum.DndAction,
                 preferred_action: DataDeviceManager.Enum.DndAction,
@@ -2128,10 +1130,10 @@ pub const Wayland = struct {
     /// provides a way to describe the offered data and a way to respond
     /// to requests to transfer the data.
     ///
-    pub const DataSource = struct {
-        id: u32,
+    pub const DataSource = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const DataSource) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -2141,6 +1143,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) DataSource {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: DataSource) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -2148,12 +1158,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try DataSource.Event.parse(proxy, op, data);
         }
 
         pub fn offer(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataSource,
+            noalias proxy: *Proxy,
             params: struct {
                 mime_type: [:0]const u8,
             },
@@ -2163,14 +1173,14 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const DataSource, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_actions(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataSource,
+            noalias proxy: *Proxy,
             params: struct {
                 dnd_actions: DataDeviceManager.Enum.DndAction,
             },
@@ -2398,10 +1408,10 @@ pub const Wayland = struct {
     /// A wl_data_device provides access to inter-client data transfer
     /// mechanisms such as copy-and-paste and drag-and-drop.
     ///
-    pub const DataDevice = struct {
-        id: u32,
+    pub const DataDevice = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const DataDevice) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -2411,6 +1421,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) DataDevice {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: DataDevice) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -2418,12 +1436,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try DataDevice.Event.parse(proxy, op, data);
         }
 
         pub fn start_drag(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataDevice,
+            noalias proxy: *Proxy,
             params: struct {
                 source: ?wl_data_source,
                 origin: wl_surface,
@@ -2437,8 +1455,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_selection(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataDevice,
+            noalias proxy: *Proxy,
             params: struct {
                 source: ?wl_data_source,
                 serial: u32,
@@ -2449,7 +1467,7 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const DataDevice, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -2686,10 +1704,10 @@ pub const Wayland = struct {
     /// functioning properly. See wl_data_source.set_actions,
     /// wl_data_offer.accept and wl_data_offer.finish for details.
     ///
-    pub const DataDeviceManager = struct {
-        id: u32,
+    pub const DataDeviceManager = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const DataDeviceManager) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -2699,6 +1717,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) DataDeviceManager {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: DataDeviceManager) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -2706,17 +1732,17 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try DataDeviceManager.Event.parse(proxy, op, data);
         }
 
-        pub fn create_data_source(self: *const Interface, proxy: *Proxy) wl_data_source {
+        pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) wl_data_source {
             _ = self;
             _ = proxy;
         }
 
         pub fn get_data_device(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const DataDeviceManager,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
             },
@@ -2755,10 +1781,10 @@ pub const Wayland = struct {
     /// For desktop-style user interfaces, use xdg_shell. Compositors and clients
     /// should not implement this interface.
     ///
-    pub const Shell = struct {
-        id: u32,
+    pub const Shell = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Shell) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -2768,6 +1794,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Shell {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Shell) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -2775,12 +1809,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Shell.Event.parse(proxy, op, data);
         }
 
         pub fn get_shell_surface(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Shell,
+            noalias proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
@@ -2817,10 +1851,10 @@ pub const Wayland = struct {
     /// wl_shell_surface_destroy() must be called before destroying
     /// the wl_surface object.
     ///
-    pub const ShellSurface = struct {
-        id: u32,
+    pub const ShellSurface = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const ShellSurface) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -2830,6 +1864,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) ShellSurface {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: ShellSurface) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -2837,12 +1879,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try ShellSurface.Event.parse(proxy, op, data);
         }
 
         pub fn pong(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
@@ -2853,8 +1895,8 @@ pub const Wayland = struct {
         }
 
         pub fn move(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -2866,8 +1908,8 @@ pub const Wayland = struct {
         }
 
         pub fn resize(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -2879,14 +1921,14 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn set_toplevel(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_toplevel(noalias self: *const ShellSurface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_transient(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 parent: wl_surface,
                 x: i32,
@@ -2900,8 +1942,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_fullscreen(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 method: ShellSurface.Enum.FullscreenMethod,
                 framerate: u32,
@@ -2914,8 +1956,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_popup(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -2931,8 +1973,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_maximized(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 output: ?wl_output,
             },
@@ -2943,8 +1985,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_title(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 title: [:0]const u8,
             },
@@ -2955,8 +1997,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_class(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const ShellSurface,
+            noalias proxy: *Proxy,
             params: struct {
                 class_: [:0]const u8,
             },
@@ -3162,10 +2204,10 @@ pub const Wayland = struct {
     /// a cursor (cursor is a different role than sub-surface, and role
     /// switching is not allowed).
     ///
-    pub const Surface = struct {
-        id: u32,
+    pub const Surface = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Surface) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -3175,6 +2217,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Surface {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Surface) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -3182,17 +2232,17 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Surface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn attach(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 buffer: ?wl_buffer,
                 x: i32,
@@ -3205,8 +2255,8 @@ pub const Wayland = struct {
         }
 
         pub fn damage(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -3219,14 +2269,14 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn frame(self: *const Interface, proxy: *Proxy) wl_callback {
+        pub fn frame(noalias self: *const Surface, noalias proxy: *Proxy) wl_callback {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_opaque_region(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 region: ?wl_region,
             },
@@ -3237,8 +2287,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_input_region(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 region: ?wl_region,
             },
@@ -3248,14 +2298,14 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn commit(self: *const Interface, proxy: *Proxy) void {
+        pub fn commit(noalias self: *const Surface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_buffer_transform(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 transform: Output.Enum.Transform,
             },
@@ -3266,8 +2316,8 @@ pub const Wayland = struct {
         }
 
         pub fn set_buffer_scale(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 scale: i32,
             },
@@ -3278,8 +2328,8 @@ pub const Wayland = struct {
         }
 
         pub fn damage_buffer(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -3293,8 +2343,8 @@ pub const Wayland = struct {
         }
 
         pub fn offset(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -3482,10 +2532,10 @@ pub const Wayland = struct {
     /// device is hot plugged.  A seat typically has a pointer and
     /// maintains a keyboard focus and a pointer focus.
     ///
-    pub const Seat = struct {
-        id: u32,
+    pub const Seat = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Seat) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -3495,6 +2545,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Seat {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Seat) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -3502,25 +2560,25 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Seat.Event.parse(proxy, op, data);
         }
 
-        pub fn get_pointer(self: *const Interface, proxy: *Proxy) wl_pointer {
+        pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) wl_pointer {
             _ = self;
             _ = proxy;
         }
 
-        pub fn get_keyboard(self: *const Interface, proxy: *Proxy) wl_keyboard {
+        pub fn get_keyboard(noalias self: *const Seat, noalias proxy: *Proxy) wl_keyboard {
             _ = self;
             _ = proxy;
         }
 
-        pub fn get_touch(self: *const Interface, proxy: *Proxy) wl_touch {
+        pub fn get_touch(noalias self: *const Seat, noalias proxy: *Proxy) wl_touch {
             _ = self;
             _ = proxy;
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Seat, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -3667,10 +2725,10 @@ pub const Wayland = struct {
     /// and button and axis events for button presses, button releases
     /// and scrolling.
     ///
-    pub const Pointer = struct {
-        id: u32,
+    pub const Pointer = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Pointer) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -3680,6 +2738,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Pointer {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Pointer) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -3687,12 +2753,12 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Pointer.Event.parse(proxy, op, data);
         }
 
         pub fn set_cursor(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Pointer,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
                 surface: ?wl_surface,
@@ -3705,7 +2771,7 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Pointer, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -4303,10 +3369,10 @@ pub const Wayland = struct {
     /// By default, the active surface is null, the keys currently logically down
     /// are empty, the active modifiers and the active group are 0.
     ///
-    pub const Keyboard = struct {
-        id: u32,
+    pub const Keyboard = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Keyboard) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -4316,6 +3382,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Keyboard {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Keyboard) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -4323,10 +3397,10 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Keyboard.Event.parse(proxy, op, data);
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -4646,10 +3720,10 @@ pub const Wayland = struct {
     /// and ending with an up event. Events relating to the same
     /// contact point can be identified by the ID of the sequence.
     ///
-    pub const Touch = struct {
-        id: u32,
+    pub const Touch = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Touch) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -4659,6 +3733,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Touch {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Touch) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -4666,10 +3748,10 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Touch.Event.parse(proxy, op, data);
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -4957,10 +4039,10 @@ pub const Wayland = struct {
     /// displays part of the compositor space.  This object is published
     /// as global during start up, or when a monitor is hotplugged.
     ///
-    pub const Output = struct {
-        id: u32,
+    pub const Output = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Output) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -4970,6 +4052,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Output {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Output) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -4977,10 +4067,10 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Output.Event.parse(proxy, op, data);
         }
 
-        pub fn release(self: *const Interface, proxy: *Proxy) void {
+        pub fn release(noalias self: *const Output, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -5331,10 +4421,10 @@ pub const Wayland = struct {
     /// Region objects are used to describe the opaque and input
     /// regions of a surface.
     ///
-    pub const Region = struct {
-        id: u32,
+    pub const Region = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Region) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -5344,6 +4434,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Region {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Region) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -5351,17 +4449,17 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Region.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn add(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Region,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -5375,8 +4473,8 @@ pub const Wayland = struct {
         }
 
         pub fn subtract(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Region,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -5411,10 +4509,10 @@ pub const Wayland = struct {
     /// objects. This should allow the compositor to pass YUV video buffer
     /// processing to dedicated overlay hardware when possible.
     ///
-    pub const Subcompositor = struct {
-        id: u32,
+    pub const Subcompositor = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Subcompositor) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -5424,6 +4522,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Subcompositor {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Subcompositor) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -5431,17 +4537,17 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Subcompositor.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn get_subsurface(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Subcompositor,
+            noalias proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
                 parent: wl_surface,
@@ -5514,10 +4620,10 @@ pub const Wayland = struct {
     /// The wl_surface.offset request is ignored: clients must use set_position
     /// instead to move the sub-surface.
     ///
-    pub const Subsurface = struct {
-        id: u32,
+    pub const Subsurface = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Subsurface) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -5527,6 +4633,14 @@ pub const Wayland = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Subsurface {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Subsurface) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -5534,17 +4648,17 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Subsurface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_position(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Subsurface,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -5556,8 +4670,8 @@ pub const Wayland = struct {
         }
 
         pub fn place_above(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Subsurface,
+            noalias proxy: *Proxy,
             params: struct {
                 sibling: wl_surface,
             },
@@ -5568,8 +4682,8 @@ pub const Wayland = struct {
         }
 
         pub fn place_below(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Subsurface,
+            noalias proxy: *Proxy,
             params: struct {
                 sibling: wl_surface,
             },
@@ -5579,12 +4693,12 @@ pub const Wayland = struct {
             _ = params;
         }
 
-        pub fn set_sync(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_sync(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn set_desync(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_desync(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -5607,207 +4721,6 @@ pub const Wayland = struct {
     };
 };
 
-pub const XdgDecorationUnstableV1 = struct {
-    /// This interface allows a compositor to announce support for server-side
-    /// decorations.
-    /// A window decoration is a set of window controls as deemed appropriate by
-    /// the party managing them, such as user interface components used to move,
-    /// resize and change a window's state.
-    /// A client can use this protocol to request being decorated by a supporting
-    /// compositor.
-    /// If compositor and client do not negotiate the use of a server-side
-    /// decoration using this protocol, clients continue to self-decorate as they
-    /// see fit.
-    /// Warning! The protocol described in this file is experimental and
-    /// backward incompatible changes may be made. Backward compatible changes
-    /// may be added together with the corresponding interface version bump.
-    /// Backward incompatible changes are done by bumping the version number in
-    /// the protocol and interface names and resetting the interface version.
-    /// Once the protocol is to be declared stable, the 'z' prefix and the
-    /// version number in the protocol and interface names are removed and the
-    /// interface version number is reset.
-    ///
-    pub const DecorationManagerV1 = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn get_toplevel_decoration(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                toplevel: xdg_toplevel,
-            },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub const Interface = @This();
-        pub const InterfaceName = "zxdg_decoration_manager_v1";
-        pub const InterfaceVersion = 1;
-    };
-
-    /// The decoration object allows the compositor to toggle server-side window
-    /// decorations for a toplevel surface. The client can request to switch to
-    /// another mode.
-    /// The xdg_toplevel_decoration object must be destroyed before its
-    /// xdg_toplevel.
-    ///
-    pub const ToplevelDecorationV1 = struct {
-        id: u32,
-
-        pub fn object(self: *const Interface) Object {
-            return .{
-                .ptr = @ptrCast(self),
-                .vtable = .{
-                    .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
-                },
-            };
-        }
-
-        fn msg_parse(
-            noalias ctx: *const anyopaque,
-            noalias proxy: *const Proxy,
-            op: u16,
-            data: []const u8,
-        ) ParseError!WaylandProtocols.Event {
-            _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
-        }
-
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub fn set_mode(
-            self: *const Interface,
-            proxy: *Proxy,
-            params: struct {
-                mode: ToplevelDecorationV1.Enum.Mode,
-            },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
-        }
-
-        pub fn unset_mode(self: *const Interface, proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
-        }
-
-        pub const Event = union(enum) {
-            configure: Interface.Event.Configure,
-
-            inline fn parse(
-                proxy: *const Proxy,
-                op: u16,
-                data: []const u8,
-            ) ParseError!WaylandProtocols.Event {
-                const event: WaylandProtocols.Event = blk: {
-                    switch (op) {
-                        0 => {
-                            var event_fields: [1]MessageArg = [1]MessageArg{
-                                .{
-                                    .@"enum" = .{
-                                        .zxdg_toplevel_decoration_v1 = .{ .mode = .fromInt(0) },
-                                    },
-                                },
-                            };
-                            try proxy.msg_parse(&event_fields, data);
-                            break :blk .{
-                                .zxdg_toplevel_decoration_v1 = .{
-                                    .configure = .fromMsgArgs(&event_fields),
-                                },
-                            };
-                        },
-                        else => {
-                            log.err("Unknown Event Code :: {d}", .{op});
-                            return ParseError.InvalidOp;
-                        },
-                    }
-                };
-                return event;
-            }
-
-            /// The configure event configures the effective decoration mode. The
-            /// configured state should not be applied immediately. Clients must send an
-            /// ack_configure in response to this event. See xdg_surface.configure and
-            /// xdg_surface.ack_configure for details.
-            /// A configure event can be sent at any time. The specified mode must be
-            /// obeyed by the client.
-            ///
-            pub const Configure = struct {
-                mode: ToplevelDecorationV1.Enum.Mode,
-
-                pub inline fn fromMsgArgs(
-                    msg_args: []MessageArg,
-                ) Interface.Event.Configure {
-                    return .{
-                        .mode = msg_args[0].@"enum".zxdg_toplevel_decoration_v1.mode,
-                    };
-                }
-            };
-        };
-
-        pub const Enum = union(enum) {
-            @"error": Error,
-            mode: Mode,
-
-            pub const Error = enum(u32) {
-                unconfigured_buffer = 0,
-                already_constructed = 1,
-                orphaned = 2,
-                invalid_mode = 3,
-
-                pub inline fn fromInt(int: u32) Error {
-                    return @enumFromInt(int);
-                }
-            };
-
-            pub const Mode = enum(u32) {
-                client_side = 1,
-                server_side = 2,
-
-                pub inline fn fromInt(int: u32) Mode {
-                    return @enumFromInt(int);
-                }
-            };
-        };
-
-        pub const Interface = @This();
-        pub const InterfaceName = "zxdg_toplevel_decoration_v1";
-        pub const InterfaceVersion = 1;
-    };
-};
-
 pub const XdgShell = struct {
     /// The xdg_wm_base interface is exposed as a global object enabling clients
     /// to turn their wl_surfaces into windows in a desktop environment. It
@@ -5815,10 +4728,10 @@ pub const XdgShell = struct {
     /// create windows that can be dragged, resized, maximized, etc, as well as
     /// creating transient windows such as popup menus.
     ///
-    pub const WmBase = struct {
-        id: u32,
+    pub const WmBase = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const WmBase) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -5828,6 +4741,14 @@ pub const XdgShell = struct {
             };
         }
 
+        pub fn fromInt(id: u32) WmBase {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: WmBase) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -5835,22 +4756,22 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try WmBase.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn create_positioner(self: *const Interface, proxy: *Proxy) xdg_positioner {
+        pub fn create_positioner(noalias self: *const WmBase, noalias proxy: *Proxy) xdg_positioner {
             _ = self;
             _ = proxy;
         }
 
         pub fn get_xdg_surface(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const WmBase,
+            noalias proxy: *Proxy,
             params: struct {
                 surface: wl_surface,
             },
@@ -5861,8 +4782,8 @@ pub const XdgShell = struct {
         }
 
         pub fn pong(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const WmBase,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
@@ -5967,10 +4888,10 @@ pub const XdgShell = struct {
     /// set_anchor_rect. Passing an incomplete xdg_positioner object when
     /// positioning a surface raises an invalid_positioner error.
     ///
-    pub const Positioner = struct {
-        id: u32,
+    pub const Positioner = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Positioner) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -5980,6 +4901,14 @@ pub const XdgShell = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Positioner {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Positioner) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -5987,17 +4916,17 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Positioner.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_size(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
@@ -6009,8 +4938,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_anchor_rect(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -6024,8 +4953,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_anchor(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 anchor: Positioner.Enum.Anchor,
             },
@@ -6036,8 +4965,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_gravity(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 gravity: Positioner.Enum.Gravity,
             },
@@ -6048,8 +4977,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_constraint_adjustment(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 constraint_adjustment: Positioner.Enum.ConstraintAdjustment,
             },
@@ -6060,8 +4989,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_offset(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -6072,14 +5001,14 @@ pub const XdgShell = struct {
             _ = params;
         }
 
-        pub fn set_reactive(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_reactive(noalias self: *const Positioner, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_parent_size(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 parent_width: i32,
                 parent_height: i32,
@@ -6091,8 +5020,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_parent_configure(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Positioner,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
@@ -6209,10 +5138,10 @@ pub const XdgShell = struct {
     /// has not been destroyed, i.e. the client must perform the initial commit
     /// again before attaching a buffer.
     ///
-    pub const Surface = struct {
-        id: u32,
+    pub const Surface = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Surface) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -6222,6 +5151,14 @@ pub const XdgShell = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Surface {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Surface) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -6229,22 +5166,22 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Surface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn get_toplevel(self: *const Interface, proxy: *Proxy) xdg_toplevel {
+        pub fn get_toplevel(noalias self: *const Surface, noalias proxy: *Proxy) xdg_toplevel {
             _ = self;
             _ = proxy;
         }
 
         pub fn get_popup(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 parent: ?xdg_surface,
                 positioner: xdg_positioner,
@@ -6256,8 +5193,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_window_geometry(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 x: i32,
                 y: i32,
@@ -6271,8 +5208,8 @@ pub const XdgShell = struct {
         }
 
         pub fn ack_configure(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Surface,
+            noalias proxy: *Proxy,
             params: struct {
                 serial: u32,
             },
@@ -6380,10 +5317,10 @@ pub const XdgShell = struct {
     /// xdg_surface description).
     /// Attaching a null buffer to a toplevel unmaps the surface.
     ///
-    pub const Toplevel = struct {
-        id: u32,
+    pub const Toplevel = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Toplevel) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -6393,6 +5330,14 @@ pub const XdgShell = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Toplevel {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Toplevel) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -6400,17 +5345,17 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Toplevel.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_parent(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 parent: ?xdg_toplevel,
             },
@@ -6421,8 +5366,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_title(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 title: [:0]const u8,
             },
@@ -6433,8 +5378,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_app_id(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 app_id: [:0]const u8,
             },
@@ -6445,8 +5390,8 @@ pub const XdgShell = struct {
         }
 
         pub fn show_window_menu(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -6460,8 +5405,8 @@ pub const XdgShell = struct {
         }
 
         pub fn move(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -6473,8 +5418,8 @@ pub const XdgShell = struct {
         }
 
         pub fn resize(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -6487,8 +5432,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_max_size(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
@@ -6500,8 +5445,8 @@ pub const XdgShell = struct {
         }
 
         pub fn set_min_size(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 width: i32,
                 height: i32,
@@ -6512,19 +5457,19 @@ pub const XdgShell = struct {
             _ = params;
         }
 
-        pub fn set_maximized(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn unset_maximized(self: *const Interface, proxy: *Proxy) void {
+        pub fn unset_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn set_fullscreen(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Toplevel,
+            noalias proxy: *Proxy,
             params: struct {
                 output: ?wl_output,
             },
@@ -6534,12 +5479,12 @@ pub const XdgShell = struct {
             _ = params;
         }
 
-        pub fn unset_fullscreen(self: *const Interface, proxy: *Proxy) void {
+        pub fn unset_fullscreen(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
-        pub fn set_minimized(self: *const Interface, proxy: *Proxy) void {
+        pub fn set_minimized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
@@ -6794,10 +5739,10 @@ pub const XdgShell = struct {
     /// The client must call wl_surface.commit on the corresponding wl_surface
     /// for the xdg_popup state to take effect.
     ///
-    pub const Popup = struct {
-        id: u32,
+    pub const Popup = enum(u32) {
+        _,
 
-        pub fn object(self: *const Interface) Object {
+        pub fn object(self: *const Popup) Object {
             return .{
                 .ptr = @ptrCast(self),
                 .vtable = .{
@@ -6807,6 +5752,14 @@ pub const XdgShell = struct {
             };
         }
 
+        pub fn fromInt(id: u32) Popup {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Popup) u32 {
+            return @intFromEnum(self);
+        }
+
         fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
@@ -6814,17 +5767,17 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Interface.Event.parse(proxy, op, data);
+            return try Popup.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(self: *const Interface, proxy: *Proxy) void {
+        pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) void {
             _ = self;
             _ = proxy;
         }
 
         pub fn grab(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Popup,
+            noalias proxy: *Proxy,
             params: struct {
                 seat: wl_seat,
                 serial: u32,
@@ -6836,8 +5789,8 @@ pub const XdgShell = struct {
         }
 
         pub fn reposition(
-            self: *const Interface,
-            proxy: *Proxy,
+            noalias self: *const Popup,
+            noalias proxy: *Proxy,
             params: struct {
                 positioner: xdg_positioner,
                 token: u32,
@@ -6982,6 +5935,977 @@ pub const XdgShell = struct {
     };
 };
 
+pub const XdgDecorationUnstableV1 = struct {
+    /// This interface allows a compositor to announce support for server-side
+    /// decorations.
+    /// A window decoration is a set of window controls as deemed appropriate by
+    /// the party managing them, such as user interface components used to move,
+    /// resize and change a window's state.
+    /// A client can use this protocol to request being decorated by a supporting
+    /// compositor.
+    /// If compositor and client do not negotiate the use of a server-side
+    /// decoration using this protocol, clients continue to self-decorate as they
+    /// see fit.
+    /// Warning! The protocol described in this file is experimental and
+    /// backward incompatible changes may be made. Backward compatible changes
+    /// may be added together with the corresponding interface version bump.
+    /// Backward incompatible changes are done by bumping the version number in
+    /// the protocol and interface names and resetting the interface version.
+    /// Once the protocol is to be declared stable, the 'z' prefix and the
+    /// version number in the protocol and interface names are removed and the
+    /// interface version number is reset.
+    ///
+    pub const DecorationManagerV1 = enum(u32) {
+        _,
+
+        pub fn object(self: *const DecorationManagerV1) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) DecorationManagerV1 {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: DecorationManagerV1) u32 {
+            return @intFromEnum(self);
+        }
+
+        fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try DecorationManagerV1.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn get_toplevel_decoration(
+            noalias self: *const DecorationManagerV1,
+            noalias proxy: *Proxy,
+            params: struct {
+                toplevel: xdg_toplevel,
+            },
+        ) u32 {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub const Interface = @This();
+        pub const InterfaceName = "zxdg_decoration_manager_v1";
+        pub const InterfaceVersion = 1;
+    };
+
+    /// The decoration object allows the compositor to toggle server-side window
+    /// decorations for a toplevel surface. The client can request to switch to
+    /// another mode.
+    /// The xdg_toplevel_decoration object must be destroyed before its
+    /// xdg_toplevel.
+    ///
+    pub const ToplevelDecorationV1 = enum(u32) {
+        _,
+
+        pub fn object(self: *const ToplevelDecorationV1) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) ToplevelDecorationV1 {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: ToplevelDecorationV1) u32 {
+            return @intFromEnum(self);
+        }
+
+        fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try ToplevelDecorationV1.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn set_mode(
+            noalias self: *const ToplevelDecorationV1,
+            noalias proxy: *Proxy,
+            params: struct {
+                mode: ToplevelDecorationV1.Enum.Mode,
+            },
+        ) void {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub fn unset_mode(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub const Event = union(enum) {
+            configure: Interface.Event.Configure,
+
+            inline fn parse(
+                proxy: *const Proxy,
+                op: u16,
+                data: []const u8,
+            ) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .zxdg_toplevel_decoration_v1 = .{ .mode = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zxdg_toplevel_decoration_v1 = .{
+                                    .configure = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
+                    }
+                };
+                return event;
+            }
+
+            /// The configure event configures the effective decoration mode. The
+            /// configured state should not be applied immediately. Clients must send an
+            /// ack_configure in response to this event. See xdg_surface.configure and
+            /// xdg_surface.ack_configure for details.
+            /// A configure event can be sent at any time. The specified mode must be
+            /// obeyed by the client.
+            ///
+            pub const Configure = struct {
+                mode: ToplevelDecorationV1.Enum.Mode,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.Configure {
+                    return .{
+                        .mode = msg_args[0].@"enum".zxdg_toplevel_decoration_v1.mode,
+                    };
+                }
+            };
+        };
+
+        pub const Enum = union(enum) {
+            @"error": Error,
+            mode: Mode,
+
+            pub const Error = enum(u32) {
+                unconfigured_buffer = 0,
+                already_constructed = 1,
+                orphaned = 2,
+                invalid_mode = 3,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
+            };
+
+            pub const Mode = enum(u32) {
+                client_side = 1,
+                server_side = 2,
+
+                pub inline fn fromInt(int: u32) Mode {
+                    return @enumFromInt(int);
+                }
+            };
+        };
+
+        pub const Interface = @This();
+        pub const InterfaceName = "zxdg_toplevel_decoration_v1";
+        pub const InterfaceVersion = 1;
+    };
+};
+
+pub const LinuxDmabufV1 = struct {
+    /// Following the interfaces from:
+    /// https://www.khronos.org/registry/egl/extensions/EXT/EGL_EXT_image_dma_buf_import.txt
+    /// https://www.khronos.org/registry/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import_modifiers.txt
+    /// and the Linux DRM sub-system's AddFb2 ioctl.
+    /// This interface offers ways to create generic dmabuf-based wl_buffers.
+    /// Clients can use the get_surface_feedback request to get dmabuf feedback
+    /// for a particular surface. If the client wants to retrieve feedback not
+    /// tied to a surface, they can use the get_default_feedback request.
+    /// The following are required from clients:
+    /// - Clients must ensure that either all data in the dma-buf is
+    /// coherent for all subsequent read access or that coherency is
+    /// correctly handled by the underlying kernel-side dma-buf
+    /// implementation.
+    /// - Don't make any more attachments after sending the buffer to the
+    /// compositor. Making more attachments later increases the risk of
+    /// the compositor not being able to use (re-import) an existing
+    /// dmabuf-based wl_buffer.
+    /// The underlying graphics stack must ensure the following:
+    /// - The dmabuf file descriptors relayed to the server will stay valid
+    /// for the whole lifetime of the wl_buffer. This means the server may
+    /// at any time use those fds to import the dmabuf into any kernel
+    /// sub-system that might accept it.
+    /// However, when the underlying graphics stack fails to deliver the
+    /// promise, because of e.g. a device hot-unplug which raises internal
+    /// errors, after the wl_buffer has been successfully created the
+    /// compositor must not raise protocol errors to the client when dmabuf
+    /// import later fails.
+    /// To create a wl_buffer from one or more dmabufs, a client creates a
+    /// zwp_linux_dmabuf_params_v1 object with a zwp_linux_dmabuf_v1.create_params
+    /// request. All planes required by the intended format are added with
+    /// the 'add' request. Finally, a 'create' or 'create_immed' request is
+    /// issued, which has the following outcome depending on the import success.
+    /// The 'create' request,
+    /// - on success, triggers a 'created' event which provides the final
+    /// wl_buffer to the client.
+    /// - on failure, triggers a 'failed' event to convey that the server
+    /// cannot use the dmabufs received from the client.
+    /// For the 'create_immed' request,
+    /// - on success, the server immediately imports the added dmabufs to
+    /// create a wl_buffer. No event is sent from the server in this case.
+    /// - on failure, the server can choose to either:
+    /// - terminate the client by raising a fatal error.
+    /// - mark the wl_buffer as failed, and send a 'failed' event to the
+    /// client. If the client uses a failed wl_buffer as an argument to any
+    /// request, the behaviour is compositor implementation-defined.
+    /// For all DRM formats and unless specified in another protocol extension,
+    /// pre-multiplied alpha is used for pixel values.
+    /// Unless specified otherwise in another protocol extension, implicit
+    /// synchronization is used. In other words, compositors and clients must
+    /// wait and signal fences implicitly passed via the DMA-BUF's reservation
+    /// mechanism.
+    ///
+    pub const LinuxDmabufV1 = enum(u32) {
+        _,
+
+        pub fn object(self: *const @This()) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) @This() {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: @This()) u32 {
+            return @intFromEnum(self);
+        }
+
+        fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try @This().Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn create_params(noalias self: *const @This(), noalias proxy: *Proxy) zwp_linux_buffer_params_v1 {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn get_default_feedback(noalias self: *const @This(), noalias proxy: *Proxy) zwp_linux_dmabuf_feedback_v1 {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn get_surface_feedback(
+            noalias self: *const @This(),
+            noalias proxy: *Proxy,
+            params: struct {
+                surface: wl_surface,
+            },
+        ) u32 {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub const Event = union(enum) {
+            format: Interface.Event.Format,
+            modifier: Interface.Event.Modifier,
+
+            inline fn parse(
+                proxy: *const Proxy,
+                op: u16,
+                data: []const u8,
+            ) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_v1 = .{
+                                    .format = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [3]MessageArg = [3]MessageArg{
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_v1 = .{
+                                    .modifier = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
+                    }
+                };
+                return event;
+            }
+
+            /// This event advertises one buffer format that the server supports.
+            /// All the supported formats are advertised once when the client
+            /// binds to this interface. A roundtrip after binding guarantees
+            /// that the client has received all supported formats.
+            /// For the definition of the format codes, see the
+            /// zwp_linux_buffer_params_v1::create request.
+            /// Starting version 4, the format event is deprecated and must not be
+            /// sent by compositors. Instead, use get_default_feedback or
+            /// get_surface_feedback.
+            ///
+            pub const Format = struct {
+                format: u32,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.Format {
+                    return .{
+                        .format = msg_args[0].uint,
+                    };
+                }
+            };
+
+            /// This event advertises the formats that the server supports, along with
+            /// the modifiers supported for each format. All the supported modifiers
+            /// for all the supported formats are advertised once when the client
+            /// binds to this interface. A roundtrip after binding guarantees that
+            /// the client has received all supported format-modifier pairs.
+            /// For legacy support, DRM_FORMAT_MOD_INVALID (that is, modifier_hi ==
+            /// 0x00ffffff and modifier_lo == 0xffffffff) is allowed in this event.
+            /// It indicates that the server can support the format with an implicit
+            /// modifier. When a plane has DRM_FORMAT_MOD_INVALID as its modifier, it
+            /// is as if no explicit modifier is specified. The effective modifier
+            /// will be derived from the dmabuf.
+            /// A compositor that sends valid modifiers and DRM_FORMAT_MOD_INVALID for
+            /// a given format supports both explicit modifiers and implicit modifiers.
+            /// For the definition of the format and modifier codes, see the
+            /// zwp_linux_buffer_params_v1::create and zwp_linux_buffer_params_v1::add
+            /// requests.
+            /// Starting version 4, the modifier event is deprecated and must not be
+            /// sent by compositors. Instead, use get_default_feedback or
+            /// get_surface_feedback.
+            ///
+            pub const Modifier = struct {
+                format: u32,
+                modifier_hi: u32,
+                modifier_lo: u32,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.Modifier {
+                    return .{
+                        .format = msg_args[0].uint,
+                        .modifier_hi = msg_args[1].uint,
+                        .modifier_lo = msg_args[2].uint,
+                    };
+                }
+            };
+        };
+
+        pub const Interface = @This();
+        pub const InterfaceName = "zwp_linux_dmabuf_v1";
+        pub const InterfaceVersion = 5;
+    };
+
+    /// This temporary object is a collection of dmabufs and other
+    /// parameters that together form a single logical buffer. The temporary
+    /// object may eventually create one wl_buffer unless cancelled by
+    /// destroying it before requesting 'create'.
+    /// Single-planar formats only require one dmabuf, however
+    /// multi-planar formats may require more than one dmabuf. For all
+    /// formats, an 'add' request must be called once per plane (even if the
+    /// underlying dmabuf fd is identical).
+    /// You must use consecutive plane indices ('plane_idx' argument for 'add')
+    /// from zero to the number of planes used by the drm_fourcc format code.
+    /// All planes required by the format must be given exactly once, but can
+    /// be given in any order. Each plane index can be set only once.
+    ///
+    pub const LinuxBufferParamsV1 = enum(u32) {
+        _,
+
+        pub fn object(self: *const LinuxBufferParamsV1) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) LinuxBufferParamsV1 {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: LinuxBufferParamsV1) u32 {
+            return @intFromEnum(self);
+        }
+
+        fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try LinuxBufferParamsV1.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub fn add(
+            noalias self: *const LinuxBufferParamsV1,
+            noalias proxy: *Proxy,
+            params: struct {
+                fd: std.posix.fd_t,
+                plane_idx: u32,
+                offset: u32,
+                stride: u32,
+                modifier_hi: u32,
+                modifier_lo: u32,
+            },
+        ) void {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub fn create(
+            noalias self: *const LinuxBufferParamsV1,
+            noalias proxy: *Proxy,
+            params: struct {
+                width: i32,
+                height: i32,
+                format: u32,
+                flags: LinuxBufferParamsV1.Enum.Flags,
+            },
+        ) void {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub fn create_immed(
+            noalias self: *const LinuxBufferParamsV1,
+            noalias proxy: *Proxy,
+            params: struct {
+                width: i32,
+                height: i32,
+                format: u32,
+                flags: LinuxBufferParamsV1.Enum.Flags,
+            },
+        ) wl_buffer {
+            _ = self;
+            _ = proxy;
+            _ = params;
+        }
+
+        pub const Event = union(enum) {
+            created: Interface.Event.Created,
+            failed: Interface.Event.Failed,
+
+            inline fn parse(
+                proxy: *const Proxy,
+                op: u16,
+                data: []const u8,
+            ) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .new_id = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_buffer_params_v1 = .{
+                                    .created = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        1 => {
+                            _ = &proxy;
+                            _ = &data;
+                            break :blk .{
+                                .zwp_linux_buffer_params_v1 = .{
+                                    .failed = {},
+                                },
+                            };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
+                    }
+                };
+                return event;
+            }
+
+            /// This event indicates that the attempted buffer creation was
+            /// successful. It provides the new wl_buffer referencing the dmabuf(s).
+            /// Upon receiving this event, the client should destroy the
+            /// zwp_linux_buffer_params_v1 object.
+            ///
+            pub const Created = struct {
+                buffer: u32,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.Created {
+                    return .{
+                        .buffer = .{ .id = msg_args[0].new_id },
+                    };
+                }
+            };
+
+            /// This event indicates that the attempted buffer creation has
+            /// failed. It usually means that one of the dmabuf constraints
+            /// has not been fulfilled.
+            /// Upon receiving this event, the client should destroy the
+            /// zwp_linux_buffer_params_v1 object.
+            ///
+            pub const Failed = void;
+        };
+
+        pub const Enum = union(enum) {
+            @"error": Error,
+            flags: Flags,
+
+            pub const Error = enum(u32) {
+                already_used = 0,
+                plane_idx = 1,
+                plane_set = 2,
+                incomplete = 3,
+                invalid_format = 4,
+                invalid_dimensions = 5,
+                out_of_bounds = 6,
+                invalid_wl_buffer = 7,
+
+                pub inline fn fromInt(int: u32) Error {
+                    return @enumFromInt(int);
+                }
+            };
+
+            pub const Flags = packed struct(u32) {
+                y_invert: bool = false,
+                interlaced: bool = false,
+                bottom_first: bool = false,
+                __reserved_bits: u29 = 0,
+
+                pub inline fn fromInt(int: u32) Flags {
+                    return @bitCast(int);
+                }
+            };
+        };
+
+        pub const Interface = @This();
+        pub const InterfaceName = "zwp_linux_buffer_params_v1";
+        pub const InterfaceVersion = 5;
+    };
+
+    /// This object advertises dmabuf parameters feedback. This includes the
+    /// preferred devices and the supported formats/modifiers.
+    /// The parameters are sent once when this object is created and whenever they
+    /// change. The done event is always sent once after all parameters have been
+    /// sent. When a single parameter changes, all parameters are re-sent by the
+    /// compositor.
+    /// Compositors can re-send the parameters when the current client buffer
+    /// allocations are sub-optimal. Compositors should not re-send the
+    /// parameters if re-allocating the buffers would not result in a more optimal
+    /// configuration. In particular, compositors should avoid sending the exact
+    /// same parameters multiple times in a row.
+    /// The tranche_target_device and tranche_formats events are grouped by
+    /// tranches of preference. For each tranche, a tranche_target_device, one
+    /// tranche_flags and one or more tranche_formats events are sent, followed
+    /// by a tranche_done event finishing the list. The tranches are sent in
+    /// descending order of preference. All formats and modifiers in the same
+    /// tranche have the same preference.
+    /// To send parameters, the compositor sends one main_device event, tranches
+    /// (each consisting of one tranche_target_device event, one tranche_flags
+    /// event, tranche_formats events and then a tranche_done event), then one
+    /// done event.
+    ///
+    pub const LinuxDmabufFeedbackV1 = enum(u32) {
+        _,
+
+        pub fn object(self: *const LinuxDmabufFeedbackV1) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                    .msg_write_fn = undefined,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) LinuxDmabufFeedbackV1 {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: LinuxDmabufFeedbackV1) u32 {
+            return @intFromEnum(self);
+        }
+
+        fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try LinuxDmabufFeedbackV1.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) void {
+            _ = self;
+            _ = proxy;
+        }
+
+        pub const Event = union(enum) {
+            done: Interface.Event.Done,
+            format_table: Interface.Event.FormatTable,
+            main_device: Interface.Event.MainDevice,
+            tranche_done: Interface.Event.TrancheDone,
+            tranche_target_device: Interface.Event.TrancheTargetDevice,
+            tranche_formats: Interface.Event.TrancheFormats,
+            tranche_flags: Interface.Event.TrancheFlags,
+
+            inline fn parse(
+                proxy: *const Proxy,
+                op: u16,
+                data: []const u8,
+            ) ParseError!WaylandProtocols.Event {
+                const event: WaylandProtocols.Event = blk: {
+                    switch (op) {
+                        0 => {
+                            _ = &proxy;
+                            _ = &data;
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .done = {},
+                                },
+                            };
+                        },
+                        1 => {
+                            var event_fields: [2]MessageArg = [2]MessageArg{
+                                .{ .fd = 0 },
+                                .{ .uint = 0 },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .format_table = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        2 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .main_device = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        3 => {
+                            _ = &proxy;
+                            _ = &data;
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_done = {},
+                                },
+                            };
+                        },
+                        4 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_target_device = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        5 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{ .array = "" },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_formats = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        6 => {
+                            var event_fields: [1]MessageArg = [1]MessageArg{
+                                .{
+                                    .@"enum" = .{
+                                        .zwp_linux_dmabuf_feedback_v1 = .{ .tranche_flags = .fromInt(0) },
+                                    },
+                                },
+                            };
+                            try proxy.msg_parse(&event_fields, data);
+                            break :blk .{
+                                .zwp_linux_dmabuf_feedback_v1 = .{
+                                    .tranche_flags = .fromMsgArgs(&event_fields),
+                                },
+                            };
+                        },
+                        else => {
+                            log.err("Unknown Event Code :: {d}", .{op});
+                            return ParseError.InvalidOp;
+                        },
+                    }
+                };
+                return event;
+            }
+
+            /// This event is sent after all parameters of a wp_linux_dmabuf_feedback
+            /// object have been sent.
+            /// This allows changes to the wp_linux_dmabuf_feedback parameters to be
+            /// seen as atomic, even if they happen via multiple events.
+            ///
+            pub const Done = void;
+
+            /// This event provides a file descriptor which can be memory-mapped to
+            /// access the format and modifier table.
+            /// The table contains a tightly packed array of consecutive format +
+            /// modifier pairs. Each pair is 16 bytes wide. It contains a format as a
+            /// 32-bit unsigned integer, followed by 4 bytes of unused padding, and a
+            /// modifier as a 64-bit unsigned integer. The native endianness is used.
+            /// The client must map the file descriptor in read-only private mode.
+            /// Compositors are not allowed to mutate the table file contents once this
+            /// event has been sent. Instead, compositors must create a new, separate
+            /// table file and re-send feedback parameters. Compositors are allowed to
+            /// store duplicate format + modifier pairs in the table.
+            ///
+            pub const FormatTable = struct {
+                fd: std.posix.fd_t,
+                size: u32,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.FormatTable {
+                    return .{
+                        .fd = msg_args[0].fd,
+                        .size = msg_args[1].uint,
+                    };
+                }
+            };
+
+            /// This event advertises the main device that the server prefers to use
+            /// when direct scan-out to the target device isn't possible. The
+            /// advertised main device may be different for each
+            /// wp_linux_dmabuf_feedback object, and may change over time.
+            /// There is exactly one main device. The compositor must send at least
+            /// one preference tranche with tranche_target_device equal to main_device.
+            /// Clients need to create buffers that the main device can import and
+            /// read from, otherwise creating the dmabuf wl_buffer will fail (see the
+            /// wp_linux_buffer_params.create and create_immed requests for details).
+            /// The main device will also likely be kept active by the compositor,
+            /// so clients can use it instead of waking up another device for power
+            /// savings.
+            /// In general the device is a DRM node. The DRM node type (primary vs.
+            /// render) is unspecified. Clients must not rely on the compositor sending
+            /// a particular node type. Clients cannot check two devices for equality
+            /// by comparing the dev_t value.
+            /// If explicit modifiers are not supported and the client performs buffer
+            /// allocations on a different device than the main device, then the client
+            /// must force the buffer to have a linear layout.
+            ///
+            pub const MainDevice = struct {
+                device: []const u8,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.MainDevice {
+                    return .{
+                        .device = msg_args[0].array,
+                    };
+                }
+            };
+
+            /// This event splits tranche_target_device and tranche_formats events in
+            /// preference tranches. It is sent after a set of tranche_target_device
+            /// and tranche_formats events; it represents the end of a tranche. The
+            /// next tranche will have a lower preference.
+            ///
+            pub const TrancheDone = void;
+
+            /// This event advertises the target device that the server prefers to use
+            /// for a buffer created given this tranche. The advertised target device
+            /// may be different for each preference tranche, and may change over time.
+            /// There is exactly one target device per tranche.
+            /// The target device may be a scan-out device, for example if the
+            /// compositor prefers to directly scan-out a buffer created given this
+            /// tranche. The target device may be a rendering device, for example if
+            /// the compositor prefers to texture from said buffer.
+            /// The client can use this hint to allocate the buffer in a way that makes
+            /// it accessible from the target device, ideally directly. The buffer must
+            /// still be accessible from the main device, either through direct import
+            /// or through a potentially more expensive fallback path. If the buffer
+            /// can't be directly imported from the main device then clients must be
+            /// prepared for the compositor changing the tranche priority or making
+            /// wl_buffer creation fail (see the wp_linux_buffer_params.create and
+            /// create_immed requests for details).
+            /// If the device is a DRM node, the DRM node type (primary vs. render) is
+            /// unspecified. Clients must not rely on the compositor sending a
+            /// particular node type. Clients cannot check two devices for equality by
+            /// comparing the dev_t value.
+            /// This event is tied to a preference tranche, see the tranche_done event.
+            ///
+            pub const TrancheTargetDevice = struct {
+                device: []const u8,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.TrancheTargetDevice {
+                    return .{
+                        .device = msg_args[0].array,
+                    };
+                }
+            };
+
+            /// This event advertises the format + modifier combinations that the
+            /// compositor supports.
+            /// It carries an array of indices, each referring to a format + modifier
+            /// pair in the last received format table (see the format_table event).
+            /// Each index is a 16-bit unsigned integer in native endianness.
+            /// For legacy support, DRM_FORMAT_MOD_INVALID is an allowed modifier.
+            /// It indicates that the server can support the format with an implicit
+            /// modifier. When a buffer has DRM_FORMAT_MOD_INVALID as its modifier, it
+            /// is as if no explicit modifier is specified. The effective modifier
+            /// will be derived from the dmabuf.
+            /// A compositor that sends valid modifiers and DRM_FORMAT_MOD_INVALID for
+            /// a given format supports both explicit modifiers and implicit modifiers.
+            /// Compositors must not send duplicate format + modifier pairs within the
+            /// same tranche or across two different tranches with the same target
+            /// device and flags.
+            /// This event is tied to a preference tranche, see the tranche_done event.
+            /// For the definition of the format and modifier codes, see the
+            /// wp_linux_buffer_params.create request.
+            ///
+            pub const TrancheFormats = struct {
+                indices: []const u8,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.TrancheFormats {
+                    return .{
+                        .indices = msg_args[0].array,
+                    };
+                }
+            };
+
+            /// This event sets tranche-specific flags.
+            /// The scanout flag is a hint that direct scan-out may be attempted by the
+            /// compositor on the target device if the client appropriately allocates a
+            /// buffer. How to allocate a buffer that can be scanned out on the target
+            /// device is implementation-defined.
+            /// This event is tied to a preference tranche, see the tranche_done event.
+            ///
+            pub const TrancheFlags = struct {
+                flags: LinuxDmabufFeedbackV1.Enum.TrancheFlags,
+
+                pub inline fn fromMsgArgs(
+                    msg_args: []MessageArg,
+                ) Interface.Event.TrancheFlags {
+                    return .{
+                        .flags = msg_args[0].@"enum".zwp_linux_dmabuf_feedback_v1.tranche_flags,
+                    };
+                }
+            };
+        };
+
+        pub const Enum = union(enum) {
+            tranche_flags: TrancheFlags,
+
+            pub const TrancheFlags = packed struct(u32) {
+                scanout: bool = false,
+                __reserved_bits: u31 = 0,
+
+                pub inline fn fromInt(int: u32) TrancheFlags {
+                    return @bitCast(int);
+                }
+            };
+        };
+
+        pub const Interface = @This();
+        pub const InterfaceName = "zwp_linux_dmabuf_feedback_v1";
+        pub const InterfaceVersion = 5;
+    };
+};
+
 pub const Object = struct {
     ptr: *const anyopaque,
     vtable: VTable,
@@ -7007,13 +6931,13 @@ pub const Proxy = struct {
     pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
         try @call(.auto, proxy.vtable.msg_parse_fn, .{ proxy.ctx, args_out, data });
     }
-    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []MessageArg) WriteError!void {
+    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []?MessageArg) WriteError!void {
         try @call(.auto, proxy.vtable.msg_write_fn, .{ proxy.ctx, id, op, args });
     }
 
     const VTable = struct {
         msg_parse_fn: *const fn (noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-        msg_write_fn: *const fn (noalias ctx: *anyopaque, id: u32, op: u16, args: []MessageArg) WriteError!void,
+        msg_write_fn: *const fn (noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) WriteError!void,
     };
 };
 
@@ -7038,11 +6962,6 @@ pub const MessageArg = union(enum) {
 };
 
 pub const Event = union(enum) {
-    zwp_linux_dmabuf_v1: zwp_linux_dmabuf_v1.Event,
-    zwp_linux_buffer_params_v1: zwp_linux_buffer_params_v1.Event,
-    zwp_linux_dmabuf_feedback_v1: zwp_linux_dmabuf_feedback_v1.Event,
-    wp_presentation: wp_presentation.Event,
-    wp_presentation_feedback: wp_presentation_feedback.Event,
     wl_display: wl_display.Event,
     wl_registry: wl_registry.Event,
     wl_callback: wl_callback.Event,
@@ -7058,18 +6977,17 @@ pub const Event = union(enum) {
     wl_keyboard: wl_keyboard.Event,
     wl_touch: wl_touch.Event,
     wl_output: wl_output.Event,
-    zxdg_toplevel_decoration_v1: zxdg_toplevel_decoration_v1.Event,
     xdg_wm_base: xdg_wm_base.Event,
     xdg_surface: xdg_surface.Event,
     xdg_toplevel: xdg_toplevel.Event,
     xdg_popup: xdg_popup.Event,
+    zxdg_toplevel_decoration_v1: zxdg_toplevel_decoration_v1.Event,
+    zwp_linux_dmabuf_v1: zwp_linux_dmabuf_v1.Event,
+    zwp_linux_buffer_params_v1: zwp_linux_buffer_params_v1.Event,
+    zwp_linux_dmabuf_feedback_v1: zwp_linux_dmabuf_feedback_v1.Event,
 };
 
 pub const Enum = union(enum) {
-    zwp_linux_buffer_params_v1: zwp_linux_buffer_params_v1.Enum,
-    zwp_linux_dmabuf_feedback_v1: zwp_linux_dmabuf_feedback_v1.Enum,
-    wp_presentation: wp_presentation.Enum,
-    wp_presentation_feedback: wp_presentation_feedback.Enum,
     wl_display: wl_display.Enum,
     wl_shm: wl_shm.Enum,
     wl_data_offer: wl_data_offer.Enum,
@@ -7085,19 +7003,16 @@ pub const Enum = union(enum) {
     wl_output: wl_output.Enum,
     wl_subcompositor: wl_subcompositor.Enum,
     wl_subsurface: wl_subsurface.Enum,
-    zxdg_toplevel_decoration_v1: zxdg_toplevel_decoration_v1.Enum,
     xdg_wm_base: xdg_wm_base.Enum,
     xdg_positioner: xdg_positioner.Enum,
     xdg_surface: xdg_surface.Enum,
     xdg_toplevel: xdg_toplevel.Enum,
     xdg_popup: xdg_popup.Enum,
+    zxdg_toplevel_decoration_v1: zxdg_toplevel_decoration_v1.Enum,
+    zwp_linux_buffer_params_v1: zwp_linux_buffer_params_v1.Enum,
+    zwp_linux_dmabuf_feedback_v1: zwp_linux_dmabuf_feedback_v1.Enum,
 };
 
-const zwp_linux_dmabuf_v1 = LinuxDmabufV1.LinuxDmabufV1;
-const zwp_linux_buffer_params_v1 = LinuxDmabufV1.LinuxBufferParamsV1;
-const zwp_linux_dmabuf_feedback_v1 = LinuxDmabufV1.LinuxDmabufFeedbackV1;
-const wp_presentation = PresentationTime.Presentation;
-const wp_presentation_feedback = PresentationTime.PresentationFeedback;
 const wl_display = Wayland.Display;
 const wl_registry = Wayland.Registry;
 const wl_callback = Wayland.Callback;
@@ -7120,14 +7035,17 @@ const wl_output = Wayland.Output;
 const wl_region = Wayland.Region;
 const wl_subcompositor = Wayland.Subcompositor;
 const wl_subsurface = Wayland.Subsurface;
-const zxdg_decoration_manager_v1 = XdgDecorationUnstableV1.DecorationManagerV1;
-const zxdg_toplevel_decoration_v1 = XdgDecorationUnstableV1.ToplevelDecorationV1;
 const xdg_wm_base = XdgShell.WmBase;
 const xdg_positioner = XdgShell.Positioner;
 const xdg_surface = XdgShell.Surface;
 const xdg_toplevel = XdgShell.Toplevel;
 const xdg_popup = XdgShell.Popup;
+const zxdg_decoration_manager_v1 = XdgDecorationUnstableV1.DecorationManagerV1;
+const zxdg_toplevel_decoration_v1 = XdgDecorationUnstableV1.ToplevelDecorationV1;
+const zwp_linux_dmabuf_v1 = LinuxDmabufV1.LinuxDmabufV1;
+const zwp_linux_buffer_params_v1 = LinuxDmabufV1.LinuxBufferParamsV1;
+const zwp_linux_dmabuf_feedback_v1 = LinuxDmabufV1.LinuxDmabufFeedbackV1;
 
-const log = std.log.scoped(.Wayland);
+const log = std.log.scoped(.WaylandProtocols);
 
 const std = @import("std");
