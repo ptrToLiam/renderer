@@ -16,31 +16,141 @@ pub const WireEvent = struct {
 };
 
 pub const Connection = struct {
-    handle: std.posix.fd_t = 0,
-    ev_queue: EventQueue = .{},
-    fd_queue: FdQueue = .{},
+    handle: posix.fd_t = 0,
+    addr: posix.sockaddr.un = .{ .path = @splat(0) },
+    display: Protocols.Wayland.Display = .fromInt(0),
+    ev_queue_in: EventQueue = .{},
+    fd_queue_in: FdQueue = .{},
+    idx_free_queue: IndexFreeQueue = .{},
+    cur_idx: u32 = 1,
+    objects: []Protocols.Object,
+    out_buf: [2048]u8 = @splat(0),
+    out_buf_idx: usize = 0,
+    fd_out_buf: [256]u8 = @splat(0),
+    fd_out_buf_idx: usize = 0,
 
-    pub fn proxy(conn: *Connection) Protocols.Proxy {
+    pub fn init(arena: *Arena) !Connection {
+        const temp = arena.temp();
+        defer temp.end();
+        const xdg_runtime_dir = posix.getenv("XDG_RUNTIME_DIR").?;
+        const wayland_display = posix.getenv("WAYLAND_DISPLAY").?;
+
+        const sock_path = try std.mem.join(temp.arena.allocator(), "/", &[_][]const u8{ xdg_runtime_dir, wayland_display });
+
+        const opt_non_block = 0;
+        const sockfd = try posix.socket(
+            posix.AF.UNIX,
+            posix.SOCK.STREAM | posix.SOCK.CLOEXEC | opt_non_block,
+            0,
+        );
+
+        var addr: posix.sockaddr.un = addr: {
+            var sock_addr: posix.sockaddr.un = .{
+                .family = posix.AF.UNIX,
+                .path = undefined,
+            };
+
+            if (sock_path.len + 1 > sock_addr.path.len) return error.SocketPathTooLong;
+
+            @memset(&sock_addr.path, 0);
+            @memcpy(sock_addr.path[0..sock_path.len], sock_path);
+            break :addr sock_addr;
+        };
+
+        posix.connect(
+            sockfd,
+            @ptrCast(&addr),
+            @as(posix.socklen_t, @intCast(@sizeOf(posix.sockaddr.un))),
+        ) catch |err| {
+            log.err("Failed to connect to Wayland Socket with err :: {s}", .{@errorName(err)});
+            return err;
+        };
+
+        return .{
+            .handle = sockfd,
+            .addr = addr,
+            .display = .fromInt(1),
+        };
+    }
+
+    pub fn close(conn: *Connection) void {
+        posix.close(conn.handle);
+    }
+
+    pub fn proxy(conn: *Connection) Proxy {
         return .{
             .ctx = @ptrCast(conn),
             .vtable = .{
                 .msg_parse_fn = msg_parse,
-                .msg_write_fn = undefined,
+                .msg_write_fn = msg_write,
+                .next_id_fn = next_id,
+                .obj_push_fn = push_object,
+                .obj_destroy_fn = destroy_object,
             },
         };
     }
 
     pub fn event(conn: *Connection) ?Event {
-        return conn.ev_queue.next();
+        return conn.ev_queue_in.next();
     }
 
-    fn msg_parse(noalias ctx: *anyopaque, args_out: []Protocols.MessageArg, data: []const u8) !void {
+    pub fn flush(connection: *Connection) !void {
+        if (connection.out_buf_idx > 0) {
+            defer {
+                @memset(connection.out_buf[0..], 0);
+                connection.out_buf_idx = 0;
+                @memset(connection.fd_out_buf[0..], 0);
+                connection.fd_out_buf_idx = 0;
+            }
+            const iov = [_]posix.iovec_const{
+                .{
+                    .base = connection.out_buf[0..].ptr,
+                    .len = connection.out_buf_idx,
+                },
+            };
+
+            const msg: posix.msghdr_const = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &iov,
+                .iovlen = iov.len,
+                .control = @ptrCast(connection.fd_out_buf[0..].ptr),
+                .controllen = connection.fd_out_buf_idx,
+                .flags = 0,
+            };
+
+            _ = try posix.sendmsg(connection.handle, &msg, 0);
+        }
+    }
+
+    fn next_id(noalias ctx: *anyopaque) u32 {
+        const connection: *Connection = @ptrCast(@alignCast(ctx));
+        return if (connection.idx_free_queue.next()) |free_idx|
+            free_idx
+        else idx: {
+            defer connection.cur_idx += 1;
+            break :idx connection.cur_idx;
+        };
+    }
+
+    fn push_object(noalias ctx: *anyopaque, id: u32, noalias object: *Protocols.Object) void {
+        const connection: *Connection = @ptrCast(@alignCast(ctx));
+        connection.objects[id] = object;
+    }
+
+    fn destroy_object(noalias ctx: *anyopaque, id: u32) void {
+        const connection: *Connection = @ptrCast(@alignCast(ctx));
+        connection.idx_free_queue.push(id);
+        connection.objects[id] = undefined;
+    }
+
+    fn msg_parse(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) !void {
         const connection: *Connection = @ptrCast(@alignCast(ctx));
         var offset: u32 = 0;
         for (args_out) |*arg| {
             switch (arg.*) {
                 .fd => |*arg_fd| {
-                    arg_fd.* = connection.fd_queue.next().?;
+                    arg_fd.* = connection.fd_queue_in.next().?;
                 },
                 .uint, .object, .new_id => |*uint_arg| {
                     uint_arg.* = std.mem.bytesToValue(u32, data[offset..][0..4]);
@@ -78,11 +188,87 @@ pub const Connection = struct {
         }
     }
 
-    fn msg_write(ctx: *anyopaque, id: u32, op: u16, args: []Protocols.MessageArg) !void {
-        _ = ctx;
-        _ = id;
-        _ = op;
-        _ = args;
+    fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) Protocols.WriteError!void {
+        const connection: *Connection = @ptrCast(@alignCast(ctx));
+        var msg_len: u16 = @sizeOf(WireEvent.Header);
+        for (args) |arg_opt| {
+            if (arg_opt) |arg| switch (arg) {
+                .int, .uint, .fixed, .object, .new_id, .@"enum" => msg_len += @sizeOf(u32),
+                .string => |string_arg| msg_len += msg_str_len(string_arg),
+                .array => |array_arg| msg_len += msg_arr_len(array_arg),
+                .fd => {},
+            } else {
+                msg_len += @sizeOf(u32);
+            }
+        }
+
+        if (connection.out_buf[connection.out_buf_idx..].len < msg_len) {
+            connection.flush() catch |err| {
+                log.err("Connection flush failed due to err :: {s}", .{@errorName(err)});
+                return Protocols.WriteError.WriteFailed;
+            };
+        }
+
+        const header: WireEvent.Header = .{
+            .id = id,
+            .op = op,
+            .len = msg_len,
+        };
+
+        @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(WireEvent.Header)], std.mem.asBytes(&header));
+        connection.out_buf_idx += @sizeOf(WireEvent.Header);
+        for (args) |arg_opt| {
+            if (arg_opt) |arg| arg: switch (arg) {
+                .uint, .new_id, .object => |uint_arg| {
+                    @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&uint_arg));
+                    connection.out_buf_idx += @sizeOf(u32);
+                },
+                .int => |int_arg| {
+                    continue :arg .{ .uint = @bitCast(int_arg) };
+                },
+                .@"enum" => |*enum_arg| {
+                    const u32_val: *const u32 = @ptrCast(enum_arg);
+                    continue :arg .{ .uint = u32_val.* };
+                },
+                .fixed => |float_arg| {
+                    const val: i32 = @intFromFloat(float_arg * 256);
+                    continue :arg .{ .uint = @bitCast(val) };
+                },
+                .string => |string_arg| {
+                    continue :arg .{ .array = string_arg[0 .. string_arg.len + 1] };
+                },
+                .array => |array_arg| {
+                    const len: u32 = @intCast(msg_arr_len(array_arg));
+                    @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&len));
+                    connection.out_buf_idx += @sizeOf(u32);
+                    @memcpy(connection.out_buf[connection.out_buf_idx..][0..array_arg.len], array_arg);
+                    const padding_byte_count = len - array_arg.len;
+                    if (padding_byte_count > 0) {
+                        @memset(connection.out_buf[connection.out_buf_idx..][0..padding_byte_count], 0);
+                    }
+                    connection.out_buf_idx += (len - @sizeOf(u32));
+                },
+                .fd => |fd_arg| {
+                    const fd_cmsg: linux.cmsg(posix.fd_t) = .init(
+                        posix.SOL.SOCKET,
+                        linux.SCM_RIGHTS,
+                        fd_arg,
+                    );
+                    @memcpy(connection.fd_out_buf[connection.fd_out_buf_idx..][0..@sizeOf(@TypeOf(fd_cmsg))], std.mem.asBytes(&fd_cmsg));
+                    connection.fd_out_buf_idx += @sizeOf(@TypeOf(fd_cmsg));
+                },
+            } else {
+                @memset(connection.out_buf[connection.out_buf_idx..][0..4], 0);
+            }
+        }
+    }
+
+    inline fn msg_str_len(str: [:0]const u8) u16 {
+        return msg_arr_len(str[0 .. str.len + 1]);
+    }
+
+    inline fn msg_arr_len(arr: []const u8) u16 {
+        return @intCast(round_up(@sizeOf(u32) + arr.len, @sizeOf(u32)));
     }
 
     inline fn round_up(val: anytype, mul: @TypeOf(val)) @TypeOf(val) {
@@ -121,17 +307,17 @@ pub const Connection = struct {
     };
 
     const FdQueue = struct {
-        buf: [Size]std.posix.fd_t = @splat(0),
+        buf: [Size]posix.fd_t = @splat(0),
         read: u32 = 0,
         write: u32 = 0,
 
-        pub fn push(noalias queue: *FdQueue, fd: std.posix.fd_t) void {
+        pub fn push(noalias queue: *FdQueue, fd: posix.fd_t) void {
             const write_idx = queue.write % queue.buf.len;
             queue.buf[write_idx] = fd;
             queue.write += 1;
         }
 
-        pub fn next(noalias queue: *FdQueue) ?std.posix.fd_t {
+        pub fn next(noalias queue: *FdQueue) ?posix.fd_t {
             if (queue.read != queue.write) {
                 defer queue.read += 1;
 
@@ -144,10 +330,41 @@ pub const Connection = struct {
 
         pub const Size = 64;
     };
+
+    const IndexFreeQueue = struct {
+        buf: [QueueSize]u32 = [_]u32{0} ** QueueSize,
+        first: usize = 0,
+        last: usize = 0,
+
+        const QueueSize = 32;
+
+        pub fn push(q: *IndexFreeQueue, idx: u32) void {
+            q.buf[(q.last % QueueSize)] = idx;
+            q.last += 1;
+        }
+        pub fn next(q: *IndexFreeQueue) ?u32 {
+            const res = blk: {
+                if (q.buf[(q.first % QueueSize)] == 0) {
+                    break :blk null;
+                } else {
+                    defer q.first += 1;
+                    defer q.buf[(q.first % QueueSize)] = 0;
+                    break :blk q.buf[(q.first % QueueSize)];
+                }
+            };
+            return res;
+        }
+    };
+
+    const MessageArg = Protocols.MessageArg;
+    const Proxy = Protocols.Proxy;
+
+    const log = std.log.scoped(.WaylandConnection);
 };
 
 pub const Event = Protocols.Event;
 
+const posix = std.posix;
 // Begin Tests
 test "Proxied Event Parse" {
     var conn: Connection = .{};
@@ -175,7 +392,7 @@ test "Proxied Event Parse" {
     };
 
     const proxy = conn.proxy();
-    const registry: Protocols.Wayland.Registry = .{ .id = 2 };
+    const registry: Protocols.Wayland.Registry = .fromInt(2);
     const registry_object = registry.object();
     const event = try registry_object.parse_msg(
         &proxy,
