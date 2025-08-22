@@ -255,7 +255,7 @@ pub fn main() !void {
                     \\    return @intFromEnum(self);
                     \\  }}
                     \\
-                    \\  fn msg_parse(noalias ctx: *const anyopaque,
+                    \\  pub fn msg_parse(noalias ctx: *const anyopaque,
                     \\               noalias proxy: *const Proxy,
                     \\               op: u16,
                     \\               data: []const u8,
@@ -740,10 +740,16 @@ pub fn main() !void {
             \\    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []?MessageArg) WriteError!void {{
             \\        try @call(.auto, proxy.vtable.msg_write_fn, .{{ proxy.ctx, id, op, args }});
             \\    }}
+            \\    pub inline fn next_id(noalias proxy: *const Proxy) u32 {{
+            \\        @call(.auto, proxy.vtable.next_id_fn, .{{ proxy.ctx }});
+            \\    }}
             \\
             \\    const VTable = struct {{
             \\        msg_parse_fn: *const fn(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
             \\        msg_write_fn: *const fn(noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) WriteError!void,
+            \\        next_id_fn: *const fn(noalias ctx: *anyopaque) u32,
+            \\        obj_push_fn: *const fn(noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
+            \\        obj_destroy_fn: *const fn(noalias ctx: *anyopaque, id: u32) void,
             \\    }};
             \\}};
             \\

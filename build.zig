@@ -4,10 +4,23 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const codegen_output_dir = b.option([]const u8, "codegen-dir", "output path for generated code",)
-        orelse "src/generated";
-    const codegen_output_name = b.option([]const u8, "codegen-name", "output name for generated code",)
-        orelse "wayland_protocols.zig";
+    const codegen_debug = b.option(
+        bool,
+        "codegen-debug",
+        "run wayland protocol codegen with debug logs",
+    ) orelse false;
+
+    const codegen_output_dir = b.option(
+        []const u8,
+        "codegen-dir",
+        "output path for generated code",
+    ) orelse "src/generated";
+
+    const codegen_output_name = b.option(
+        []const u8,
+        "codegen-name",
+        "output name for generated code",
+    ) orelse "wayland_protocols.zig";
 
     const math_mod = b.addModule("math", .{
         .root_source_file = b.path("src/math.zig"),
@@ -79,9 +92,9 @@ pub fn build(b: *std.Build) void {
         b.pathFromRoot(codegen_output_dir),
         "--name",
         codegen_output_name,
-        "--debug",
     });
     codegen_cmd.addArgs(wayland_protocols);
+    if (codegen_debug) codegen_cmd.addArg("--debug");
 
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
