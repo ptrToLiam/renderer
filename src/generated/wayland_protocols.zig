@@ -1,8 +1,9 @@
-// WARNING :: This file is auto-generated and should not be edited.
-//            Any issues with this file should be addressed in the tool
-//            that produced this file.
+//                  :: WARNING ::
+// This file is auto-generated and should not be edited.
+// Any issues with this file should be addressed in the tool
+// that produced this file.
 //
-//            - LM
+// - LM
 
 const WaylandProtocols = @This();
 

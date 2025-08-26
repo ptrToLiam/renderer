@@ -191,11 +191,12 @@ pub fn main() !void {
     var protocol_node_opt: ?*ProtocolList.Node = null;
     var out_contents: std.io.Writer.Allocating = try .initCapacity(allocator, 2048);
     try out_contents.writer.print(
-        \\// WARNING :: This file is auto-generated and should not be edited.
-        \\//            Any issues with this file should be addressed in the tool
-        \\//            that produced this file.
-        \\//            
-        \\//            - LM
+        \\//                  :: WARNING ::
+        \\// This file is auto-generated and should not be edited.
+        \\// Any issues with this file should be addressed in the tool
+        \\// that produced this file.
+        \\// 
+        \\// - LM
         \\ 
         \\ const WaylandProtocols = @This();
         \\
