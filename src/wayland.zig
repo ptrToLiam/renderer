@@ -22,8 +22,8 @@ pub const Connection = struct {
     ev_queue_in: EventQueue = .{},
     fd_queue_in: FdQueue = .{},
     idx_free_queue: IndexFreeQueue = .{},
-    cur_idx: u32 = 1,
-    objects: []Protocols.Object,
+    cur_idx: u32 = 2,
+    objects: []*Protocols.Object,
     out_buf: [2048]u8 = @splat(0),
     out_buf_idx: usize = 0,
     fd_out_buf: [256]u8 = @splat(0),
@@ -70,6 +70,7 @@ pub const Connection = struct {
             .handle = sockfd,
             .addr = addr,
             .display = .fromInt(1),
+            .objects = arena.push(*Protocols.Object, 128),
         };
     }
 
@@ -188,7 +189,7 @@ pub const Connection = struct {
         }
     }
 
-    fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) Protocols.WriteError!void {
+    fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) Protocols.WriteError!void {
         const connection: *Connection = @ptrCast(@alignCast(ctx));
         var msg_len: u16 = @sizeOf(WireEvent.Header);
         for (args) |arg_opt| {
@@ -344,7 +345,9 @@ pub const Connection = struct {
         }
         pub fn next(q: *IndexFreeQueue) ?u32 {
             const res = blk: {
-                if (q.buf[(q.first % QueueSize)] == 0) {
+                if ((q.first == q.last) or
+                    (q.buf[(q.first % QueueSize)] == 0))
+                {
                     break :blk null;
                 } else {
                     defer q.first += 1;

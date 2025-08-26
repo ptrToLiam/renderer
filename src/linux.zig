@@ -5,8 +5,7 @@ const Arena = @import("arena");
 pub const Context = struct {
     scratch_arenas: [2]*Arena = undefined,
 
-    pub fn init() Context {
-    }
+    pub fn init() Context {}
 
     pub fn deinit(ctx: *const Context) void {
         for (ctx.scratch_arenas) |scratch| {

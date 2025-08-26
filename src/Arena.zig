@@ -135,7 +135,7 @@ pub fn push_no_zero(arena: *Arena, comptime T: type, count: usize) []T {
 
 pub inline fn push(arena: *Arena, comptime T: type, count: usize) []T {
     const bytes = arena.push_no_zero(T, count);
-    const raw_bytes: []u8 = @alignCast(@ptrCast(bytes));
+    const raw_bytes: []u8 = @ptrCast(@alignCast(bytes));
     @memset(raw_bytes[0 .. count * @sizeOf(T)], 0);
 
     return bytes;
@@ -261,7 +261,7 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
 
     const result: []u8 = if (cur.cmt >= pos_pst) result: {
         cur._pos = pos_pst;
-        const ptr: [*]u8 = @alignCast(@ptrCast(cur));
+        const ptr: [*]u8 = @ptrCast(@alignCast(cur));
         break :result ptr[pos_pre .. pos_pre + pos_pst];
     } else unreachable;
 
@@ -292,7 +292,7 @@ fn mem_reserve(size: usize) ?[]align(std.heap.page_size_min) u8 {
         break :ptr null;
     };
 
-    return @as([*]align(std.heap.page_size_min) u8, @alignCast(@ptrCast(ptr)))[0..size];
+    return @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(ptr)))[0..size];
 }
 
 fn mem_commit(ptr: []align(std.heap.page_size_min) u8) bool {
@@ -338,7 +338,7 @@ fn mem_release(ptr: []align(std.heap.page_size_min) const u8) void {
         .linux, .macos => {
             posix.munmap(ptr);
         },
-        .windows => windows.VirtualFree(@constCast(@ptrCast(ptr)), 0, windows.MEM_FREE),
+        .windows => windows.VirtualFree(@ptrCast(@constCast(ptr)), 0, windows.MEM_FREE),
         else => @compileError("Unsupported platform"),
     }
 }
@@ -381,7 +381,7 @@ fn mem_reserve_large(size: usize) ?[]align(std.heap.page_size_min) u8 {
         break :ptr null;
     };
 
-    return @as([*]align(std.heap.page_size_min) u8, @alignCast(@ptrCast(ptr)))[0..size];
+    return @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(ptr)))[0..size];
 }
 
 fn mem_commit_large(ptr: []align(std.heap.page_size_min) u8) bool {

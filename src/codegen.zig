@@ -242,7 +242,6 @@ pub fn main() !void {
                     \\      .ptr = @ptrCast(self),
                     \\      .vtable = .{{
                     \\        .msg_parse_fn = msg_parse,
-                    \\        .msg_write_fn = undefined,
                     \\      }},
                     \\    }};
                     \\  }}
@@ -281,21 +280,48 @@ pub fn main() !void {
                 });
 
                 var request_node_opt: ?*MessageList.Node = null;
+                var request_idx: usize = 0;
                 request_node_opt = interface.requests.first;
                 while (request_node_opt) |request_node| : (request_node_opt = request_node.next) {
+                    defer request_idx += 1;
                     const request = request_node.val.request;
+
+                    const returns_new_id = if (request.args.count > 0) 
+                            (request.args.first.?.val.type == .type and
+                             request.args.first.?.val.type.type == .new_id)
+                        else 
+                            false;
+
                     try out_contents.writer.print("  pub fn @\"{s}\"(noalias self: *const {s}, noalias proxy: *Proxy", .{
                         request.name,
                         interface_t_ref_str,
                     });
+
+                    var arg_node_opt: ?*ArgList.Node = request.args.first;
+                    const returns_new_id_as_u32 = while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
+                        const arg = arg_node.val;
+                        if (arg.type == .type and arg.type.type == .new_id) break true;
+                    } else false;
                     if (request.args.count == 1 and
-                        (request.args.first.?.val.type == .type) and
-                        (request.args.first.?.val.type.type == .new_id))
+                        returns_new_id)
                     {
-                        try out_contents.writer.print(") {s} {{\n_ = self;_ = proxy; }}\n\n", .{request.args.first.?.val.interface.?});
+                        try out_contents.writer.print(
+                            \\) !{s} {{
+                            \\  const request_op = {d};
+                            \\  const new_id = proxy.next_id();
+                            \\ 
+                            \\  try proxy.msg_write(self.toInt(), request_op, &.{{ .{{ .new_id = new_id }} }},);
+                            \\
+                            \\  return .fromInt(new_id);
+                            \\}}
+                            \\
+                            \\
+                        , .{
+                            request.args.first.?.val.interface.?,
+                            request_idx,
+                        });
                     } else if (request.args.count > 0) {
                         try out_contents.writer.print(", params: struct {{\n", .{});
-                        var arg_node_opt: ?*ArgList.Node = null;
                         var return_t: []const u8 = "void"[0..];
                         arg_node_opt = request.args.first;
                         while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
@@ -304,11 +330,10 @@ pub fn main() !void {
                                 .type => |arg_t| {
                                     switch (arg_t) {
                                         .new_id => {
-                                            if (!std.mem.eql(u8, "id", arg.name)) {
-                                                return_t = arg.interface.?;
-                                            } else {
-                                                return_t = arg_t.to_zig_type_string().?;
-                                            }
+                                            return_t = if (arg.interface) |interface_str|
+                                                interface_str
+                                            else
+                                                arg_t.to_zig_type_string();
                                         },
                                         .object => {
                                             try out_contents.writer.print("@\"{s}\": {s}{s},\n", .{
@@ -320,7 +345,7 @@ pub fn main() !void {
                                         else => {
                                             try out_contents.writer.print("@\"{s}\": {s},\n", .{
                                                 arg.name,
-                                                arg_t.to_zig_type_string().?,
+                                                arg_t.to_zig_type_string(),
                                             });
                                         },
                                     }
@@ -349,11 +374,97 @@ pub fn main() !void {
                                 },
                             }
                         }
-                        try out_contents.writer.print("}},) {s} {{\n _ = self; _ = proxy; _ = params; }}\n\n", .{
-                            return_t,
+
+                        try out_contents.writer.print(
+                            \\}},) !{s} {{
+                            \\ const request_op = {d};
+                            \\ {s}
+                            \\
+                            \\ try proxy.msg_write(self.toInt(), request_op, &.{{
+                            \\
+                            , .{
+                                return_t,
+                                request_idx,
+                                if (returns_new_id or returns_new_id_as_u32)
+                                    "const new_id = proxy.next_id();"
+                                else 
+                                    "",
+                        });
+                        arg_node_opt = request.args.first;
+                        while (arg_node_opt) |arg_node| : (arg_node_opt = arg_node.next) {
+                            const arg = arg_node.val;
+
+                            switch (arg.type) {
+                                .type => |arg_type| switch (arg_type) {
+                                    .new_id => {
+                                        try out_contents.writer.print(
+                                            \\ .{{ .new_id = new_id }},
+                                            \\
+                                            , .{});
+                                    },
+                                    .object => {
+                                        try out_contents.writer.print(
+                                            \\ .{{ .object = params.{s}.toInt() }},
+                                            \\
+                                            , .{arg.name});
+                                    },
+                                    else => {
+                                        try out_contents.writer.print(
+                                            \\ .{{ .{s} = params.{s} }},
+                                            \\
+                                            , .{ arg_type.to_string(), arg.name });
+                                    },
+                                },
+                                .@"enum" => |enum_t| {
+                                    const interface_str, const enum_str = blk: {
+                                        if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
+                                            var iter = std.mem.splitScalar(u8, enum_t, '.');
+                                            break :blk .{ iter.next().?, iter.next().? };
+                                        } else {
+                                            break :blk .{ interface.name, enum_t };
+                                        }
+                                    };
+                                    try out_contents.writer.print(
+                                        \\ .{{
+                                        \\   .@"enum" = .{{
+                                        \\     .@"{s}" = .{{
+                                        \\       .@"{s}" = params.{s}
+                                        \\     }},
+                                        \\   }},
+                                        \\ }},
+                                        \\
+                                    , .{
+                                        interface_str,
+                                        enum_str,
+                                        arg.name,
+                                    });
+                                },
+                            }
+                        }
+                        try out_contents.writer.print(
+                            \\  }},);
+                            \\  {s}
+                            \\}}
+                            \\
+                            \\
+                        , .{
+                            if (returns_new_id)
+                                "\nreturn .fromInt(new_id);"
+                            else if (returns_new_id_as_u32)
+                                "\nreturn new_id;"
+                            else 
+                                ""
                         });
                     } else {
-                        try out_contents.writer.print(") void {{\n _ = self; _ = proxy; }}\n\n", .{});
+                        try out_contents.writer.print(
+                            \\) !void {{
+                            \\  const request_op = {d};
+                            \\  
+                            \\  try proxy.msg_write(self.toInt(), request_op, &.{{}});
+                            \\}}
+                            \\  
+                            \\  
+                            , .{ request_idx });
                     }
                 }
 
@@ -516,8 +627,8 @@ pub fn main() !void {
                                     if (arg.nullable) "?" else "",
                                     switch (arg.type) {
                                         .type => |@"type"| switch (@"type") {
-                                            .object => |T| arg.interface orelse T.to_zig_type_string().?,
-                                            else => |T| T.to_zig_type_string().?,
+                                            .object => |T| arg.interface orelse T.to_zig_type_string(),
+                                            else => |T| T.to_zig_type_string(),
                                         },
                                         .@"enum" => |enum_t| str: {
                                             const interface_str, const enum_str = blk: {
@@ -716,13 +827,8 @@ pub fn main() !void {
             \\    return try @call(.auto, object.vtable.msg_parse_fn, .{{ object.ptr, proxy, op, data }});
             \\  }}
             \\
-            \\  pub inline fn write_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event {{
-            \\    return try @call(.auto, object.vtable.msg_write_fn, .{{ object.ptr, proxy, op, args }});
-            \\  }}
-            \\
             \\  pub const VTable = struct {{
             \\    msg_parse_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy , op: u16, data: []const u8) ParseError!WaylandProtocols.Event,
-            \\    msg_write_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event,
             \\  }};
             \\}};
             \\
@@ -731,34 +837,34 @@ pub fn main() !void {
         try out_contents.writer.print(
             \\
             \\pub const Proxy = struct {{
-            \\    ctx: *anyopaque,
-            \\    vtable: VTable,
+            \\  ctx: *anyopaque,
+            \\  vtable: VTable,
             \\
-            \\    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {{
-            \\        try @call(.auto, proxy.vtable.msg_parse_fn, .{{ proxy.ctx, args_out, data }});
-            \\    }}
-            \\    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []?MessageArg) WriteError!void {{
-            \\        try @call(.auto, proxy.vtable.msg_write_fn, .{{ proxy.ctx, id, op, args }});
-            \\    }}
-            \\    pub inline fn next_id(noalias proxy: *const Proxy) u32 {{
-            \\        @call(.auto, proxy.vtable.next_id_fn, .{{ proxy.ctx }});
-            \\    }}
+            \\  pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {{
+            \\    try @call(.auto, proxy.vtable.msg_parse_fn, .{{ proxy.ctx, args_out, data }});
+            \\  }}
+            \\  pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void {{
+            \\    try @call(.auto, proxy.vtable.msg_write_fn, .{{ proxy.ctx, id, op, args }});
+            \\  }}
+            \\  pub inline fn next_id(noalias proxy: *const Proxy) u32 {{
+            \\    return @call(.auto, proxy.vtable.next_id_fn, .{{ proxy.ctx }});
+            \\  }}
             \\
-            \\    const VTable = struct {{
-            \\        msg_parse_fn: *const fn(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-            \\        msg_write_fn: *const fn(noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) WriteError!void,
-            \\        next_id_fn: *const fn(noalias ctx: *anyopaque) u32,
-            \\        obj_push_fn: *const fn(noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
-            \\        obj_destroy_fn: *const fn(noalias ctx: *anyopaque, id: u32) void,
-            \\    }};
+            \\  const VTable = struct {{
+            \\    msg_parse_fn: *const fn(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
+            \\    msg_write_fn: *const fn(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void,
+            \\    next_id_fn: *const fn(noalias ctx: *anyopaque) u32,
+            \\    obj_push_fn: *const fn(noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
+            \\    obj_destroy_fn: *const fn(noalias ctx: *anyopaque, id: u32) void,
+            \\  }};
             \\}};
             \\
             \\pub const ParseError = error{{
-            \\    ParseFailed,
-            \\    InvalidOp,
+            \\  ParseFailed,
+            \\  InvalidOp,
             \\}};
             \\pub const WriteError = error{{
-            \\    WriteFailed,
+            \\  WriteFailed,
             \\}};
             \\
         , .{});
@@ -766,15 +872,15 @@ pub fn main() !void {
         try out_contents.writer.print(
             \\
             \\pub const MessageArg = union(enum) {{
-            \\    int: i32,
-            \\    uint: u32,
-            \\    fixed: f32,
-            \\    object: u32,
-            \\    string: [:0]const u8,
-            \\    array: []const u8,
-            \\    new_id: u32,
-            \\    fd: std.posix.fd_t,
-            \\    @"enum": Enum,
+            \\  int: i32,
+            \\  uint: u32,
+            \\  fixed: f32,
+            \\  object: u32,
+            \\  string: [:0]const u8,
+            \\  array: []const u8,
+            \\  new_id: u32,
+            \\  fd: std.posix.fd_t,
+            \\  @"enum": Enum,
             \\}};
             \\
         , .{});
@@ -878,8 +984,8 @@ pub fn main() !void {
         };
         try file_out.writeAll(formatted);
         if (debug) log.debug("Wrote output to file :: {s}/{s}", .{
-                pathname,
-                filename,
+            pathname,
+            filename,
         });
     }
 
@@ -970,7 +1076,19 @@ const Type = enum {
             return error.UnknownType;
         };
     }
-    pub fn to_zig_type_string(T: Type) ?[]const u8 {
+    pub fn to_string(T: Type) []const u8 {
+        return switch (T) {
+            .int => "int",
+            .uint => "uint",
+            .fixed => "fixed",
+            .string => "string",
+            .object => "object",
+            .new_id => "new_id",
+            .array => "array",
+            .fd => "fd",
+        };
+    }
+    pub fn to_zig_type_string(T: Type) []const u8 {
         return switch (T) {
             .fd => "std.posix.fd_t",
             .int => "i32",

@@ -18,7 +18,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -31,7 +30,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -41,14 +40,30 @@ pub const Wayland = struct {
             return try Display.Event.parse(proxy, op, data);
         }
 
-        pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) wl_callback {
-            _ = self;
-            _ = proxy;
+        pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) !wl_callback {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn get_registry(noalias self: *const Display, noalias proxy: *Proxy) wl_registry {
-            _ = self;
-            _ = proxy;
+        pub fn get_registry(noalias self: *const Display, noalias proxy: *Proxy) !wl_registry {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Event = union(enum) {
@@ -185,7 +200,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -198,7 +212,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -214,10 +228,20 @@ pub const Wayland = struct {
             params: struct {
                 name: u32,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !u32 {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.name },
+                    .{ .new_id = new_id },
+                },
+            );
+
+            return new_id;
         }
 
         pub const Event = union(enum) {
@@ -325,7 +349,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -338,7 +361,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -410,7 +433,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -423,7 +445,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -433,14 +455,30 @@ pub const Wayland = struct {
             return try Compositor.Event.parse(proxy, op, data);
         }
 
-        pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) wl_surface {
-            _ = self;
-            _ = proxy;
+        pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_surface {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn create_region(noalias self: *const Compositor, noalias proxy: *Proxy) wl_region {
-            _ = self;
-            _ = proxy;
+        pub fn create_region(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_region {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Interface = @This();
@@ -464,7 +502,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -477,7 +514,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -497,15 +534,34 @@ pub const Wayland = struct {
                 stride: i32,
                 format: Shm.Enum.Format,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_buffer {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .int = params.offset },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                    .{ .int = params.stride },
+                    .{
+                        .@"enum" = .{
+                            .wl_shm = .{ .format = params.format },
+                        },
+                    },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn destroy(noalias self: *const ShmPool, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const ShmPool, noalias proxy: *Proxy) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn resize(
@@ -514,10 +570,16 @@ pub const Wayland = struct {
             params: struct {
                 size: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.size },
+                },
+            );
         }
 
         pub const Interface = @This();
@@ -541,7 +603,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -554,7 +615,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -571,15 +632,27 @@ pub const Wayland = struct {
                 fd: std.posix.fd_t,
                 size: i32,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_shm_pool {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .fd = params.fd },
+                    .{ .int = params.size },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn release(noalias self: *const Shm, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Shm, noalias proxy: *Proxy) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -805,7 +878,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -818,7 +890,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -828,9 +900,10 @@ pub const Wayland = struct {
             return try Buffer.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -896,7 +969,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -909,7 +981,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -926,10 +998,17 @@ pub const Wayland = struct {
                 serial: u32,
                 mime_type: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                    .{ .string = params.mime_type },
+                },
+            );
         }
 
         pub fn receive(
@@ -939,20 +1018,29 @@ pub const Wayland = struct {
                 mime_type: [:0]const u8,
                 fd: std.posix.fd_t,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.mime_type },
+                    .{ .fd = params.fd },
+                },
+            );
         }
 
-        pub fn destroy(noalias self: *const DataOffer, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const DataOffer, noalias proxy: *Proxy) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn finish(noalias self: *const DataOffer, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn finish(noalias self: *const DataOffer, noalias proxy: *Proxy) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_actions(
@@ -962,10 +1050,25 @@ pub const Wayland = struct {
                 dnd_actions: DataDeviceManager.Enum.DndAction,
                 preferred_action: DataDeviceManager.Enum.DndAction,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .wl_data_device_manager = .{ .dnd_action = params.dnd_actions },
+                        },
+                    },
+                    .{
+                        .@"enum" = .{
+                            .wl_data_device_manager = .{ .dnd_action = params.preferred_action },
+                        },
+                    },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -1138,7 +1241,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -1151,7 +1253,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -1167,15 +1269,22 @@ pub const Wayland = struct {
             params: struct {
                 mime_type: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.mime_type },
+                },
+            );
         }
 
-        pub fn destroy(noalias self: *const DataSource, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const DataSource, noalias proxy: *Proxy) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_actions(
@@ -1184,10 +1293,20 @@ pub const Wayland = struct {
             params: struct {
                 dnd_actions: DataDeviceManager.Enum.DndAction,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .wl_data_device_manager = .{ .dnd_action = params.dnd_actions },
+                        },
+                    },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -1416,7 +1535,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -1429,7 +1547,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -1448,10 +1566,19 @@ pub const Wayland = struct {
                 icon: ?wl_surface,
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.source.toInt() },
+                    .{ .object = params.origin.toInt() },
+                    .{ .object = params.icon.toInt() },
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub fn set_selection(
@@ -1461,15 +1588,23 @@ pub const Wayland = struct {
                 source: ?wl_data_source,
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.source.toInt() },
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
-        pub fn release(noalias self: *const DataDevice, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const DataDevice, noalias proxy: *Proxy) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -1712,7 +1847,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -1725,7 +1859,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -1735,9 +1869,17 @@ pub const Wayland = struct {
             return try DataDeviceManager.Event.parse(proxy, op, data);
         }
 
-        pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) wl_data_source {
-            _ = self;
-            _ = proxy;
+        pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) !wl_data_source {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn get_data_device(
@@ -1746,10 +1888,20 @@ pub const Wayland = struct {
             params: struct {
                 seat: wl_seat,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_data_device {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.seat.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Enum = union(enum) {
@@ -1789,7 +1941,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -1802,7 +1953,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -1818,10 +1969,20 @@ pub const Wayland = struct {
             params: struct {
                 surface: wl_surface,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_shell_surface {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.surface.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Enum = union(enum) {
@@ -1859,7 +2020,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -1872,7 +2032,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -1888,10 +2048,16 @@ pub const Wayland = struct {
             params: struct {
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub fn move(
@@ -1901,10 +2067,17 @@ pub const Wayland = struct {
                 seat: wl_seat,
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub fn resize(
@@ -1915,15 +2088,28 @@ pub const Wayland = struct {
                 serial: u32,
                 edges: ShellSurface.Enum.Resize,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                    .{
+                        .@"enum" = .{
+                            .wl_shell_surface = .{ .resize = params.edges },
+                        },
+                    },
+                },
+            );
         }
 
-        pub fn set_toplevel(noalias self: *const ShellSurface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_toplevel(noalias self: *const ShellSurface, noalias proxy: *Proxy) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_transient(
@@ -1935,10 +2121,23 @@ pub const Wayland = struct {
                 y: i32,
                 flags: ShellSurface.Enum.Transient,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.parent.toInt() },
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{
+                        .@"enum" = .{
+                            .wl_shell_surface = .{ .transient = params.flags },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_fullscreen(
@@ -1949,10 +2148,22 @@ pub const Wayland = struct {
                 framerate: u32,
                 output: ?wl_output,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 5;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .wl_shell_surface = .{ .fullscreen_method = params.method },
+                        },
+                    },
+                    .{ .uint = params.framerate },
+                    .{ .object = params.output.toInt() },
+                },
+            );
         }
 
         pub fn set_popup(
@@ -1966,10 +2177,25 @@ pub const Wayland = struct {
                 y: i32,
                 flags: ShellSurface.Enum.Transient,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 6;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                    .{ .object = params.parent.toInt() },
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{
+                        .@"enum" = .{
+                            .wl_shell_surface = .{ .transient = params.flags },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_maximized(
@@ -1978,10 +2204,16 @@ pub const Wayland = struct {
             params: struct {
                 output: ?wl_output,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 7;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.output.toInt() },
+                },
+            );
         }
 
         pub fn set_title(
@@ -1990,10 +2222,16 @@ pub const Wayland = struct {
             params: struct {
                 title: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 8;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.title },
+                },
+            );
         }
 
         pub fn set_class(
@@ -2002,10 +2240,16 @@ pub const Wayland = struct {
             params: struct {
                 class_: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 9;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.class_ },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -2212,7 +2456,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -2225,7 +2468,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -2235,9 +2478,10 @@ pub const Wayland = struct {
             return try Surface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn attach(
@@ -2248,10 +2492,18 @@ pub const Wayland = struct {
                 x: i32,
                 y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.buffer.toInt() },
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                },
+            );
         }
 
         pub fn damage(
@@ -2263,15 +2515,32 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
-        pub fn frame(noalias self: *const Surface, noalias proxy: *Proxy) wl_callback {
-            _ = self;
-            _ = proxy;
+        pub fn frame(noalias self: *const Surface, noalias proxy: *Proxy) !wl_callback {
+            const request_op = 3;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn set_opaque_region(
@@ -2280,10 +2549,16 @@ pub const Wayland = struct {
             params: struct {
                 region: ?wl_region,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.region.toInt() },
+                },
+            );
         }
 
         pub fn set_input_region(
@@ -2292,15 +2567,22 @@ pub const Wayland = struct {
             params: struct {
                 region: ?wl_region,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 5;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.region.toInt() },
+                },
+            );
         }
 
-        pub fn commit(noalias self: *const Surface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn commit(noalias self: *const Surface, noalias proxy: *Proxy) !void {
+            const request_op = 6;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_buffer_transform(
@@ -2309,10 +2591,20 @@ pub const Wayland = struct {
             params: struct {
                 transform: Output.Enum.Transform,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 7;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .wl_output = .{ .transform = params.transform },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_buffer_scale(
@@ -2321,10 +2613,16 @@ pub const Wayland = struct {
             params: struct {
                 scale: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 8;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.scale },
+                },
+            );
         }
 
         pub fn damage_buffer(
@@ -2336,10 +2634,19 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 9;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn offset(
@@ -2349,10 +2656,17 @@ pub const Wayland = struct {
                 x: i32,
                 y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 10;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -2540,7 +2854,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -2553,7 +2866,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -2563,24 +2876,49 @@ pub const Wayland = struct {
             return try Seat.Event.parse(proxy, op, data);
         }
 
-        pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) wl_pointer {
-            _ = self;
-            _ = proxy;
+        pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) !wl_pointer {
+            const request_op = 0;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn get_keyboard(noalias self: *const Seat, noalias proxy: *Proxy) wl_keyboard {
-            _ = self;
-            _ = proxy;
+        pub fn get_keyboard(noalias self: *const Seat, noalias proxy: *Proxy) !wl_keyboard {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn get_touch(noalias self: *const Seat, noalias proxy: *Proxy) wl_touch {
-            _ = self;
-            _ = proxy;
+        pub fn get_touch(noalias self: *const Seat, noalias proxy: *Proxy) !wl_touch {
+            const request_op = 2;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn release(noalias self: *const Seat, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Seat, noalias proxy: *Proxy) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -2733,7 +3071,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -2746,7 +3083,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -2765,15 +3102,25 @@ pub const Wayland = struct {
                 hotspot_x: i32,
                 hotspot_y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                    .{ .object = params.surface.toInt() },
+                    .{ .int = params.hotspot_x },
+                    .{ .int = params.hotspot_y },
+                },
+            );
         }
 
-        pub fn release(noalias self: *const Pointer, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Pointer, noalias proxy: *Proxy) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -3377,7 +3724,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -3390,7 +3736,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -3400,9 +3746,10 @@ pub const Wayland = struct {
             return try Keyboard.Event.parse(proxy, op, data);
         }
 
-        pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -3728,7 +4075,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -3741,7 +4087,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -3751,9 +4097,10 @@ pub const Wayland = struct {
             return try Touch.Event.parse(proxy, op, data);
         }
 
-        pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -4047,7 +4394,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4060,7 +4406,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4070,9 +4416,10 @@ pub const Wayland = struct {
             return try Output.Event.parse(proxy, op, data);
         }
 
-        pub fn release(noalias self: *const Output, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn release(noalias self: *const Output, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -4429,7 +4776,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4442,7 +4788,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4452,9 +4798,10 @@ pub const Wayland = struct {
             return try Region.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn add(
@@ -4466,10 +4813,19 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn subtract(
@@ -4481,10 +4837,19 @@ pub const Wayland = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub const Interface = @This();
@@ -4517,7 +4882,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4530,7 +4894,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4540,9 +4904,10 @@ pub const Wayland = struct {
             return try Subcompositor.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn get_subsurface(
@@ -4552,10 +4917,21 @@ pub const Wayland = struct {
                 surface: wl_surface,
                 parent: wl_surface,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_subsurface {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.surface.toInt() },
+                    .{ .object = params.parent.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Enum = union(enum) {
@@ -4628,7 +5004,6 @@ pub const Wayland = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4641,7 +5016,7 @@ pub const Wayland = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4651,9 +5026,10 @@ pub const Wayland = struct {
             return try Subsurface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_position(
@@ -4663,10 +5039,17 @@ pub const Wayland = struct {
                 x: i32,
                 y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                },
+            );
         }
 
         pub fn place_above(
@@ -4675,10 +5058,16 @@ pub const Wayland = struct {
             params: struct {
                 sibling: wl_surface,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.sibling.toInt() },
+                },
+            );
         }
 
         pub fn place_below(
@@ -4687,20 +5076,28 @@ pub const Wayland = struct {
             params: struct {
                 sibling: wl_surface,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.sibling.toInt() },
+                },
+            );
         }
 
-        pub fn set_sync(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_sync(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn set_desync(noalias self: *const Subsurface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_desync(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
+            const request_op = 5;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Enum = union(enum) {
@@ -4736,7 +5133,6 @@ pub const XdgShell = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4749,7 +5145,7 @@ pub const XdgShell = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4759,14 +5155,23 @@ pub const XdgShell = struct {
             return try WmBase.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn create_positioner(noalias self: *const WmBase, noalias proxy: *Proxy) xdg_positioner {
-            _ = self;
-            _ = proxy;
+        pub fn create_positioner(noalias self: *const WmBase, noalias proxy: *Proxy) !xdg_positioner {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn get_xdg_surface(
@@ -4775,10 +5180,20 @@ pub const XdgShell = struct {
             params: struct {
                 surface: wl_surface,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !xdg_surface {
+            const request_op = 2;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.surface.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn pong(
@@ -4787,10 +5202,16 @@ pub const XdgShell = struct {
             params: struct {
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -4896,7 +5317,6 @@ pub const XdgShell = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -4909,7 +5329,7 @@ pub const XdgShell = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -4919,9 +5339,10 @@ pub const XdgShell = struct {
             return try Positioner.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_size(
@@ -4931,10 +5352,17 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn set_anchor_rect(
@@ -4946,10 +5374,19 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn set_anchor(
@@ -4958,10 +5395,20 @@ pub const XdgShell = struct {
             params: struct {
                 anchor: Positioner.Enum.Anchor,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .xdg_positioner = .{ .anchor = params.anchor },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_gravity(
@@ -4970,10 +5417,20 @@ pub const XdgShell = struct {
             params: struct {
                 gravity: Positioner.Enum.Gravity,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .xdg_positioner = .{ .gravity = params.gravity },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_constraint_adjustment(
@@ -4982,10 +5439,20 @@ pub const XdgShell = struct {
             params: struct {
                 constraint_adjustment: Positioner.Enum.ConstraintAdjustment,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 5;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .xdg_positioner = .{ .constraint_adjustment = params.constraint_adjustment },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_offset(
@@ -4995,15 +5462,23 @@ pub const XdgShell = struct {
                 x: i32,
                 y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 6;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                },
+            );
         }
 
-        pub fn set_reactive(noalias self: *const Positioner, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_reactive(noalias self: *const Positioner, noalias proxy: *Proxy) !void {
+            const request_op = 7;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_parent_size(
@@ -5013,10 +5488,17 @@ pub const XdgShell = struct {
                 parent_width: i32,
                 parent_height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 8;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.parent_width },
+                    .{ .int = params.parent_height },
+                },
+            );
         }
 
         pub fn set_parent_configure(
@@ -5025,10 +5507,16 @@ pub const XdgShell = struct {
             params: struct {
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 9;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub const Enum = union(enum) {
@@ -5146,7 +5634,6 @@ pub const XdgShell = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -5159,7 +5646,7 @@ pub const XdgShell = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -5169,14 +5656,23 @@ pub const XdgShell = struct {
             return try Surface.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn get_toplevel(noalias self: *const Surface, noalias proxy: *Proxy) xdg_toplevel {
-            _ = self;
-            _ = proxy;
+        pub fn get_toplevel(noalias self: *const Surface, noalias proxy: *Proxy) !xdg_toplevel {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn get_popup(
@@ -5186,10 +5682,21 @@ pub const XdgShell = struct {
                 parent: ?xdg_surface,
                 positioner: xdg_positioner,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !xdg_popup {
+            const request_op = 2;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.parent.toInt() },
+                    .{ .object = params.positioner.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn set_window_geometry(
@@ -5201,10 +5708,19 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn ack_configure(
@@ -5213,10 +5729,16 @@ pub const XdgShell = struct {
             params: struct {
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -5325,7 +5847,6 @@ pub const XdgShell = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -5338,7 +5859,7 @@ pub const XdgShell = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -5348,9 +5869,10 @@ pub const XdgShell = struct {
             return try Toplevel.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_parent(
@@ -5359,10 +5881,16 @@ pub const XdgShell = struct {
             params: struct {
                 parent: ?xdg_toplevel,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.parent.toInt() },
+                },
+            );
         }
 
         pub fn set_title(
@@ -5371,10 +5899,16 @@ pub const XdgShell = struct {
             params: struct {
                 title: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.title },
+                },
+            );
         }
 
         pub fn set_app_id(
@@ -5383,10 +5917,16 @@ pub const XdgShell = struct {
             params: struct {
                 app_id: [:0]const u8,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 3;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .string = params.app_id },
+                },
+            );
         }
 
         pub fn show_window_menu(
@@ -5398,10 +5938,19 @@ pub const XdgShell = struct {
                 x: i32,
                 y: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 4;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                    .{ .int = params.x },
+                    .{ .int = params.y },
+                },
+            );
         }
 
         pub fn move(
@@ -5411,10 +5960,17 @@ pub const XdgShell = struct {
                 seat: wl_seat,
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 5;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub fn resize(
@@ -5425,10 +5981,22 @@ pub const XdgShell = struct {
                 serial: u32,
                 edges: Toplevel.Enum.ResizeEdge,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 6;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                    .{
+                        .@"enum" = .{
+                            .xdg_toplevel = .{ .resize_edge = params.edges },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn set_max_size(
@@ -5438,10 +6006,17 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 7;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
         pub fn set_min_size(
@@ -5451,20 +6026,29 @@ pub const XdgShell = struct {
                 width: i32,
                 height: i32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 8;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                },
+            );
         }
 
-        pub fn set_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
+            const request_op = 9;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn unset_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn unset_maximized(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
+            const request_op = 10;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_fullscreen(
@@ -5473,20 +6057,28 @@ pub const XdgShell = struct {
             params: struct {
                 output: ?wl_output,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 11;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.output.toInt() },
+                },
+            );
         }
 
-        pub fn unset_fullscreen(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn unset_fullscreen(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
+            const request_op = 12;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn set_minimized(noalias self: *const Toplevel, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn set_minimized(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
+            const request_op = 13;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -5747,7 +6339,6 @@ pub const XdgShell = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -5760,7 +6351,7 @@ pub const XdgShell = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -5770,9 +6361,10 @@ pub const XdgShell = struct {
             return try Popup.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn grab(
@@ -5782,10 +6374,17 @@ pub const XdgShell = struct {
                 seat: wl_seat,
                 serial: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.seat.toInt() },
+                    .{ .uint = params.serial },
+                },
+            );
         }
 
         pub fn reposition(
@@ -5795,10 +6394,17 @@ pub const XdgShell = struct {
                 positioner: xdg_positioner,
                 token: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.positioner.toInt() },
+                    .{ .uint = params.token },
+                },
+            );
         }
 
         pub const Event = union(enum) {
@@ -5963,7 +6569,6 @@ pub const XdgDecorationUnstableV1 = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -5976,7 +6581,7 @@ pub const XdgDecorationUnstableV1 = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -5986,9 +6591,10 @@ pub const XdgDecorationUnstableV1 = struct {
             return try DecorationManagerV1.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn get_toplevel_decoration(
@@ -5997,10 +6603,20 @@ pub const XdgDecorationUnstableV1 = struct {
             params: struct {
                 toplevel: xdg_toplevel,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !zxdg_toplevel_decoration_v1 {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.toplevel.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Interface = @This();
@@ -6022,7 +6638,6 @@ pub const XdgDecorationUnstableV1 = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -6035,7 +6650,7 @@ pub const XdgDecorationUnstableV1 = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -6045,9 +6660,10 @@ pub const XdgDecorationUnstableV1 = struct {
             return try ToplevelDecorationV1.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn set_mode(
@@ -6056,15 +6672,26 @@ pub const XdgDecorationUnstableV1 = struct {
             params: struct {
                 mode: ToplevelDecorationV1.Enum.Mode,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{
+                        .@"enum" = .{
+                            .zxdg_toplevel_decoration_v1 = .{ .mode = params.mode },
+                        },
+                    },
+                },
+            );
         }
 
-        pub fn unset_mode(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn unset_mode(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -6213,7 +6840,6 @@ pub const LinuxDmabufV1 = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -6226,7 +6852,7 @@ pub const LinuxDmabufV1 = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -6236,19 +6862,36 @@ pub const LinuxDmabufV1 = struct {
             return try @This().Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub fn create_params(noalias self: *const @This(), noalias proxy: *Proxy) zwp_linux_buffer_params_v1 {
-            _ = self;
-            _ = proxy;
+        pub fn create_params(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_buffer_params_v1 {
+            const request_op = 1;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
-        pub fn get_default_feedback(noalias self: *const @This(), noalias proxy: *Proxy) zwp_linux_dmabuf_feedback_v1 {
-            _ = self;
-            _ = proxy;
+        pub fn get_default_feedback(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_dmabuf_feedback_v1 {
+            const request_op = 2;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{.{ .new_id = new_id }},
+            );
+
+            return .fromInt(new_id);
         }
 
         pub fn get_surface_feedback(
@@ -6257,10 +6900,20 @@ pub const LinuxDmabufV1 = struct {
             params: struct {
                 surface: wl_surface,
             },
-        ) u32 {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !zwp_linux_dmabuf_feedback_v1 {
+            const request_op = 3;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .object = params.surface.toInt() },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Event = union(enum) {
@@ -6392,7 +7045,6 @@ pub const LinuxDmabufV1 = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -6405,7 +7057,7 @@ pub const LinuxDmabufV1 = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -6415,9 +7067,10 @@ pub const LinuxDmabufV1 = struct {
             return try LinuxBufferParamsV1.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn add(
@@ -6431,10 +7084,21 @@ pub const LinuxDmabufV1 = struct {
                 modifier_hi: u32,
                 modifier_lo: u32,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .fd = params.fd },
+                    .{ .uint = params.plane_idx },
+                    .{ .uint = params.offset },
+                    .{ .uint = params.stride },
+                    .{ .uint = params.modifier_hi },
+                    .{ .uint = params.modifier_lo },
+                },
+            );
         }
 
         pub fn create(
@@ -6446,10 +7110,23 @@ pub const LinuxDmabufV1 = struct {
                 format: u32,
                 flags: LinuxBufferParamsV1.Enum.Flags,
             },
-        ) void {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !void {
+            const request_op = 2;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                    .{ .uint = params.format },
+                    .{
+                        .@"enum" = .{
+                            .zwp_linux_buffer_params_v1 = .{ .flags = params.flags },
+                        },
+                    },
+                },
+            );
         }
 
         pub fn create_immed(
@@ -6461,10 +7138,27 @@ pub const LinuxDmabufV1 = struct {
                 format: u32,
                 flags: LinuxBufferParamsV1.Enum.Flags,
             },
-        ) wl_buffer {
-            _ = self;
-            _ = proxy;
-            _ = params;
+        ) !wl_buffer {
+            const request_op = 3;
+            const new_id = proxy.next_id();
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .new_id = new_id },
+                    .{ .int = params.width },
+                    .{ .int = params.height },
+                    .{ .uint = params.format },
+                    .{
+                        .@"enum" = .{
+                            .zwp_linux_buffer_params_v1 = .{ .flags = params.flags },
+                        },
+                    },
+                },
+            );
+
+            return .fromInt(new_id);
         }
 
         pub const Event = union(enum) {
@@ -6599,7 +7293,6 @@ pub const LinuxDmabufV1 = struct {
                 .ptr = @ptrCast(self),
                 .vtable = .{
                     .msg_parse_fn = msg_parse,
-                    .msg_write_fn = undefined,
                 },
             };
         }
@@ -6612,7 +7305,7 @@ pub const LinuxDmabufV1 = struct {
             return @intFromEnum(self);
         }
 
-        fn msg_parse(
+        pub fn msg_parse(
             noalias ctx: *const anyopaque,
             noalias proxy: *const Proxy,
             op: u16,
@@ -6622,9 +7315,10 @@ pub const LinuxDmabufV1 = struct {
             return try LinuxDmabufFeedbackV1.Event.parse(proxy, op, data);
         }
 
-        pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) void {
-            _ = self;
-            _ = proxy;
+        pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub const Event = union(enum) {
@@ -6914,13 +7608,8 @@ pub const Object = struct {
         return try @call(.auto, object.vtable.msg_parse_fn, .{ object.ptr, proxy, op, data });
     }
 
-    pub inline fn write_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event {
-        return try @call(.auto, object.vtable.msg_write_fn, .{ object.ptr, proxy, op, args });
-    }
-
     pub const VTable = struct {
         msg_parse_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event,
-        msg_write_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, args: []MessageArg) WriteError!WaylandProtocols.Event,
     };
 };
 
@@ -6931,13 +7620,19 @@ pub const Proxy = struct {
     pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
         try @call(.auto, proxy.vtable.msg_parse_fn, .{ proxy.ctx, args_out, data });
     }
-    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, args: []?MessageArg) WriteError!void {
+    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void {
         try @call(.auto, proxy.vtable.msg_write_fn, .{ proxy.ctx, id, op, args });
+    }
+    pub inline fn next_id(noalias proxy: *const Proxy) u32 {
+        return @call(.auto, proxy.vtable.next_id_fn, .{proxy.ctx});
     }
 
     const VTable = struct {
         msg_parse_fn: *const fn (noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
-        msg_write_fn: *const fn (noalias ctx: *anyopaque, id: u32, op: u16, args: []?MessageArg) WriteError!void,
+        msg_write_fn: *const fn (noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void,
+        next_id_fn: *const fn (noalias ctx: *anyopaque) u32,
+        obj_push_fn: *const fn (noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
+        obj_destroy_fn: *const fn (noalias ctx: *anyopaque, id: u32) void,
     };
 };
 

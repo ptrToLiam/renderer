@@ -10,11 +10,14 @@ pub fn main() !void {
     var conn: Wayland.Connection = try .init(arena);
     defer conn.close();
 
+    log.debug("connection handle :: {d}", .{conn.handle});
+    log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
+
     var proxy = conn.proxy();
     _ = &proxy;
 
-    const wl_registry = conn.display.get_registry(&proxy);
-    _ = wl_registry;
+    const wl_registry = try conn.display.get_registry(&proxy);
+    log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
     try conn.flush();
 
     while (conn.event()) |event| {
@@ -36,8 +39,6 @@ pub fn main() !void {
             },
         }
     }
-
-    log.debug("connection handle :: {d}", .{conn.handle});
 }
 
 const log = std.log.scoped(.App);
