@@ -24,7 +24,7 @@
             vulkan-loader
             vulkan-tools
             vulkan-validation-layers
-            zig.packages.${system}.master-2025-08-15
+            zig.packages.${system}."0.15.1"
           ];
         };
       });
