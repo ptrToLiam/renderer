@@ -24,10 +24,14 @@ pub const Connection = struct {
     idx_free_queue: IndexFreeQueue = .{},
     cur_idx: u32 = 2,
     objects: []*Protocols.Object,
+    in_buf: [2048]u8 = @splat(0),
+    in_buf_idx: usize = 0,
     out_buf: [2048]u8 = @splat(0),
     out_buf_idx: usize = 0,
     fd_out_buf: [256]u8 = @splat(0),
     fd_out_buf_idx: usize = 0,
+    fd_in_buf: [256]u8 = @splat(0),
+    fd_in_buf_idx: usize = 0,
 
     pub fn init(arena: *Arena) !Connection {
         const temp = arena.temp();
@@ -121,6 +125,59 @@ pub const Connection = struct {
             };
 
             _ = try posix.sendmsg(connection.handle, &msg, 0);
+        }
+    }
+
+    pub fn load_events(conn: *Connection) !void {
+        var iov = [_]posix.iovec{
+            .{
+                .base = conn.in_buf[conn.in_buf_idx..].ptr,
+                .len = conn.in_buf[conn.in_buf_idx..].len,
+            },
+        };
+
+        var message: posix.msghdr = .{
+            .name = null,
+            .namelen = 0,
+            .iov = &iov,
+            .iovlen = @intCast(iov.len),
+            .control = conn.fd_in_buf[conn.fd_in_buf_idx..].ptr,
+            .controllen = conn.fd_in_buf[conn.fd_in_buf_idx..].len,
+            .flags = 0,
+        };
+
+        const rc = std.os.linux.recvmsg(
+            conn.handle,
+            &message,
+            0,
+        );
+
+        if (rc > iov[0].len) {
+            const err = std.posix.errno(rc);
+            log.debug("rc :: {d}", .{@as(isize, @bitCast(rc))});
+            log.err("Socket read failed with err :: {s}", .{@tagName(err)});
+            return error.SocketReadFailed;
+        } else {
+            const bytes_read: u32 = @intCast(rc);
+            log.debug("load_events :: bytes read :: {d}", .{bytes_read});
+            {
+                log.debug("message controllen={d}", .{message.controllen});
+                var cmsg_iter = linux.cmsghdr.iter(
+                    conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
+                );
+
+                while (cmsg_iter.next()) |cmsg_header| {
+                    if (cmsg_header.type == posix.SOL.SOCKET and
+                        cmsg_header.level == linux.SCM_RIGHTS) {
+                        log.debug("Found file descriptor of value :: {d}", .{cmsg_header.data(posix.fd_t).*});
+                        conn.fd_queue_in.push(cmsg_header.data(posix.fd_t).*);
+                    }
+                }
+            }
+            {
+                // TODO: Standard event parsing
+                // NOTE: DO NOT USE PREVIOUS CODE. SCRAP IT AND START FRESH
+            }
         }
     }
 

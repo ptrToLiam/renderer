@@ -20,6 +20,7 @@ pub fn main() !void {
     log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
     try conn.flush();
 
+    try conn.load_events();
     while (conn.event()) |event| {
         switch (event) {
             .wl_registry => |registry| switch (registry) {
