@@ -25,6 +25,7 @@ pub const Connection = struct {
     cur_idx: u32 = 2,
     objects: []Protocols.Object,
     in_buf: [2048]u8 = @splat(0),
+    in_buf_idx: u32 = 0,
     out_buf: [2048]u8 = @splat(0),
     out_buf_idx: usize = 0,
     fd_out_buf: [256]u8 = @splat(0),
@@ -123,7 +124,9 @@ pub const Connection = struct {
                 .flags = 0,
             };
 
-            _ = try posix.sendmsg(connection.handle, &msg, 0);
+            log.debug("msg :: buf :: {any}", .{@as([]u8, connection.out_buf[0..connection.out_buf_idx])});
+            const bytes_written = try posix.sendmsg(connection.handle, &msg, 0);
+            log.debug("bytes written :: {d}", .{bytes_written});
         }
     }
 
@@ -161,14 +164,15 @@ pub const Connection = struct {
             log.debug("load_events :: bytes read :: {d}", .{bytes_read});
             // Control messages
             {
-                log.debug("message controllen={d}", .{message.controllen});
+                log.debug("Parsing Control Messages", .{});
                 var cmsg_iter = linux.cmsghdr.iter(
                     conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
                 );
 
                 while (cmsg_iter.next()) |cmsg_header| {
                     if (cmsg_header.type == posix.SOL.SOCKET and
-                        cmsg_header.level == linux.SCM_RIGHTS) {
+                        cmsg_header.level == linux.SCM_RIGHTS)
+                    {
                         log.debug("Found file descriptor of value :: {d}", .{cmsg_header.data(posix.fd_t).*});
                         conn.fd_queue_in.push(cmsg_header.data(posix.fd_t).*);
                     }
@@ -177,12 +181,13 @@ pub const Connection = struct {
 
             // Standard wire events
             {
+                log.debug("Parsing Standard Wire Events", .{});
                 var idx: u32 = 0;
                 const event_buf = conn.in_buf[0..bytes_read];
+                log.debug("event_buf length :: {d}", .{event_buf.len});
                 while (idx < bytes_read) {
                     const event_bytes = event_buf[idx..];
 
-                    log.debug("idx :: {d}", .{idx});
                     if (event_bytes.len < @sizeOf(WireEvent.Header)) {
                         log.debug("Not enough space for header", .{});
                         break;
@@ -190,18 +195,20 @@ pub const Connection = struct {
 
                     const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
 
-                    const msg_size = header.len;
-                    const data_end = msg_size;
-
-                    defer idx += msg_size;
-                    if (data_end > event_bytes.len) {
+                    defer idx += header.len;
+                    if (header.len > event_bytes.len) {
                         log.debug("Not enough space for data", .{});
                         break;
                     } else {
-                        const parsed_event = try conn.objects[header.id].parse_msg(&conn.proxy(), header.op, event_bytes[@sizeOf(WireEvent.Header)..data_end]);
+                        const parsed_event = try conn.objects[header.id].parse_msg(
+                            &conn.proxy(),
+                            header.op,
+                            event_bytes[@sizeOf(WireEvent.Header)..header.len],
+                        );
                         conn.ev_queue_in.push(parsed_event);
                     }
                 }
+                log.debug("Standard Wire Event Parsing Complete", .{});
             }
         }
     }
@@ -297,14 +304,23 @@ pub const Connection = struct {
             .op = op,
             .len = msg_len,
         };
+        log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
+            header.id, header.op, header.len,
+        });
+        log.debug("HeaderAsBytes :: {any}", .{std.mem.asBytes(&header)});
+        log.debug("Args :: {any}", .{args});
 
         @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(WireEvent.Header)], std.mem.asBytes(&header));
         connection.out_buf_idx += @sizeOf(WireEvent.Header);
         for (args) |arg_opt| {
             if (arg_opt) |arg| arg: switch (arg) {
                 .uint, .new_id, .object => |uint_arg| {
+                    defer connection.out_buf_idx += @sizeOf(u32);
+
+                    log.debug("UintArg :: {d}", .{uint_arg});
+                    log.debug("UintArgAsBytes :: {any}", .{std.mem.asBytes(&uint_arg)});
+
                     @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&uint_arg));
-                    connection.out_buf_idx += @sizeOf(u32);
                 },
                 .int => |int_arg| {
                     continue :arg .{ .uint = @bitCast(int_arg) };
@@ -321,15 +337,25 @@ pub const Connection = struct {
                     continue :arg .{ .array = string_arg[0 .. string_arg.len + 1] };
                 },
                 .array => |array_arg| {
-                    const len: u32 = @intCast(msg_arr_len(array_arg));
+                    const write_len: u32 = @intCast(msg_arr_len(array_arg));
+                    const len: u32 = @intCast(array_arg.len);
+                    defer connection.out_buf_idx += write_len;
+
+                    log.debug("Array Arg :: {{ .len={d}, bytes={any} }}", .{
+                        array_arg.len, array_arg,
+                    });
+                    log.debug("Array Arg :: WriteLen :: {d}", .{write_len});
+                    log.debug("Array Arg :: LenAsBytes :: {any}", .{std.mem.asBytes(&len)});
+                    log.debug("Array Arg :: ArrBytes :: {any}", .{array_arg});
+
                     @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&len));
-                    connection.out_buf_idx += @sizeOf(u32);
-                    @memcpy(connection.out_buf[connection.out_buf_idx..][0..array_arg.len], array_arg);
-                    const padding_byte_count = len - array_arg.len;
+                    @memcpy(connection.out_buf[connection.out_buf_idx + @sizeOf(u32) ..][0..len], array_arg);
+                    const padding_byte_count = (write_len - @sizeOf(u32)) - len;
+
                     if (padding_byte_count > 0) {
-                        @memset(connection.out_buf[connection.out_buf_idx..][0..padding_byte_count], 0);
+                        log.debug("Array Arg :: PaddingByteCount :: {d}", .{padding_byte_count});
+                        @memset(connection.out_buf[connection.out_buf_idx + @sizeOf(u32) + len ..][0..padding_byte_count], 0);
                     }
-                    connection.out_buf_idx += (len - @sizeOf(u32));
                 },
                 .fd => |fd_arg| {
                     const fd_cmsg: linux.cmsg(posix.fd_t) = .init(
@@ -341,7 +367,11 @@ pub const Connection = struct {
                     connection.fd_out_buf_idx += @sizeOf(@TypeOf(fd_cmsg));
                 },
             } else {
-                @memset(connection.out_buf[connection.out_buf_idx..][0..4], 0);
+                defer connection.out_buf_idx += @sizeOf(u32);
+
+                log.debug("Arg is NULL", .{});
+
+                @memset(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], 0);
             }
         }
     }
