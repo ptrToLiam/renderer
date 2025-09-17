@@ -19,6 +19,9 @@ pub fn main() !void {
     const wl_registry = try conn.display.get_registry(&proxy);
     log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
     try conn.flush();
+    conn.objects[1] = conn.display.object();
+    conn.objects[2] = wl_registry.object();
+
 
     try conn.load_events();
     while (conn.event()) |event| {

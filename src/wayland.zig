@@ -23,9 +23,8 @@ pub const Connection = struct {
     fd_queue_in: FdQueue = .{},
     idx_free_queue: IndexFreeQueue = .{},
     cur_idx: u32 = 2,
-    objects: []*Protocols.Object,
+    objects: []Protocols.Object,
     in_buf: [2048]u8 = @splat(0),
-    in_buf_idx: usize = 0,
     out_buf: [2048]u8 = @splat(0),
     out_buf_idx: usize = 0,
     fd_out_buf: [256]u8 = @splat(0),
@@ -74,7 +73,7 @@ pub const Connection = struct {
             .handle = sockfd,
             .addr = addr,
             .display = .fromInt(1),
-            .objects = arena.push(*Protocols.Object, 128),
+            .objects = arena.push(Protocols.Object, 128),
         };
     }
 
@@ -131,8 +130,8 @@ pub const Connection = struct {
     pub fn load_events(conn: *Connection) !void {
         var iov = [_]posix.iovec{
             .{
-                .base = conn.in_buf[conn.in_buf_idx..].ptr,
-                .len = conn.in_buf[conn.in_buf_idx..].len,
+                .base = conn.in_buf[0..].ptr,
+                .len = conn.in_buf[0..].len,
             },
         };
 
@@ -141,7 +140,7 @@ pub const Connection = struct {
             .namelen = 0,
             .iov = &iov,
             .iovlen = @intCast(iov.len),
-            .control = conn.fd_in_buf[conn.fd_in_buf_idx..].ptr,
+            .control = conn.fd_in_buf[0..].ptr,
             .controllen = conn.fd_in_buf[conn.fd_in_buf_idx..].len,
             .flags = 0,
         };
@@ -160,6 +159,7 @@ pub const Connection = struct {
         } else {
             const bytes_read: u32 = @intCast(rc);
             log.debug("load_events :: bytes read :: {d}", .{bytes_read});
+            // Control messages
             {
                 log.debug("message controllen={d}", .{message.controllen});
                 var cmsg_iter = linux.cmsghdr.iter(
@@ -174,9 +174,50 @@ pub const Connection = struct {
                     }
                 }
             }
+
+            // Standard wire events
             {
-                // TODO: Standard event parsing
-                // NOTE: DO NOT USE PREVIOUS CODE. SCRAP IT AND START FRESH
+                var idx: u32 = 0;
+                const event_buf = conn.in_buf[0..bytes_read];
+                while (idx < bytes_read) {
+                    const event_bytes = event_buf[idx..];
+
+                    log.debug("idx :: {d}", .{idx});
+                    if (event_bytes.len < @sizeOf(WireEvent.Header)) {
+                        log.debug("Not enough space for header", .{});
+                        break;
+                    }
+
+                    const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
+
+                    log.debug("Event header :: {{ .id={d}, .op={d}, .len={d} }}", .{
+                        header.id,
+                        header.op,
+                        header.len,
+                    });
+
+                    const msg_size = header.len;
+                    const data_end = idx + msg_size;
+
+                    defer idx += msg_size;
+                    if (data_end >= event_bytes.len) {
+                        log.debug("Not enough space for data", .{});
+                        break;
+                    } else {
+                        const parsed_event = try conn.objects[header.id].parse_msg(&conn.proxy(), header.op, event_bytes[@sizeOf(WireEvent.Header)..data_end]);
+                        switch (parsed_event) {
+                            .wl_registry => |registry_event| switch (registry_event) {
+                                .global => |global| {
+                                    log.debug("Received registry global :: {{ .name={d}, .interface={s}, .version={d} }}", .{
+                                        global.name, global.interface, global.version,
+                                    });
+                                },
+                                else => {},
+                            },
+                            else => {},
+                        }
+                    }
+                }
             }
         }
     }
@@ -193,7 +234,7 @@ pub const Connection = struct {
 
     fn push_object(noalias ctx: *anyopaque, id: u32, noalias object: *Protocols.Object) void {
         const connection: *Connection = @ptrCast(@alignCast(ctx));
-        connection.objects[id] = object;
+        connection.objects[id] = object.*;
     }
 
     fn destroy_object(noalias ctx: *anyopaque, id: u32) void {
