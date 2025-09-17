@@ -190,32 +190,16 @@ pub const Connection = struct {
 
                     const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
 
-                    log.debug("Event header :: {{ .id={d}, .op={d}, .len={d} }}", .{
-                        header.id,
-                        header.op,
-                        header.len,
-                    });
-
                     const msg_size = header.len;
-                    const data_end = idx + msg_size;
+                    const data_end = msg_size;
 
                     defer idx += msg_size;
-                    if (data_end >= event_bytes.len) {
+                    if (data_end > event_bytes.len) {
                         log.debug("Not enough space for data", .{});
                         break;
                     } else {
                         const parsed_event = try conn.objects[header.id].parse_msg(&conn.proxy(), header.op, event_bytes[@sizeOf(WireEvent.Header)..data_end]);
-                        switch (parsed_event) {
-                            .wl_registry => |registry_event| switch (registry_event) {
-                                .global => |global| {
-                                    log.debug("Received registry global :: {{ .name={d}, .interface={s}, .version={d} }}", .{
-                                        global.name, global.interface, global.version,
-                                    });
-                                },
-                                else => {},
-                            },
-                            else => {},
-                        }
+                        conn.ev_queue_in.push(parsed_event);
                     }
                 }
             }
