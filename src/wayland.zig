@@ -1,7 +1,7 @@
 const std = @import("std");
 const Arena = @import("arena");
 
-const Protocols = @import("generated/wayland_protocols.zig");
+pub const Protocols = @import("generated/wayland_protocols.zig");
 const linux = @import("linux.zig");
 
 pub const WireEvent = struct {
@@ -148,7 +148,7 @@ pub const Connection = struct {
             .flags = 0,
         };
 
-        const rc = std.os.linux.recvmsg(
+        const rc = linux.recvmsg(
             conn.handle,
             &message,
             0,
@@ -304,11 +304,6 @@ pub const Connection = struct {
             .op = op,
             .len = msg_len,
         };
-        log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
-            header.id, header.op, header.len,
-        });
-        log.debug("HeaderAsBytes :: {any}", .{std.mem.asBytes(&header)});
-        log.debug("Args :: {any}", .{args});
 
         @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(WireEvent.Header)], std.mem.asBytes(&header));
         connection.out_buf_idx += @sizeOf(WireEvent.Header);
@@ -316,10 +311,6 @@ pub const Connection = struct {
             if (arg_opt) |arg| arg: switch (arg) {
                 .uint, .new_id, .object => |uint_arg| {
                     defer connection.out_buf_idx += @sizeOf(u32);
-
-                    log.debug("UintArg :: {d}", .{uint_arg});
-                    log.debug("UintArgAsBytes :: {any}", .{std.mem.asBytes(&uint_arg)});
-
                     @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&uint_arg));
                 },
                 .int => |int_arg| {
@@ -341,19 +332,11 @@ pub const Connection = struct {
                     const len: u32 = @intCast(array_arg.len);
                     defer connection.out_buf_idx += write_len;
 
-                    log.debug("Array Arg :: {{ .len={d}, bytes={any} }}", .{
-                        array_arg.len, array_arg,
-                    });
-                    log.debug("Array Arg :: WriteLen :: {d}", .{write_len});
-                    log.debug("Array Arg :: LenAsBytes :: {any}", .{std.mem.asBytes(&len)});
-                    log.debug("Array Arg :: ArrBytes :: {any}", .{array_arg});
-
                     @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], std.mem.asBytes(&len));
                     @memcpy(connection.out_buf[connection.out_buf_idx + @sizeOf(u32) ..][0..len], array_arg);
                     const padding_byte_count = (write_len - @sizeOf(u32)) - len;
 
                     if (padding_byte_count > 0) {
-                        log.debug("Array Arg :: PaddingByteCount :: {d}", .{padding_byte_count});
                         @memset(connection.out_buf[connection.out_buf_idx + @sizeOf(u32) + len ..][0..padding_byte_count], 0);
                     }
                 },
@@ -368,9 +351,6 @@ pub const Connection = struct {
                 },
             } else {
                 defer connection.out_buf_idx += @sizeOf(u32);
-
-                log.debug("Arg is NULL", .{});
-
                 @memset(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(u32)], 0);
             }
         }

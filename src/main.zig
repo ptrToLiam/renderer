@@ -9,7 +9,6 @@ pub fn main() !void {
 
     var conn: Wayland.Connection = try .init(arena);
     defer conn.close();
-    var interfaces = [_]Interface{ .{ .name = "wl_seat" } };
 
     log.debug("connection handle :: {d}", .{conn.handle});
     log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
@@ -22,6 +21,7 @@ pub fn main() !void {
     conn.objects[1] = conn.display.object();
     conn.objects[2] = wl_registry.object();
 
+    // Bind interfaces
     try conn.load_events();
     while (conn.event()) |event| {
         switch (event) {
@@ -32,15 +32,18 @@ pub fn main() !void {
                         global.interface,
                         global.version,
                     });
-                    for (&interfaces) |*desired_interface| {
-                        if (std.mem.eql(u8, desired_interface.name, global.interface)) {
-                            log.debug("Binding interface :: {s}", .{global.interface});
-                            desired_interface.interface = try wl_registry.bind(&proxy, .{
-                                .name = global.name,
-                                .interface = global.interface,
-                                .interface_version = global.version,
-                            });
-                        }
+                    if (std.mem.eql(u8, Wayland.Protocols.Wayland.Seat.InterfaceName, global.interface)) {
+                        log.debug("Binding interface :: {s}", .{global.interface});
+                        const wl_seat = try wl_registry.bind(&proxy, Wayland.Protocols.Wayland.Seat, .{
+                            .name = global.name,
+                            .interface_version = global.version,
+                        });
+                        log.debug("Bound wl_seat with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                            global.name,
+                            wl_seat.toInt(),
+                            global.version,
+                        });
+                        conn.objects[wl_seat.toInt()] = wl_seat.object();
                     }
                 },
                 .global_remove => |remove| {
@@ -54,6 +57,7 @@ pub fn main() !void {
     }
     try conn.flush();
 
+    // general event handling
     try conn.load_events();
     while (conn.event()) |event| switch (event) {
         .wl_display => |display_event| switch (display_event) {
@@ -64,6 +68,18 @@ pub fn main() !void {
             },
             .delete_id => |delete_id| {
                 log.debug("Display Delete ID :: {d}", .{delete_id.id});
+            },
+        },
+        .wl_seat => |seat_event| switch (seat_event) {
+            .capabilities => |seat_capabilities| {
+                log.debug("wl_seat capabilities :: {{ .pointer={s}, .keyboard={s}, .touch={s} }}", .{
+                    if (seat_capabilities.capabilities.pointer) "true" else "false",
+                    if (seat_capabilities.capabilities.keyboard) "true" else "false",
+                    if (seat_capabilities.capabilities.touch) "true" else "false",
+                });
+            },
+            .name => |seat_name| {
+                log.debug("wl_seat name :: {s}", .{seat_name.name});
             },
         },
         else => {

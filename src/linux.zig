@@ -189,5 +189,6 @@ pub const cmsghdr = packed struct {
     const Size = @sizeOf(@This());
 };
 
+pub const recvmsg = std.os.linux.recvmsg;
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
