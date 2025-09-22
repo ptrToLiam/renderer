@@ -43,6 +43,7 @@ pub const Wayland = struct {
 
         pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) !wl_callback {
             const request_op = 0;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -56,6 +57,7 @@ pub const Wayland = struct {
 
         pub fn get_registry(noalias self: *const Display, noalias proxy: *Proxy) !wl_registry {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -226,23 +228,34 @@ pub const Wayland = struct {
         pub fn bind(
             noalias self: *const Registry,
             noalias proxy: *Proxy,
+            comptime InterfaceT: type,
             params: struct {
                 name: u32,
+                interface_version: u32,
             },
-        ) !u32 {
+        ) !InterfaceT {
             const request_op = 0;
             const new_id = proxy.next_id();
+
+            if (InterfaceT.InterfaceVersion != params.interface_version)
+                log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}", .{
+                    InterfaceT.InterfaceName,
+                    InterfaceT.InterfaceVersion,
+                    params.interface_version,
+                });
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
                     .{ .uint = params.name },
+                    .{ .string = InterfaceT.InterfaceName },
+                    .{ .uint = params.interface_version },
                     .{ .new_id = new_id },
                 },
             );
 
-            return new_id;
+            return .fromInt(new_id);
         }
 
         pub const Event = union(enum) {
@@ -458,6 +471,7 @@ pub const Wayland = struct {
 
         pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_surface {
             const request_op = 0;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -471,6 +485,7 @@ pub const Wayland = struct {
 
         pub fn create_region(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_region {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -936,8 +951,9 @@ pub const Wayland = struct {
             }
 
             /// Sent when this wl_buffer is no longer used by the compositor.
-            /// The client is now free to reuse or destroy this buffer and its
-            /// backing storage.
+            /// For more information on when release events may or may not be sent,
+            /// and what consequences it has, please see the description of
+            /// wl_surface.attach.
             /// If a client receives a release event before the frame callback
             /// requested in the same wl_surface.commit that attaches this
             /// wl_buffer to a surface, then the client is immediately free to
@@ -1872,6 +1888,7 @@ pub const Wayland = struct {
 
         pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) !wl_data_source {
             const request_op = 0;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -2533,6 +2550,7 @@ pub const Wayland = struct {
 
         pub fn frame(noalias self: *const Surface, noalias proxy: *Proxy) !wl_callback {
             const request_op = 3;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -2879,6 +2897,7 @@ pub const Wayland = struct {
 
         pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) !wl_pointer {
             const request_op = 0;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -2892,6 +2911,7 @@ pub const Wayland = struct {
 
         pub fn get_keyboard(noalias self: *const Seat, noalias proxy: *Proxy) !wl_keyboard {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -2905,6 +2925,7 @@ pub const Wayland = struct {
 
         pub fn get_touch(noalias self: *const Seat, noalias proxy: *Proxy) !wl_touch {
             const request_op = 2;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -2968,9 +2989,10 @@ pub const Wayland = struct {
                 return event;
             }
 
-            /// This is emitted whenever a seat gains or loses the pointer,
-            /// keyboard or touch capabilities.  The argument is a capability
-            /// enum containing the complete set of capabilities this seat has.
+            /// This is sent on binding to the seat global or whenever a seat gains
+            /// or loses the pointer, keyboard or touch capabilities.
+            /// The argument is a capability enum containing the complete set of
+            /// capabilities this seat has.
             /// When the pointer capability is added, a client may create a
             /// wl_pointer object using the wl_seat.get_pointer request. This object
             /// will receive pointer events until the capability is removed in the
@@ -3008,9 +3030,9 @@ pub const Wayland = struct {
             /// only guaranteed to be unique for the current compositor instance.
             /// The same seat names are used for all clients. Thus, the name can be
             /// shared across processes to refer to a specific wl_seat global.
-            /// The name event is sent after binding to the seat global. This event is
-            /// only sent once per seat object, and the name does not change over the
-            /// lifetime of the wl_seat global.
+            /// The name event is sent after binding to the seat global, and should be sent
+            /// before announcing capabilities. This event only sent once per seat object,
+            /// and the name does not change over the lifetime of the wl_seat global.
             /// Compositors may re-use the same seat name if the wl_seat global is
             /// destroyed and re-created later.
             ///
@@ -5117,6 +5139,68 @@ pub const Wayland = struct {
         pub const InterfaceName = "wl_subsurface";
         pub const InterfaceVersion = 1;
     };
+
+    /// This global fixes problems with other core-protocol interfaces that
+    /// cannot be fixed in these interfaces themselves.
+    ///
+    pub const Fixes = enum(u32) {
+        _,
+
+        pub fn object(self: *const Fixes) Object {
+            return .{
+                .ptr = @ptrCast(self),
+                .vtable = .{
+                    .msg_parse_fn = msg_parse,
+                },
+            };
+        }
+
+        pub fn fromInt(id: u32) Fixes {
+            return @enumFromInt(id);
+        }
+
+        pub fn toInt(self: Fixes) u32 {
+            return @intFromEnum(self);
+        }
+
+        pub fn msg_parse(
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event {
+            _ = ctx;
+            return try Fixes.Event.parse(proxy, op, data);
+        }
+
+        pub fn destroy(noalias self: *const Fixes, noalias proxy: *Proxy) !void {
+            const request_op = 0;
+
+            try proxy.msg_write(self.toInt(), request_op, &.{});
+        }
+
+        pub fn destroy_registry(
+            noalias self: *const Fixes,
+            noalias proxy: *Proxy,
+            params: struct {
+                registry: wl_registry,
+            },
+        ) !void {
+            const request_op = 1;
+
+            try proxy.msg_write(
+                self.toInt(),
+                request_op,
+                &.{
+                    .{ .object = params.registry.toInt() },
+                },
+            );
+        }
+
+        pub const Interface = @This();
+        pub const InterfaceName = "wl_fixes";
+        pub const InterfaceVersion = 1;
+    };
 };
 
 pub const XdgShell = struct {
@@ -5164,6 +5248,7 @@ pub const XdgShell = struct {
 
         pub fn create_positioner(noalias self: *const WmBase, noalias proxy: *Proxy) !xdg_positioner {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -5665,6 +5750,7 @@ pub const XdgShell = struct {
 
         pub fn get_toplevel(noalias self: *const Surface, noalias proxy: *Proxy) !xdg_toplevel {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -6871,6 +6957,7 @@ pub const LinuxDmabufV1 = struct {
 
         pub fn create_params(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_buffer_params_v1 {
             const request_op = 1;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -6884,6 +6971,7 @@ pub const LinuxDmabufV1 = struct {
 
         pub fn get_default_feedback(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_dmabuf_feedback_v1 {
             const request_op = 2;
+
             const new_id = proxy.next_id();
 
             try proxy.msg_write(
@@ -7605,12 +7693,22 @@ pub const Object = struct {
     ptr: *const anyopaque,
     vtable: VTable,
 
-    pub inline fn parse_msg(noalias object: *const Object, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event {
+    pub inline fn parse_msg(
+        noalias object: *const Object,
+        noalias proxy: *const Proxy,
+        op: u16,
+        data: []const u8,
+    ) ParseError!WaylandProtocols.Event {
         return try @call(.auto, object.vtable.msg_parse_fn, .{ object.ptr, proxy, op, data });
     }
 
     pub const VTable = struct {
-        msg_parse_fn: *const fn (noalias ctx: *const anyopaque, noalias proxy: *const Proxy, op: u16, data: []const u8) ParseError!WaylandProtocols.Event,
+        msg_parse_fn: *const fn (
+            noalias ctx: *const anyopaque,
+            noalias proxy: *const Proxy,
+            op: u16,
+            data: []const u8,
+        ) ParseError!WaylandProtocols.Event,
     };
 };
 
@@ -7618,10 +7716,19 @@ pub const Proxy = struct {
     ctx: *anyopaque,
     vtable: VTable,
 
-    pub inline fn msg_parse(noalias proxy: *const Proxy, args_out: []MessageArg, data: []const u8) ParseError!void {
+    pub inline fn msg_parse(
+        noalias proxy: *const Proxy,
+        args_out: []MessageArg,
+        data: []const u8,
+    ) ParseError!void {
         try @call(.auto, proxy.vtable.msg_parse_fn, .{ proxy.ctx, args_out, data });
     }
-    pub inline fn msg_write(noalias proxy: *const Proxy, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void {
+    pub inline fn msg_write(
+        noalias proxy: *const Proxy,
+        id: u32,
+        op: u16,
+        noalias args: []const ?MessageArg,
+    ) WriteError!void {
         try @call(.auto, proxy.vtable.msg_write_fn, .{ proxy.ctx, id, op, args });
     }
     pub inline fn next_id(noalias proxy: *const Proxy) u32 {
@@ -7731,6 +7838,7 @@ const wl_output = Wayland.Output;
 const wl_region = Wayland.Region;
 const wl_subcompositor = Wayland.Subcompositor;
 const wl_subsurface = Wayland.Subsurface;
+const wl_fixes = Wayland.Fixes;
 const xdg_wm_base = XdgShell.WmBase;
 const xdg_positioner = XdgShell.Positioner;
 const xdg_surface = XdgShell.Surface;
