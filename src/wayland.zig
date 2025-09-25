@@ -149,67 +149,73 @@ pub const Connection = struct {
         };
 
         const rc = linux.recvmsg(
-            conn.handle,
-            &message,
-            0,
-        );
-
+                conn.handle,
+                &message,
+                linux.MSG.DONTWAIT,
+            );
         if (rc > iov[0].len) {
             const err = std.posix.errno(rc);
-            log.debug("rc :: {d}", .{@as(isize, @bitCast(rc))});
-            log.err("Socket read failed with err :: {s}", .{@tagName(err)});
-            return error.SocketReadFailed;
-        } else {
-            const bytes_read: u32 = @intCast(rc);
-            log.debug("load_events :: bytes read :: {d}", .{bytes_read});
-            // Control messages
-            {
-                log.debug("Parsing Control Messages", .{});
-                var cmsg_iter = linux.cmsghdr.iter(
-                    conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
-                );
-
-                while (cmsg_iter.next()) |cmsg_header| {
-                    if (cmsg_header.type == posix.SOL.SOCKET and
-                        cmsg_header.level == linux.SCM_RIGHTS)
-                    {
-                        log.debug("Found file descriptor of value :: {d}", .{cmsg_header.data(posix.fd_t).*});
-                        conn.fd_queue_in.push(cmsg_header.data(posix.fd_t).*);
-                    }
+            switch (err) {
+                .AGAIN => {
+                    return error.NoData;
+                },
+                else => {
+                    // log.debug("rc :: {d}", .{@as(isize, @bitCast(rc))});
+                    // log.err("Socket read failed with err :: {s}", .{@tagName(err)});
+                    return error.SocketReadFailed;
                 }
             }
+        }
 
-            // Standard wire events
-            {
-                log.debug("Parsing Standard Wire Events", .{});
-                var idx: u32 = 0;
-                const event_buf = conn.in_buf[0..bytes_read];
-                log.debug("event_buf length :: {d}", .{event_buf.len});
-                while (idx < bytes_read) {
-                    const event_bytes = event_buf[idx..];
+        const bytes_read: u32 = @intCast(rc);
+        // log.debug("load_events :: bytes read :: {d}", .{bytes_read});
+        // Control messages
+        {
+            // log.debug("Parsing Control Messages", .{});
+            var cmsg_iter = linux.cmsghdr.iter(
+                conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
+            );
 
-                    if (event_bytes.len < @sizeOf(WireEvent.Header)) {
-                        log.debug("Not enough space for header", .{});
-                        break;
-                    }
-
-                    const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
-
-                    defer idx += header.len;
-                    if (header.len > event_bytes.len) {
-                        log.debug("Not enough space for data", .{});
-                        break;
-                    } else {
-                        const parsed_event = try conn.objects[header.id].parse_msg(
-                            &conn.proxy(),
-                            header.op,
-                            event_bytes[@sizeOf(WireEvent.Header)..header.len],
-                        );
-                        conn.ev_queue_in.push(parsed_event);
-                    }
+            while (cmsg_iter.next()) |cmsg_header| {
+                if (cmsg_header.type == posix.SOL.SOCKET and
+                    cmsg_header.level == linux.SCM_RIGHTS)
+                {
+                    log.debug("Found file descriptor of value :: {d}", .{cmsg_header.data(posix.fd_t).*});
+                    conn.fd_queue_in.push(cmsg_header.data(posix.fd_t).*);
                 }
-                log.debug("Standard Wire Event Parsing Complete", .{});
             }
+        }
+
+        // Standard wire events
+        {
+            // log.debug("Parsing Standard Wire Events", .{});
+            var idx: u32 = 0;
+            const event_buf = conn.in_buf[0..bytes_read];
+            // log.debug("event_buf length :: {d}", .{event_buf.len});
+            while (idx < bytes_read) {
+                const event_bytes = event_buf[idx..];
+
+                if (event_bytes.len < @sizeOf(WireEvent.Header)) {
+                    log.debug("Not enough space for header", .{});
+                    break;
+                }
+
+                const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
+
+                defer idx += header.len;
+                if (header.len > event_bytes.len) {
+                    log.debug("Not enough space for data", .{});
+                    break;
+                } else {
+                    const parsed_event = try conn.objects[header.id].parse_msg(
+                        &conn.proxy(),
+                        header.op,
+                        event_bytes[@sizeOf(WireEvent.Header)..header.len],
+                    );
+                    conn.ev_queue_in.push(parsed_event);
+                }
+            }
+            // log.debug("Standard Wire Event Parsing Complete", .{});
         }
     }
 

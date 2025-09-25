@@ -2,8 +2,10 @@ const std = @import("std");
 const renderer = @import("renderer");
 const Arena = @import("arena");
 const Wayland = @import("wayland.zig");
+const linux = @import("linux.zig");
 
 pub fn main() !void {
+    Thread.ctx_init();
     const arena: *Arena = .init(.default);
     defer arena.release();
 
@@ -22,44 +24,264 @@ pub fn main() !void {
     conn.objects[2] = wl_registry.object();
 
     // Bind interfaces
-    try conn.load_events();
-    while (conn.event()) |event| {
-        switch (event) {
-            .wl_registry => |registry| switch (registry) {
-                .global => |global| {
-                    log.debug("Registry Global :: {{ .name={d}, .interface={s}, .ver={d} }}", .{
-                        global.name,
-                        global.interface,
-                        global.version,
-                    });
-                    if (std.mem.eql(u8, Wayland.Protocols.Wayland.Seat.InterfaceName, global.interface)) {
-                        log.debug("Binding interface :: {s}", .{global.interface});
-                        const wl_seat = try wl_registry.bind(&proxy, Wayland.Protocols.Wayland.Seat, .{
-                            .name = global.name,
-                            .interface_version = global.version,
-                        });
-                        log.debug("Bound wl_seat with :: {{ .name={d}, .id={d}, .version={d} }}", .{
-                            global.name,
-                            wl_seat.toInt(),
-                            global.version,
-                        });
-                        conn.objects[wl_seat.toInt()] = wl_seat.object();
-                    }
-                },
-                .global_remove => |remove| {
-                    log.debug("Received Unexpected global_remove during bind phase :: {any}", .{remove});
-                },
-            },
-            else => {
-                log.warn("Unexpected event during bind phase :: {any}", .{event});
-            },
+    const wl_seat, const wl_compositor, const xdg_wm_base, const wl_shm = bind: {
+        var read_success = false;
+        while (!read_success) load_loop: {
+            conn.load_events() catch |err| {
+                switch (err) {
+                    error.NoData => {
+                        std.Thread.sleep(std.time.ns_per_us);
+                        break :load_loop;
+                    },
+                    else => return err,
+                }
+            };
+            read_success = true;
         }
-    }
+        var seat: Wayland.Protocols.Wayland.Seat = undefined;
+        var compositor: Wayland.Protocols.Wayland.Compositor = undefined;
+        var wm_base: Wayland.Protocols.XdgShell.WmBase = undefined;
+        var shm: Wayland.Protocols.Wayland.Shm = undefined;
+        while (conn.event()) |event| {
+            switch (event) {
+                .wl_registry => |registry| switch (registry) {
+                    .global => |global| {
+                        if (std.mem.eql(u8, @TypeOf(seat).InterfaceName, global.interface)) {
+                            log.debug("Binding interface :: {s}", .{global.interface});
+                            seat = try wl_registry.bind(&proxy, @TypeOf(seat), .{
+                                .name = global.name,
+                                .interface_version = global.version,
+                            });
+                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                                global.interface,
+                                global.name,
+                                seat.toInt(),
+                                global.version,
+                            });
+                            conn.objects[seat.toInt()] = seat.object();
+                        } else if (std.mem.eql(u8, @TypeOf(compositor).InterfaceName, global.interface)) {
+                            log.debug("Binding interface :: {s}", .{global.interface});
+                            compositor = try wl_registry.bind(&proxy, @TypeOf(compositor), .{
+                                .name = global.name,
+                                .interface_version = global.version,
+                            });
+                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                                global.interface,
+                                global.name,
+                                compositor.toInt(),
+                                global.version,
+                            });
+                            conn.objects[compositor.toInt()] = compositor.object();
+                        } else if (std.mem.eql(u8, @TypeOf(wm_base).InterfaceName, global.interface)) {
+                            log.debug("Binding interface :: {s}", .{global.interface});
+                            wm_base = try wl_registry.bind(&proxy, @TypeOf(wm_base), .{
+                                .name = global.name,
+                                .interface_version = global.version,
+                            });
+                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                                global.interface,
+                                global.name,
+                                wm_base.toInt(),
+                                global.version,
+                            });
+                            conn.objects[wm_base.toInt()] = wm_base.object();
+                        } else if (std.mem.eql(u8, @TypeOf(shm).InterfaceName, global.interface)) {
+                            log.debug("Binding interface :: {s}", .{global.interface});
+                            shm = try wl_registry.bind(&proxy, @TypeOf(shm), .{
+                                .name = global.name,
+                                .interface_version = global.version,
+                            });
+                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                                global.interface,
+                                global.name,
+                                shm.toInt(),
+                                global.version,
+                            });
+                            conn.objects[shm.toInt()] = shm.object();
+                        }
+                    },
+                    .global_remove => |remove| {
+                        log.debug("Received Unexpected global_remove during bind phase :: {any}", .{remove});
+                    },
+                },
+                else => {
+                    log.warn("Unexpected event during bind phase :: {any}", .{event});
+                },
+            }
+        }
+        try conn.flush();
+
+        break :bind .{ seat, compositor, wm_base, shm };
+    };
+
+    const wl_surface = try wl_compositor.create_surface(&proxy);
+    conn.objects[wl_surface.toInt()] = wl_surface.object();
+
+    const xdg_surface = try xdg_wm_base.get_xdg_surface(&proxy, .{ .surface = wl_surface });
+    conn.objects[xdg_surface.toInt()] = xdg_surface.object();
+    const xdg_toplevel = try xdg_surface.get_toplevel(&proxy);
+    conn.objects[xdg_toplevel.toInt()] = xdg_toplevel.object();
+    try xdg_toplevel.set_title(&proxy, .{ .title = "LmRenderer"});
+
+    try wl_surface.commit(&proxy);
     try conn.flush();
 
-    // general event handling
-    try conn.load_events();
-    while (conn.event()) |event| switch (event) {
+    var wayland_state: WaylandState = .{
+        // connection
+        .connection = &conn,
+        .proxy = &proxy,
+
+        // globals
+        .display = conn.display,
+        .seat = wl_seat,
+        .shm = wl_shm,
+        .wm_base = xdg_wm_base,
+        // objects
+        .wl_surface = wl_surface,
+        .xdg_surface = xdg_surface,
+        .xdg_toplevel = xdg_toplevel,
+    };
+
+    const handle = try Thread.spawn(.{}, event_loop, .{&wayland_state});
+    defer handle.join();
+
+    const img_width = 960;
+    const img_height = 540;
+    const img_stride = img_width * 4;
+    const img_size = img_stride * img_height;
+
+    const shm_file = try std.posix.open(
+        "/dev/shm/wl_shm-FFFFFF",
+        .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true },
+        0o600,
+    );
+    std.posix.unlink("/dev/shm/wl_shm-FFFFFF") catch |err| {
+        log.err("failed to unlink shm_file :: {s}", .{@errorName(err)});
+    };
+    log.debug("shm_file fd :: {d}", .{shm_file});
+
+    try std.posix.ftruncate(shm_file, img_size);
+    const img_data = try std.posix.mmap(
+        null,
+        img_size,
+        std.posix.PROT.READ | std.posix.PROT.WRITE,
+        .{ .TYPE = .SHARED },
+        shm_file,
+        0,
+    );
+
+    var buf_idx: usize = 0;
+    while (buf_idx < img_data.len) : (buf_idx += 4) {
+        // a
+        img_data[buf_idx] = 255;
+        // r
+        img_data[buf_idx + 1] = 0;
+        // g
+        img_data[buf_idx + 2] = 0;
+        // b
+        img_data[buf_idx + 3] = 255;
+    }
+
+    const wl_shm_pool = try wl_shm.create_pool(&proxy, .{
+        .fd = shm_file,
+        .size = img_size,
+    });
+    conn.objects[wl_shm_pool.toInt()] = wl_shm_pool.object();
+
+    const wl_buffer = try wl_shm_pool.create_buffer(&proxy, .{
+        .format = .argb8888,
+        .height = img_height,
+        .offset = 0,
+        .stride = img_stride,
+        .width = img_width,
+    });
+    conn.objects[wl_buffer.toInt()] = wl_buffer.object();
+
+    try wl_surface.attach(&proxy, .{
+        .buffer = wl_buffer,
+        .x = 0,
+        .y = 0,
+    });
+    try wl_surface.damage(&proxy, .{
+        .x = 0,
+        .y = 0,
+        .width = img_width,
+        .height = img_height,
+    });
+    try wl_surface.commit(&proxy);
+    std.posix.munmap(img_data);
+    try conn.flush();
+
+    var frame_idx: usize = 0;
+    while (true) : (frame_idx += 1) {
+        log.debug("Begin frame #{d}", .{frame_idx});
+        const frame_time_us = (std.time.us_per_ms * 32); // 32 ms per frame
+        const frame_start_us = std.time.microTimestamp();
+        try wl_surface.attach(&proxy, .{
+            .buffer = wl_buffer,
+            .x = 0,
+            .y = 0,
+        });
+        try wl_surface.damage(&proxy, .{
+            .x = 0,
+            .y = 0,
+            .width = img_width,
+            .height = img_height,
+        });
+        try wl_surface.commit(&proxy);
+        try conn.flush();
+        const frame_end_us = std.time.microTimestamp();
+        const frame_elapsed_us = frame_end_us - frame_start_us;
+        if (frame_elapsed_us < frame_time_us) {
+            const diff = frame_time_us - frame_elapsed_us;
+            std.Thread.sleep(@intCast(diff * std.time.ns_per_us));
+        }
+    }
+}
+
+fn event_loop(noalias wayland_state: *WaylandState) void {
+    const connection = wayland_state.connection;
+    const us_delay = 500;
+    while (true) loop: {
+        const us_start = std.time.microTimestamp();
+        var attempts: u16 = 0;
+        while (attempts < 5) : (attempts += 1) {
+            connection.load_events() catch |err| {
+                switch (err) {
+                    error.NoData => {
+                        // log.err("connection::load_events() returned {s}", .{@errorName(err)});
+                    },
+                    else => {
+                        log.err("Failed to load Wayland events :: {s}", .{
+                            @errorName(err),
+                        });
+                        break;
+                    },
+                }
+            };
+        }
+
+        while (connection.event()) |event| {
+            handle_event(wayland_state, &event) catch |err| {
+                log.err("Failed to handle event :: {s}", .{
+                    @errorName(err),
+                });
+                break :loop;
+            };
+        }
+
+        const us_end = std.time.microTimestamp();
+        const us_elapsed = us_end - us_start;
+        if (us_elapsed < us_delay) {
+            const diff = us_delay - us_elapsed;
+            // log.debug("Event Thread sleeping for {d}ns ({d}us)", .{ (diff) * std.time.ns_per_us, diff });
+            std.Thread.sleep(@intCast(diff * std.time.ns_per_us));
+        }
+    }
+}
+
+fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Protocols.Event) !void {
+    switch (event.*) {
         .wl_display => |display_event| switch (display_event) {
             .@"error" => |err| {
                 log.debug("Display Error :: {{ .object_id={d}, .code={d}, .message=\"{s}\"", .{
@@ -82,17 +304,42 @@ pub fn main() !void {
                 log.debug("wl_seat name :: {s}", .{seat_name.name});
             },
         },
+        .wl_surface => |surface_event| switch (surface_event) {
+            else => log.debug("wl_surface_event :: {any}", .{surface_event}),
+        },
+        .wl_buffer => |buffer_event| switch (buffer_event) {
+            .release => {
+                log.debug("wl_buffer released", .{});
+            },
+        },
+        .xdg_surface => |xdg_surface_event| switch (xdg_surface_event) {
+            .configure => |configure| {
+                log.debug("xdg_configure_event :: {{ .serial={d} }}", .{configure.serial,});
+                try state.xdg_surface.ack_configure(state.proxy, .{ .serial = configure.serial });
+            },
+        },
         else => {
             log.debug("event :: {any}", .{event});
         },
-    };
+    }
 }
 
-const Interface = struct {
-    interface: ?u32 = null,
-    name: []const u8,
+const WaylandState = struct {
+    connection: *Wayland.Connection,
+    proxy: *Wayland.Protocols.Proxy,
+    // globals
+    display: Wayland.Protocols.Wayland.Display,
+    seat: Wayland.Protocols.Wayland.Seat,
+    shm: Wayland.Protocols.Wayland.Shm,
+    wm_base: Wayland.Protocols.XdgShell.WmBase,
+
+    // objects
+    wl_surface: Wayland.Protocols.Wayland.Surface,
+    xdg_surface: Wayland.Protocols.XdgShell.Surface,
+    xdg_toplevel: Wayland.Protocols.XdgShell.Toplevel,
 };
 
+const Thread = linux.Thread;
 const log = std.log.scoped(.App);
 
 // Begin tests
