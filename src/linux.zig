@@ -190,5 +190,6 @@ pub const cmsghdr = packed struct {
 };
 
 pub const recvmsg = std.os.linux.recvmsg;
+pub const MSG = std.os.linux.MSG;
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;

@@ -40,7 +40,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Display.Event.parse(proxy, op, data);
         }
-
         pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) !wl_callback {
             const request_op = 0;
 
@@ -224,7 +223,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Registry.Event.parse(proxy, op, data);
         }
-
         pub fn bind(
             noalias self: *const Registry,
             noalias proxy: *Proxy,
@@ -384,7 +382,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Callback.Event.parse(proxy, op, data);
         }
-
         pub const Event = union(enum) {
             done: Interface.Event.Done,
 
@@ -466,9 +463,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Compositor.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_surface {
             const request_op = 0;
 
@@ -537,9 +536,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try ShmPool.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn create_buffer(
             noalias self: *const ShmPool,
             noalias proxy: *Proxy,
@@ -640,7 +641,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Shm.Event.parse(proxy, op, data);
         }
-
         pub fn create_pool(
             noalias self: *const Shm,
             noalias proxy: *Proxy,
@@ -915,7 +915,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Buffer.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -1007,7 +1006,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataOffer.Event.parse(proxy, op, data);
         }
-
         pub fn accept(
             noalias self: *const DataOffer,
             noalias proxy: *Proxy,
@@ -1177,7 +1175,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.SourceActions {
                     return .{
-                        .source_actions = msg_args[0].@"enum".wl_data_offer.@"wl_data_device_manager.dnd_action",
+                        .source_actions = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
                 }
             };
@@ -1219,7 +1217,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Action {
                     return .{
-                        .dnd_action = msg_args[0].@"enum".wl_data_offer.@"wl_data_device_manager.dnd_action",
+                        .dnd_action = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
                 }
             };
@@ -1279,7 +1277,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataSource.Event.parse(proxy, op, data);
         }
-
         pub fn offer(
             noalias self: *const DataSource,
             noalias proxy: *Proxy,
@@ -1515,7 +1512,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Action {
                     return .{
-                        .dnd_action = msg_args[0].@"enum".wl_data_source.@"wl_data_device_manager.dnd_action",
+                        .dnd_action = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
                 }
             };
@@ -1573,7 +1570,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataDevice.Event.parse(proxy, op, data);
         }
-
         pub fn start_drag(
             noalias self: *const DataDevice,
             noalias proxy: *Proxy,
@@ -1590,9 +1586,9 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.source.toInt() },
+                    if (params.source) |obj| .{ .object = obj.toInt() } else null,
                     .{ .object = params.origin.toInt() },
-                    .{ .object = params.icon.toInt() },
+                    if (params.icon) |obj| .{ .object = obj.toInt() } else null,
                     .{ .uint = params.serial },
                 },
             );
@@ -1612,7 +1608,7 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.source.toInt() },
+                    if (params.source) |obj| .{ .object = obj.toInt() } else null,
                     .{ .uint = params.serial },
                 },
             );
@@ -1731,7 +1727,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.DataOffer {
                     return .{
-                        .id = .{ .id = msg_args[0].new_id },
+                        .id = .fromInt(msg_args[0].new_id),
                     };
                 }
             };
@@ -1753,10 +1749,10 @@ pub const Wayland = struct {
                 ) Interface.Event.Enter {
                     return .{
                         .serial = msg_args[0].uint,
-                        .surface = .{ .id = msg_args[1].object },
+                        .surface = .fromInt(msg_args[1].object),
                         .x = msg_args[2].fixed,
                         .y = msg_args[3].fixed,
-                        .id = .{ .id = msg_args[4].object },
+                        .id = .fromInt(msg_args[4].object),
                     };
                 }
             };
@@ -1822,7 +1818,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Selection {
                     return .{
-                        .id = .{ .id = msg_args[0].object },
+                        .id = .fromInt(msg_args[0].object),
                     };
                 }
             };
@@ -1883,9 +1879,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try DataDeviceManager.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) !wl_data_source {
             const request_op = 0;
 
@@ -1978,9 +1976,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Shell.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn get_shell_surface(
             noalias self: *const Shell,
             noalias proxy: *Proxy,
@@ -2059,7 +2059,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try ShellSurface.Event.parse(proxy, op, data);
         }
-
         pub fn pong(
             noalias self: *const ShellSurface,
             noalias proxy: *Proxy,
@@ -2179,7 +2178,7 @@ pub const Wayland = struct {
                         },
                     },
                     .{ .uint = params.framerate },
-                    .{ .object = params.output.toInt() },
+                    if (params.output) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -2229,7 +2228,7 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.output.toInt() },
+                    if (params.output) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -2495,7 +2494,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Surface.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -2517,7 +2515,7 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.buffer.toInt() },
+                    if (params.buffer) |obj| .{ .object = obj.toInt() } else null,
                     .{ .int = params.x },
                     .{ .int = params.y },
                 },
@@ -2575,7 +2573,7 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.region.toInt() },
+                    if (params.region) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -2593,7 +2591,7 @@ pub const Wayland = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.region.toInt() },
+                    if (params.region) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -2770,7 +2768,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Enter {
                     return .{
-                        .output = .{ .id = msg_args[0].object },
+                        .output = .fromInt(msg_args[0].object),
                     };
                 }
             };
@@ -2791,7 +2789,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Leave {
                     return .{
-                        .output = .{ .id = msg_args[0].object },
+                        .output = .fromInt(msg_args[0].object),
                     };
                 }
             };
@@ -2833,7 +2831,7 @@ pub const Wayland = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.PreferredBufferTransform {
                     return .{
-                        .transform = msg_args[0].@"enum".wl_surface.@"wl_output.transform",
+                        .transform = msg_args[0].@"enum".wl_output.transform,
                     };
                 }
             };
@@ -2894,7 +2892,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Seat.Event.parse(proxy, op, data);
         }
-
         pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) !wl_pointer {
             const request_op = 0;
 
@@ -3115,7 +3112,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Pointer.Event.parse(proxy, op, data);
         }
-
         pub fn set_cursor(
             noalias self: *const Pointer,
             noalias proxy: *Proxy,
@@ -3133,7 +3129,7 @@ pub const Wayland = struct {
                 request_op,
                 &.{
                     .{ .uint = params.serial },
-                    .{ .object = params.surface.toInt() },
+                    if (params.surface) |obj| .{ .object = obj.toInt() } else null,
                     .{ .int = params.hotspot_x },
                     .{ .int = params.hotspot_y },
                 },
@@ -3358,7 +3354,7 @@ pub const Wayland = struct {
                 ) Interface.Event.Enter {
                     return .{
                         .serial = msg_args[0].uint,
-                        .surface = .{ .id = msg_args[1].object },
+                        .surface = .fromInt(msg_args[1].object),
                         .surface_x = msg_args[2].fixed,
                         .surface_y = msg_args[3].fixed,
                     };
@@ -3379,7 +3375,7 @@ pub const Wayland = struct {
                 ) Interface.Event.Leave {
                     return .{
                         .serial = msg_args[0].uint,
-                        .surface = .{ .id = msg_args[1].object },
+                        .surface = .fromInt(msg_args[1].object),
                     };
                 }
             };
@@ -3768,7 +3764,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Keyboard.Event.parse(proxy, op, data);
         }
-
         pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -3929,7 +3924,7 @@ pub const Wayland = struct {
                 ) Interface.Event.Enter {
                     return .{
                         .serial = msg_args[0].uint,
-                        .surface = .{ .id = msg_args[1].object },
+                        .surface = .fromInt(msg_args[1].object),
                         .keys = msg_args[2].array,
                     };
                 }
@@ -3953,7 +3948,7 @@ pub const Wayland = struct {
                 ) Interface.Event.Leave {
                     return .{
                         .serial = msg_args[0].uint,
-                        .surface = .{ .id = msg_args[1].object },
+                        .surface = .fromInt(msg_args[1].object),
                     };
                 }
             };
@@ -4119,7 +4114,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Touch.Event.parse(proxy, op, data);
         }
-
         pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4256,7 +4250,7 @@ pub const Wayland = struct {
                     return .{
                         .serial = msg_args[0].uint,
                         .time = msg_args[1].uint,
-                        .surface = .{ .id = msg_args[2].object },
+                        .surface = .fromInt(msg_args[2].object),
                         .id = msg_args[3].int,
                         .x = msg_args[4].fixed,
                         .y = msg_args[5].fixed,
@@ -4438,7 +4432,6 @@ pub const Wayland = struct {
             _ = ctx;
             return try Output.Event.parse(proxy, op, data);
         }
-
         pub fn release(noalias self: *const Output, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4818,9 +4811,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Region.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4924,9 +4919,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Subcompositor.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5046,9 +5043,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Subsurface.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5170,9 +5169,11 @@ pub const Wayland = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Fixes.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const Fixes, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5239,7 +5240,6 @@ pub const XdgShell = struct {
             _ = ctx;
             return try WmBase.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5422,9 +5422,11 @@ pub const XdgShell = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try Positioner.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5741,7 +5743,6 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Surface.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5778,7 +5779,7 @@ pub const XdgShell = struct {
                 request_op,
                 &.{
                     .{ .new_id = new_id },
-                    .{ .object = params.parent.toInt() },
+                    if (params.parent) |obj| .{ .object = obj.toInt() } else null,
                     .{ .object = params.positioner.toInt() },
                 },
             );
@@ -5955,7 +5956,6 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Toplevel.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5975,7 +5975,7 @@ pub const XdgShell = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.parent.toInt() },
+                    if (params.parent) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -6151,7 +6151,7 @@ pub const XdgShell = struct {
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .object = params.output.toInt() },
+                    if (params.output) |obj| .{ .object = obj.toInt() } else null,
                 },
             );
         }
@@ -6447,7 +6447,6 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Popup.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6675,9 +6674,11 @@ pub const XdgDecorationUnstableV1 = struct {
             data: []const u8,
         ) ParseError!WaylandProtocols.Event {
             _ = ctx;
-            return try DecorationManagerV1.Event.parse(proxy, op, data);
+            _ = proxy;
+            _ = op;
+            _ = data;
+            return error.InvalidOp;
         }
-
         pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6746,7 +6747,6 @@ pub const XdgDecorationUnstableV1 = struct {
             _ = ctx;
             return try ToplevelDecorationV1.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6948,7 +6948,6 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try @This().Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -7155,7 +7154,6 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try LinuxBufferParamsV1.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -7302,7 +7300,7 @@ pub const LinuxDmabufV1 = struct {
                     msg_args: []MessageArg,
                 ) Interface.Event.Created {
                     return .{
-                        .buffer = .{ .id = msg_args[0].new_id },
+                        .buffer = .fromInt(msg_args[0].new_id),
                     };
                 }
             };
@@ -7403,7 +7401,6 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try LinuxDmabufFeedbackV1.Event.parse(proxy, op, data);
         }
-
         pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 

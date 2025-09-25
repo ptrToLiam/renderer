@@ -250,25 +250,43 @@ pub fn main() !void {
                     \\    return @intFromEnum(self);
                     \\  }}
                     \\
-                    \\  pub fn msg_parse(noalias ctx: *const anyopaque,
-                    \\               noalias proxy: *const Proxy,
-                    \\               op: u16,
-                    \\               data: []const u8,
-                    \\  ) ParseError!WaylandProtocols.Event {{
-                    \\
-                    \\    _ = ctx;    
-                    \\    return try {s}.Event.parse(proxy, op, data);
-                    \\  }}
-                    \\
-                    \\
                 , .{
                     interface_name,
                     interface_t_ref_str,
                     interface_t_ref_str,
                     interface_t_ref_str,
-                    interface_t_ref_str,
                 });
 
+                if (interface.events.count > 0) {
+                    try out_contents.writer.print(
+                        \\
+                        \\  pub fn msg_parse(noalias ctx: *const anyopaque,
+                        \\               noalias proxy: *const Proxy,
+                        \\               op: u16,
+                        \\               data: []const u8,
+                        \\  ) ParseError!WaylandProtocols.Event {{
+                        \\
+                        \\    _ = ctx;    
+                        \\    return try {s}.Event.parse(proxy, op, data);
+                        \\  }}
+                        \\
+                    , .{
+                        interface_t_ref_str,
+                    });
+                } else {
+                    try out_contents.writer.print(
+                        \\
+                        \\  pub fn msg_parse(noalias ctx: *const anyopaque,
+                        \\               noalias proxy: *const Proxy,
+                        \\               op: u16,
+                        \\               data: []const u8,
+                        \\  ) ParseError!WaylandProtocols.Event {{
+                        \\     _ = ctx; _ = proxy; _ = op; _ = data;
+                        \\     return error.InvalidOp;
+                        \\  }}
+                        \\
+                    , .{});
+                }
                 // Begin Interface Requests
                 if (debug) log.debug("Writing {s}::{s} Requests", .{
                     protocol_name,
@@ -324,9 +342,15 @@ pub fn main() !void {
 
                     if (params.count > 0) {
                         if (returns_new_id_comptime) {
-                            try out_contents.writer.print(", comptime InterfaceT: type, params: struct {{\n", .{},);
+                            try out_contents.writer.print(
+                                ", comptime InterfaceT: type, params: struct {{\n",
+                                .{},
+                            );
                         } else {
-                            try out_contents.writer.print(", params: struct {{\n", .{},);
+                            try out_contents.writer.print(
+                                ", params: struct {{\n",
+                                .{},
+                            );
                         }
                         var param_node_opt: ?*ArgList.Node = params.first;
                         while (param_node_opt) |param_node| : (param_node_opt = param_node.next) {
@@ -347,26 +371,26 @@ pub fn main() !void {
                                     }
                                 },
                                 .@"enum" => |param_type| {
-                                     if (std.mem.containsAtLeast(u8, param_type, 1, ".")) {
-                                         try out_contents.writer.print("@\"{s}\": {s}", .{
-                                             param.name,
-                                             if (param.nullable) "?" else "",
-                                         });
-                                         var part_iter = std.mem.splitScalar(u8, param_type, '.');
-                                         const interface_namespace = to_identifier(part_iter.next().?);
-                                         const enum_str = part_iter.next().?;
-                                         try out_contents.writer.print("@\"{f}\".Enum.@\"{f}\",\n", .{
-                                             interface_namespace,
-                                             to_pascal(enum_str),
-                                         });
-                                     } else {
-                                         try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{f}\",\n", .{
-                                             param.name,
-                                             if (param.nullable) "?" else "",
-                                             to_identifier(interface.name),
-                                             to_pascal(param_type),
-                                         });
-                                     }
+                                    if (std.mem.containsAtLeast(u8, param_type, 1, ".")) {
+                                        try out_contents.writer.print("@\"{s}\": {s}", .{
+                                            param.name,
+                                            if (param.nullable) "?" else "",
+                                        });
+                                        var part_iter = std.mem.splitScalar(u8, param_type, '.');
+                                        const interface_namespace = to_identifier(part_iter.next().?);
+                                        const enum_str = part_iter.next().?;
+                                        try out_contents.writer.print("@\"{f}\".Enum.@\"{f}\",\n", .{
+                                            interface_namespace,
+                                            to_pascal(enum_str),
+                                        });
+                                    } else {
+                                        try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{f}\",\n", .{
+                                            param.name,
+                                            if (param.nullable) "?" else "",
+                                            to_identifier(interface.name),
+                                            to_pascal(param_type),
+                                        });
+                                    }
                                 },
                             }
                         }
@@ -379,21 +403,22 @@ pub fn main() !void {
                             \\
                             \\ try proxy.msg_write(self.toInt(), request_op, &.{{
                             \\
-                            , .{
-                                return_t,
-                                request_idx,
+                        , .{
+                            return_t,
+                            request_idx,
 
-                                if (returns_new_id)
-                                    "const new_id = proxy.next_id();"
-                                else 
-                                    "",
-                                if (returns_new_id_comptime)
-                                    \\
-                                    \\if (InterfaceT.InterfaceVersion != params.interface_version)
-                                    \\    log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}",
-                                    \\    .{ InterfaceT.InterfaceName, InterfaceT.InterfaceVersion, params.interface_version, });
-                                    \\
-                                else "",
+                            if (returns_new_id)
+                                "const new_id = proxy.next_id();"
+                            else
+                                "",
+                            if (returns_new_id_comptime)
+                                \\
+                                \\if (InterfaceT.InterfaceVersion != params.interface_version)
+                                \\    log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}",
+                                \\    .{ InterfaceT.InterfaceName, InterfaceT.InterfaceVersion, params.interface_version, });
+                                \\
+                            else
+                                "",
                         });
 
                         arg_node_opt = request.args.first;
@@ -415,16 +440,23 @@ pub fn main() !void {
                                         , .{});
                                     },
                                     .object => {
-                                        try out_contents.writer.print(
-                                            \\ .{{ .object = params.{s}.toInt() }},
-                                            \\
-                                        , .{arg.name});
+                                        if (arg.nullable) {
+                                            try out_contents.writer.print(
+                                                \\ if (params.{s}) |obj| .{{ .object = obj.toInt() }} else null,
+                                                \\
+                                            , .{arg.name});
+                                        } else {
+                                            try out_contents.writer.print(
+                                                \\ .{{ .object = params.{s}.toInt() }},
+                                                \\
+                                            , .{arg.name});
+                                        }
                                     },
                                     else => {
                                         try out_contents.writer.print(
                                             \\ .{{ .{s} = params.{s} }},
                                             \\
-                                        , .{@tagName(arg_type), arg.name});
+                                        , .{ @tagName(arg_type), arg.name });
                                     },
                                 },
                                 .@"enum" => |arg_type| {
@@ -460,13 +492,10 @@ pub fn main() !void {
                             \\}}
                             \\
                             \\
-                        , .{
-                            if (returns_new_id)
-                                "\nreturn .fromInt(new_id);"
-                            else 
-                                ""
-                        });
-
+                        , .{if (returns_new_id)
+                            "\nreturn .fromInt(new_id);"
+                        else
+                            ""});
                     } else if (returns_new_id) {
                         try out_contents.writer.print(
                             \\) !{s} {{
@@ -480,7 +509,7 @@ pub fn main() !void {
                             \\}}
                             \\  
                             \\  
-                            , .{ return_t ,request_idx });
+                        , .{ return_t, request_idx });
                     } else {
                         try out_contents.writer.print(
                             \\) !void {{
@@ -490,7 +519,7 @@ pub fn main() !void {
                             \\}}
                             \\  
                             \\  
-                            , .{ request_idx });
+                        , .{request_idx});
                     }
                 }
 
@@ -688,7 +717,7 @@ pub fn main() !void {
                                 defer arg_idx += 1;
                                 const arg = arg_node.val;
                                 if (arg.interface) |_| {
-                                    try out_contents.writer.print("       .@\"{s}\" = .{{ .id = msg_args[{d}].{s} }},\n", .{
+                                    try out_contents.writer.print("       .@\"{s}\" = .fromInt(msg_args[{d}].{s}),\n", .{
                                         arg.name,
                                         arg_idx,
                                         @tagName(arg.type.type),
@@ -699,9 +728,17 @@ pub fn main() !void {
                                         arg_idx,
                                         switch (arg.type) {
                                             .type => |@"type"| @tagName(@"type"),
-                                            .@"enum" => |enum_str| try std.fmt.allocPrint(allocator, "@\"enum\".@\"{s}\".@\"{s}\"", .{
+                                            .@"enum" => |type_str| if (std.mem.containsAtLeast(u8, type_str, 1, ".")) blk: {
+                                                var parts = std.mem.splitScalar(u8, type_str, '.');
+                                                const interface_str = parts.next().?;
+                                                const enum_str = parts.next().?;
+                                                break :blk try std.fmt.allocPrint(allocator, "@\"enum\".@\"{s}\".@\"{s}\"", .{
+                                                    interface_str,
+                                                    enum_str,
+                                                });
+                                            } else try std.fmt.allocPrint(allocator, "@\"enum\".@\"{s}\".@\"{s}\"", .{
                                                 interface.name,
-                                                enum_str,
+                                                type_str,
                                             }),
                                         },
                                     });
