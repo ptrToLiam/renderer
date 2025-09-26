@@ -124,9 +124,7 @@ pub const Connection = struct {
                 .flags = 0,
             };
 
-            log.debug("msg :: buf :: {any}", .{@as([]u8, connection.out_buf[0..connection.out_buf_idx])});
-            const bytes_written = try posix.sendmsg(connection.handle, &msg, 0);
-            log.debug("bytes written :: {d}", .{bytes_written});
+            _ = try posix.sendmsg(connection.handle, &msg, 0);
         }
     }
 

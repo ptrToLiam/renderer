@@ -146,91 +146,79 @@ pub fn main() !void {
     const handle = try Thread.spawn(.{}, event_loop, .{&wayland_state});
     defer handle.join();
 
-    const img_width = 960;
-    const img_height = 540;
-    const img_stride = img_width * 4;
-    const img_size = img_stride * img_height;
+    var swapchain: ImageQueue = try .init(arena, 960, 540);
+    const swapchain_shm_pool = try wl_shm.create_pool(&proxy, .{
+        .fd = swapchain.fd,
+        .size = @intCast(swapchain.imgs[0].len * 3),
+    });
 
-    const shm_file = try std.posix.open(
-        "/dev/shm/wl_shm-FFFFFF",
-        .{ .ACCMODE = .RDWR, .CREAT = true, .EXCL = true },
-        0o600,
-    );
-    std.posix.unlink("/dev/shm/wl_shm-FFFFFF") catch |err| {
-        log.err("failed to unlink shm_file :: {s}", .{@errorName(err)});
-    };
-    log.debug("shm_file fd :: {d}", .{shm_file});
-
-    try std.posix.ftruncate(shm_file, img_size);
-    const img_data = try std.posix.mmap(
-        null,
-        img_size,
-        std.posix.PROT.READ | std.posix.PROT.WRITE,
-        .{ .TYPE = .SHARED },
-        shm_file,
-        0,
-    );
-
-    var buf_idx: usize = 0;
-    while (buf_idx < img_data.len) : (buf_idx += 4) {
-        // a
-        img_data[buf_idx] = 255;
-        // r
-        img_data[buf_idx + 1] = 0;
-        // g
-        img_data[buf_idx + 2] = 0;
-        // b
-        img_data[buf_idx + 3] = 255;
+    var wl_bufs: [3]Wayland.Protocols.Wayland.Buffer = @splat(.fromInt(0));
+    for (swapchain.imgs, 0..) |_, idx| {
+        const stride = swapchain.width * 4;
+        const size = stride * swapchain.height;
+        wl_bufs[idx] = try swapchain_shm_pool.create_buffer(&proxy, .{
+            .format = .argb8888,
+            .width = @intCast(swapchain.width),
+            .height = @intCast(swapchain.height),
+            .stride = @intCast(stride),
+            .offset = @intCast(size * idx),
+        });
+        conn.objects[wl_bufs[idx].toInt()] = wl_bufs[idx].object();
     }
 
-    const wl_shm_pool = try wl_shm.create_pool(&proxy, .{
-        .fd = shm_file,
-        .size = img_size,
-    });
-    conn.objects[wl_shm_pool.toInt()] = wl_shm_pool.object();
+    const StepType = enum {
+        up,
+        down,
+    };
 
-    const wl_buffer = try wl_shm_pool.create_buffer(&proxy, .{
-        .format = .argb8888,
-        .height = img_height,
-        .offset = 0,
-        .stride = img_stride,
-        .width = img_width,
-    });
-    conn.objects[wl_buffer.toInt()] = wl_buffer.object();
-
-    try wl_surface.attach(&proxy, .{
-        .buffer = wl_buffer,
-        .x = 0,
-        .y = 0,
-    });
-    try wl_surface.damage(&proxy, .{
-        .x = 0,
-        .y = 0,
-        .width = img_width,
-        .height = img_height,
-    });
-    try wl_surface.commit(&proxy);
-    std.posix.munmap(img_data);
-    try conn.flush();
-
+    var step: StepType = .down;
     var frame_idx: usize = 0;
-    while (true) : (frame_idx += 1) {
-        log.debug("Begin frame #{d}", .{frame_idx});
+    var blue: u8 = 255;
+    const green: u8 = 128;
+    const red: u8 = 0;
+
+    while (!wayland_state.should_close) : (frame_idx += 1) {
+        app_log.debug("Begin frame #{d}", .{frame_idx});
         const frame_time_us = (std.time.us_per_ms * 32); // 32 ms per frame
         const frame_start_us = std.time.microTimestamp();
-        try wl_surface.attach(&proxy, .{
-            .buffer = wl_buffer,
-            .x = 0,
-            .y = 0,
-        });
-        try wl_surface.damage(&proxy, .{
-            .x = 0,
-            .y = 0,
-            .width = img_width,
-            .height = img_height,
-        });
-        try wl_surface.commit(&proxy);
+
+        if (blue == 255) step = .down;
+        if (blue == 0) step = .up;
+        blue = switch (step) { 
+            .up => blue + 5,
+            .down => blue - 5,
+        };
+
+        // clear background
+        if (swapchain.next_img()) |img| {
+            var img_idx: usize = 0;
+            while (img_idx < img.len) : (img_idx += 4) {
+                // B
+                img[img_idx] = blue;
+                // G
+                img[img_idx + 1] = green;
+                // R
+                img[img_idx + 2] = red;
+                // A
+                img[img_idx + 3] = 255;
+            }
+
+            try wl_surface.attach(&proxy, .{
+                .buffer = wl_bufs[frame_idx % 3],
+                .x = 0,
+                .y = 0,
+            });
+            try wl_surface.damage(&proxy, .{
+                .x = 0,
+                .y = 0,
+                .width = @intCast(swapchain.width),
+                .height = @intCast(swapchain.height),
+            });
+            try wl_surface.commit(&proxy);
+        }
+
         try conn.flush();
+
         const frame_end_us = std.time.microTimestamp();
         const frame_elapsed_us = frame_end_us - frame_start_us;
         if (frame_elapsed_us < frame_time_us) {
@@ -355,10 +343,95 @@ const WaylandState = struct {
     wl_surface: Wayland.Protocols.Wayland.Surface,
     xdg_surface: Wayland.Protocols.XdgShell.Surface,
     xdg_toplevel: Wayland.Protocols.XdgShell.Toplevel,
+
+    // flags
+    should_close: bool = false,
 };
 
+const ImageQueue = struct {
+    fd: std.posix.fd_t,
+    imgs: [3][]u8,
+    buffer: []u8,
+    width: u32,
+    height: u32,
+    active: [3]bool,
+    write: u32,
+    read: u32,
+
+    pub fn init(arena: *Arena, width: u32, height: u32) !ImageQueue {
+        const tmp = arena.temp();
+        defer tmp.end();
+        const shm_fd = try alloc_shm_file(tmp.arena);
+        const img_stride = width * 4;
+        const img_size = height * img_stride;
+        const size = img_size * 3;
+
+        try std.posix.ftruncate(shm_fd, size);
+        const buffer = try std.posix.mmap(
+            null,
+            size,
+            std.posix.PROT.READ | std.posix.PROT.WRITE,
+            .{ .TYPE = .SHARED },
+            shm_fd,
+            0,
+        );
+
+        const imgs: [3][]u8 = blk: {
+            const img_1 = buffer[0..img_size];
+            const img_2 = buffer[img_size..][0..img_size];
+            const img_3 = buffer[img_size * 2..][0..img_size];
+
+            break :blk .{ img_1, img_2, img_3 };
+        };
+
+        return .{
+            .fd = shm_fd,
+            .buffer = buffer,
+            .imgs = imgs,
+            .width = width,
+            .height = height,
+            .active = @splat(false),
+            .write = 0,
+            .read = 0,
+        };
+    }
+
+    pub fn next_img(queue: *ImageQueue) ?Image {
+        if (!queue.active[queue.write % queue.active.len]) {
+            defer queue.write += 1;
+            return queue.imgs[queue.write % queue.active.len];
+        } else return null;
+    }
+
+    inline fn alloc_shm_file(arena: *Arena) !std.posix.fd_t {
+        const timestamp = std.time.nanoTimestamp();
+        const name_template = "/dev/wl_shm-XXXXXX";
+        var name = try arena.allocator().dupe(u8, name_template);
+        for (name[(name.len - 6)..], 0..) |_, idx| {
+            name[idx] = @intCast(('A' +
+                (timestamp & 15) +
+                ((timestamp & 16) * 2)));
+        }
+
+        const fd = try std.posix.open(
+            name,
+            .{
+                .ACCMODE = .RDWR,
+                .CREAT = true,
+                .EXCL = true,
+            },
+            0o600,
+        );
+        try std.posix.unlink(name);
+        return fd;
+    }
+};
+
+const Image = []u8;
+
 const Thread = linux.Thread;
-const log = std.log.scoped(.App);
+const app_log = std.log.scoped(.App);
+const event_log = std.log.scoped(.EventThread);
 
 // Begin tests
 test {
