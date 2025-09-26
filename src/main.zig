@@ -12,13 +12,13 @@ pub fn main() !void {
     var conn: Wayland.Connection = try .init(arena);
     defer conn.close();
 
-    log.debug("connection handle :: {d}", .{conn.handle});
-    log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
+    app_log.debug("connection handle :: {d}", .{conn.handle});
+    app_log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
 
     var proxy = conn.proxy();
 
     const wl_registry = try conn.display.get_registry(&proxy);
-    log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
+    app_log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
     try conn.flush();
     conn.objects[1] = conn.display.object();
     conn.objects[2] = wl_registry.object();
@@ -38,6 +38,7 @@ pub fn main() !void {
             };
             read_success = true;
         }
+
         var seat: Wayland.Protocols.Wayland.Seat = undefined;
         var compositor: Wayland.Protocols.Wayland.Compositor = undefined;
         var wm_base: Wayland.Protocols.XdgShell.WmBase = undefined;
@@ -47,12 +48,12 @@ pub fn main() !void {
                 .wl_registry => |registry| switch (registry) {
                     .global => |global| {
                         if (std.mem.eql(u8, @TypeOf(seat).InterfaceName, global.interface)) {
-                            log.debug("Binding interface :: {s}", .{global.interface});
+                            app_log.debug("Binding interface :: {s}", .{global.interface});
                             seat = try wl_registry.bind(&proxy, @TypeOf(seat), .{
                                 .name = global.name,
                                 .interface_version = global.version,
                             });
-                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                            app_log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
                                 global.interface,
                                 global.name,
                                 seat.toInt(),
@@ -60,12 +61,12 @@ pub fn main() !void {
                             });
                             conn.objects[seat.toInt()] = seat.object();
                         } else if (std.mem.eql(u8, @TypeOf(compositor).InterfaceName, global.interface)) {
-                            log.debug("Binding interface :: {s}", .{global.interface});
+                            app_log.debug("Binding interface :: {s}", .{global.interface});
                             compositor = try wl_registry.bind(&proxy, @TypeOf(compositor), .{
                                 .name = global.name,
                                 .interface_version = global.version,
                             });
-                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                            app_log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
                                 global.interface,
                                 global.name,
                                 compositor.toInt(),
@@ -73,12 +74,12 @@ pub fn main() !void {
                             });
                             conn.objects[compositor.toInt()] = compositor.object();
                         } else if (std.mem.eql(u8, @TypeOf(wm_base).InterfaceName, global.interface)) {
-                            log.debug("Binding interface :: {s}", .{global.interface});
+                            app_log.debug("Binding interface :: {s}", .{global.interface});
                             wm_base = try wl_registry.bind(&proxy, @TypeOf(wm_base), .{
                                 .name = global.name,
                                 .interface_version = global.version,
                             });
-                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                            app_log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
                                 global.interface,
                                 global.name,
                                 wm_base.toInt(),
@@ -86,12 +87,12 @@ pub fn main() !void {
                             });
                             conn.objects[wm_base.toInt()] = wm_base.object();
                         } else if (std.mem.eql(u8, @TypeOf(shm).InterfaceName, global.interface)) {
-                            log.debug("Binding interface :: {s}", .{global.interface});
+                            app_log.debug("Binding interface :: {s}", .{global.interface});
                             shm = try wl_registry.bind(&proxy, @TypeOf(shm), .{
                                 .name = global.name,
                                 .interface_version = global.version,
                             });
-                            log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
+                            app_log.debug("Bound {s} with :: {{ .name={d}, .id={d}, .version={d} }}", .{
                                 global.interface,
                                 global.name,
                                 shm.toInt(),
@@ -101,11 +102,11 @@ pub fn main() !void {
                         }
                     },
                     .global_remove => |remove| {
-                        log.debug("Received Unexpected global_remove during bind phase :: {any}", .{remove});
+                        app_log.debug("Received Unexpected global_remove during bind phase :: {any}", .{remove});
                     },
                 },
                 else => {
-                    log.warn("Unexpected event during bind phase :: {any}", .{event});
+                    app_log.warn("Unexpected event during bind phase :: {any}", .{event});
                 },
             }
         }
@@ -121,7 +122,7 @@ pub fn main() !void {
     conn.objects[xdg_surface.toInt()] = xdg_surface.object();
     const xdg_toplevel = try xdg_surface.get_toplevel(&proxy);
     conn.objects[xdg_toplevel.toInt()] = xdg_toplevel.object();
-    try xdg_toplevel.set_title(&proxy, .{ .title = "LmRenderer"});
+    try xdg_toplevel.set_title(&proxy, .{ .title = "LmRenderer" });
 
     try wl_surface.commit(&proxy);
     try conn.flush();
@@ -242,17 +243,17 @@ pub fn main() !void {
 fn event_loop(noalias wayland_state: *WaylandState) void {
     const connection = wayland_state.connection;
     const us_delay = 500;
-    while (true) loop: {
+    while (!wayland_state.should_close) loop: {
         const us_start = std.time.microTimestamp();
         var attempts: u16 = 0;
         while (attempts < 5) : (attempts += 1) {
             connection.load_events() catch |err| {
                 switch (err) {
                     error.NoData => {
-                        // log.err("connection::load_events() returned {s}", .{@errorName(err)});
+                        // event_log.err("connection::load_events() returned {s}", .{@errorName(err)});
                     },
                     else => {
-                        log.err("Failed to load Wayland events :: {s}", .{
+                        event_log.err("Failed to load Wayland events :: {s}", .{
                             @errorName(err),
                         });
                         break;
@@ -263,7 +264,7 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
 
         while (connection.event()) |event| {
             handle_event(wayland_state, &event) catch |err| {
-                log.err("Failed to handle event :: {s}", .{
+                event_log.err("Failed to handle event :: {s}", .{
                     @errorName(err),
                 });
                 break :loop;
@@ -274,7 +275,7 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
         const us_elapsed = us_end - us_start;
         if (us_elapsed < us_delay) {
             const diff = us_delay - us_elapsed;
-            // log.debug("Event Thread sleeping for {d}ns ({d}us)", .{ (diff) * std.time.ns_per_us, diff });
+            // event_log.debug("Event Thread sleeping for {d}ns ({d}us)", .{ (diff) * std.time.ns_per_us, diff });
             std.Thread.sleep(@intCast(diff * std.time.ns_per_us));
         }
     }
@@ -284,42 +285,59 @@ fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Prot
     switch (event.*) {
         .wl_display => |display_event| switch (display_event) {
             .@"error" => |err| {
-                log.debug("Display Error :: {{ .object_id={d}, .code={d}, .message=\"{s}\"", .{
+                event_log.debug("Display Error :: {{ .object_id={d}, .code={d}, .message=\"{s}\"", .{
                     err.object_id, err.code, err.message,
                 });
             },
             .delete_id => |delete_id| {
-                log.debug("Display Delete ID :: {d}", .{delete_id.id});
+                event_log.debug("Display Delete ID :: {d}", .{delete_id.id});
             },
         },
         .wl_seat => |seat_event| switch (seat_event) {
             .capabilities => |seat_capabilities| {
-                log.debug("wl_seat capabilities :: {{ .pointer={s}, .keyboard={s}, .touch={s} }}", .{
+                event_log.debug("wl_seat capabilities :: {{ .pointer={s}, .keyboard={s}, .touch={s} }}", .{
                     if (seat_capabilities.capabilities.pointer) "true" else "false",
                     if (seat_capabilities.capabilities.keyboard) "true" else "false",
                     if (seat_capabilities.capabilities.touch) "true" else "false",
                 });
             },
             .name => |seat_name| {
-                log.debug("wl_seat name :: {s}", .{seat_name.name});
+                event_log.debug("wl_seat name :: {s}", .{seat_name.name});
             },
         },
         .wl_surface => |surface_event| switch (surface_event) {
-            else => log.debug("wl_surface_event :: {any}", .{surface_event}),
+            else => event_log.debug("wl_surface_event :: {any}", .{surface_event}),
         },
         .wl_buffer => |buffer_event| switch (buffer_event) {
             .release => {
-                log.debug("wl_buffer released", .{});
+                event_log.debug("wl_buffer released", .{});
             },
         },
         .xdg_surface => |xdg_surface_event| switch (xdg_surface_event) {
             .configure => |configure| {
-                log.debug("xdg_configure_event :: {{ .serial={d} }}", .{configure.serial,});
+                event_log.debug("xdg_configure_event :: {{ .serial={d} }}", .{
+                    configure.serial,
+                });
                 try state.xdg_surface.ack_configure(state.proxy, .{ .serial = configure.serial });
             },
         },
+        .xdg_toplevel => |xdg_toplevel_event| switch (xdg_toplevel_event) {
+            .configure => |configure| {
+                event_log.debug("xdg_toplevel :: configure :: {{ .width={d}, .height={d} }}", .{
+                    configure.width,
+                    configure.height,
+                });
+            },
+            .close => {
+                event_log.debug("xdg_toplevel :: received close event", .{});
+                state.should_close = true;
+            },
+            else => {
+                event_log.debug("xdg_toplevel :: unhandled event :: {any}", .{event});
+            },
+        },
         else => {
-            log.debug("event :: {any}", .{event});
+            event_log.debug("event :: {any}", .{event});
         },
     }
 }
