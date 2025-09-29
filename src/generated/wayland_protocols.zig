@@ -40,6 +40,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Display.Event.parse(proxy, op, data);
         }
+
+        // Begin Display requests
         pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) !wl_callback {
             const request_op = 0;
 
@@ -223,6 +225,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Registry.Event.parse(proxy, op, data);
         }
+
+        // Begin Registry requests
         pub fn bind(
             noalias self: *const Registry,
             noalias proxy: *Proxy,
@@ -382,6 +386,7 @@ pub const Wayland = struct {
             _ = ctx;
             return try Callback.Event.parse(proxy, op, data);
         }
+
         pub const Event = union(enum) {
             done: Interface.Event.Done,
 
@@ -468,6 +473,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Compositor requests
         pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_surface {
             const request_op = 0;
 
@@ -541,6 +548,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin ShmPool requests
         pub fn create_buffer(
             noalias self: *const ShmPool,
             noalias proxy: *Proxy,
@@ -641,6 +650,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Shm.Event.parse(proxy, op, data);
         }
+
+        // Begin Shm requests
         pub fn create_pool(
             noalias self: *const Shm,
             noalias proxy: *Proxy,
@@ -915,6 +926,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Buffer.Event.parse(proxy, op, data);
         }
+
+        // Begin Buffer requests
         pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -1006,6 +1019,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataOffer.Event.parse(proxy, op, data);
         }
+
+        // Begin DataOffer requests
         pub fn accept(
             noalias self: *const DataOffer,
             noalias proxy: *Proxy,
@@ -1277,6 +1292,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataSource.Event.parse(proxy, op, data);
         }
+
+        // Begin DataSource requests
         pub fn offer(
             noalias self: *const DataSource,
             noalias proxy: *Proxy,
@@ -1570,6 +1587,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try DataDevice.Event.parse(proxy, op, data);
         }
+
+        // Begin DataDevice requests
         pub fn start_drag(
             noalias self: *const DataDevice,
             noalias proxy: *Proxy,
@@ -1884,6 +1903,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin DataDeviceManager requests
         pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) !wl_data_source {
             const request_op = 0;
 
@@ -1981,6 +2002,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Shell requests
         pub fn get_shell_surface(
             noalias self: *const Shell,
             noalias proxy: *Proxy,
@@ -2059,6 +2082,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try ShellSurface.Event.parse(proxy, op, data);
         }
+
+        // Begin ShellSurface requests
         pub fn pong(
             noalias self: *const ShellSurface,
             noalias proxy: *Proxy,
@@ -2494,6 +2519,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Surface.Event.parse(proxy, op, data);
         }
+
+        // Begin Surface requests
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -2892,6 +2919,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Seat.Event.parse(proxy, op, data);
         }
+
+        // Begin Seat requests
         pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) !wl_pointer {
             const request_op = 0;
 
@@ -3112,6 +3141,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Pointer.Event.parse(proxy, op, data);
         }
+
+        // Begin Pointer requests
         pub fn set_cursor(
             noalias self: *const Pointer,
             noalias proxy: *Proxy,
@@ -3764,6 +3795,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Keyboard.Event.parse(proxy, op, data);
         }
+
+        // Begin Keyboard requests
         pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4114,6 +4147,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Touch.Event.parse(proxy, op, data);
         }
+
+        // Begin Touch requests
         pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4432,6 +4467,8 @@ pub const Wayland = struct {
             _ = ctx;
             return try Output.Event.parse(proxy, op, data);
         }
+
+        // Begin Output requests
         pub fn release(noalias self: *const Output, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4816,6 +4853,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Region requests
         pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -4924,6 +4963,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Subcompositor requests
         pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5048,6 +5089,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Subsurface requests
         pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5174,6 +5217,8 @@ pub const Wayland = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Fixes requests
         pub fn destroy(noalias self: *const Fixes, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5240,6 +5285,8 @@ pub const XdgShell = struct {
             _ = ctx;
             return try WmBase.Event.parse(proxy, op, data);
         }
+
+        // Begin WmBase requests
         pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5427,6 +5474,8 @@ pub const XdgShell = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin Positioner requests
         pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5743,6 +5792,8 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Surface.Event.parse(proxy, op, data);
         }
+
+        // Begin Surface requests
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -5956,6 +6007,8 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Toplevel.Event.parse(proxy, op, data);
         }
+
+        // Begin Toplevel requests
         pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6447,6 +6500,8 @@ pub const XdgShell = struct {
             _ = ctx;
             return try Popup.Event.parse(proxy, op, data);
         }
+
+        // Begin Popup requests
         pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6679,6 +6734,8 @@ pub const XdgDecorationUnstableV1 = struct {
             _ = data;
             return error.InvalidOp;
         }
+
+        // Begin DecorationManagerV1 requests
         pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6747,6 +6804,8 @@ pub const XdgDecorationUnstableV1 = struct {
             _ = ctx;
             return try ToplevelDecorationV1.Event.parse(proxy, op, data);
         }
+
+        // Begin ToplevelDecorationV1 requests
         pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -6948,6 +7007,8 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try @This().Event.parse(proxy, op, data);
         }
+
+        // Begin LinuxDmabufV1 requests
         pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -7154,6 +7215,8 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try LinuxBufferParamsV1.Event.parse(proxy, op, data);
         }
+
+        // Begin LinuxBufferParamsV1 requests
         pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
@@ -7401,6 +7464,8 @@ pub const LinuxDmabufV1 = struct {
             _ = ctx;
             return try LinuxDmabufFeedbackV1.Event.parse(proxy, op, data);
         }
+
+        // Begin LinuxDmabufFeedbackV1 requests
         pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 

@@ -261,14 +261,15 @@ pub fn main() !void {
                     try out_contents.writer.print(
                         \\
                         \\  pub fn msg_parse(noalias ctx: *const anyopaque,
-                        \\               noalias proxy: *const Proxy,
-                        \\               op: u16,
-                        \\               data: []const u8,
+                        \\    noalias proxy: *const Proxy,
+                        \\    op: u16,
+                        \\    data: []const u8,
                         \\  ) ParseError!WaylandProtocols.Event {{
                         \\
                         \\    _ = ctx;    
                         \\    return try {s}.Event.parse(proxy, op, data);
                         \\  }}
+                        \\
                         \\
                     , .{
                         interface_t_ref_str,
@@ -277,13 +278,14 @@ pub fn main() !void {
                     try out_contents.writer.print(
                         \\
                         \\  pub fn msg_parse(noalias ctx: *const anyopaque,
-                        \\               noalias proxy: *const Proxy,
-                        \\               op: u16,
-                        \\               data: []const u8,
+                        \\    noalias proxy: *const Proxy,
+                        \\    op: u16,
+                        \\    data: []const u8,
                         \\  ) ParseError!WaylandProtocols.Event {{
-                        \\     _ = ctx; _ = proxy; _ = op; _ = data;
-                        \\     return error.InvalidOp;
+                        \\    _ = ctx; _ = proxy; _ = op; _ = data;
+                        \\    return error.InvalidOp;
                         \\  }}
+                        \\
                         \\
                     , .{});
                 }
@@ -299,6 +301,12 @@ pub fn main() !void {
                 while (request_node_opt) |request_node| : (request_node_opt = request_node.next) {
                     defer request_idx += 1;
                     const request = request_node.val.request;
+
+                    if (request_idx == 0) {
+                        try out_contents.writer.print("// Begin {s} requests\n", .{
+                            interface_name,
+                        });
+                    }
 
                     var params: ArgList = .{};
                     var returns_new_id = false;
@@ -397,11 +405,11 @@ pub fn main() !void {
 
                         try out_contents.writer.print(
                             \\}},) !{s} {{
-                            \\ const request_op = {d};
-                            \\ {s}
-                            \\ {s}
+                            \\  const request_op = {d};
+                            \\  {s}
+                            \\  {s}
                             \\
-                            \\ try proxy.msg_write(self.toInt(), request_op, &.{{
+                            \\  try proxy.msg_write(self.toInt(), request_op, &.{{
                             \\
                         , .{
                             return_t,
@@ -413,9 +421,9 @@ pub fn main() !void {
                                 "",
                             if (returns_new_id_comptime)
                                 \\
-                                \\if (InterfaceT.InterfaceVersion != params.interface_version)
-                                \\    log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}",
-                                \\    .{ InterfaceT.InterfaceName, InterfaceT.InterfaceVersion, params.interface_version, });
+                                \\ if (InterfaceT.InterfaceVersion != params.interface_version)
+                                \\   log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}",
+                                \\   .{ InterfaceT.InterfaceName, InterfaceT.InterfaceVersion, params.interface_version, });
                                 \\
                             else
                                 "",
@@ -547,16 +555,16 @@ pub fn main() !void {
                     // Event parse
                     event_node_opt = interface.events.first;
                     try out_contents.writer.print(
-                        \\      inline fn parse(proxy: *const Proxy, op: u16, data: []const u8,) ParseError!WaylandProtocols.Event {{
-                        \\        const event: WaylandProtocols.Event = blk: {{
-                        \\          switch (op) {{
+                        \\ inline fn parse(proxy: *const Proxy, op: u16, data: []const u8,) ParseError!WaylandProtocols.Event {{
+                        \\   const event: WaylandProtocols.Event = blk: {{
+                        \\   switch (op) {{
                         \\      
                     , .{});
 
                     var event_idx: u32 = 0;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
                         try out_contents.writer.print(
-                            \\          {d} => {{
+                            \\    {d} => {{
                             \\
                         , .{event_idx});
                         defer event_idx += 1;
@@ -644,13 +652,13 @@ pub fn main() !void {
                         }
                     }
                     try out_contents.writer.print(
-                        \\        else => {{
-                        \\          log.err("Unknown Event Code :: {{d}}", .{{op}});
-                        \\          return ParseError.InvalidOp;
-                        \\        }},
-                        \\      }}
-                        \\    }};
-                        \\    return event;
+                        \\    else => {{
+                        \\      log.err("Unknown Event Code :: {{d}}", .{{op}});
+                        \\      return ParseError.InvalidOp;
+                        \\      }},
+                        \\    }}
+                        \\  }};
+                        \\  return event;
                         \\
                     , .{});
                     try out_contents.writer.print("    }}\n\n", .{});
@@ -705,8 +713,8 @@ pub fn main() !void {
 
                             try out_contents.writer.print(
                                 \\
-                                \\        pub inline fn fromMsgArgs(msg_args: []MessageArg,) Interface.Event.@"{f}" {{
-                                \\          return .{{
+                                \\ pub inline fn fromMsgArgs(msg_args: []MessageArg,) Interface.Event.@"{f}" {{
+                                \\   return .{{
                                 \\
                             , .{
                                 to_pascal(event.name),
@@ -746,8 +754,8 @@ pub fn main() !void {
                             }
                             try out_contents.writer.print(
                                 \\
-                                \\          }};
-                                \\        }}
+                                \\   }};
+                                \\ }}
                                 \\
                             , .{});
                             // End Event
@@ -810,9 +818,9 @@ pub fn main() !void {
                                 }
                                 try out_contents.writer.print(
                                     \\
-                                    \\      pub inline fn fromInt(int: u32) {f} {{
-                                    \\        return @enumFromInt(int);
-                                    \\      }}
+                                    \\ pub inline fn fromInt(int: u32) {f} {{
+                                    \\   return @enumFromInt(int);
+                                    \\ }}
                                     \\
                                 , .{
                                     to_pascal(enum_val.name),
@@ -833,9 +841,9 @@ pub fn main() !void {
                                 try out_contents.writer.print("      __reserved_bits: u{d} = 0,\n", .{bits_remaining});
                                 try out_contents.writer.print(
                                     \\
-                                    \\      pub inline fn fromInt(int: u32) {f} {{
-                                    \\        return @bitCast(int);
-                                    \\      }}
+                                    \\ pub inline fn fromInt(int: u32) {f} {{
+                                    \\   return @bitCast(int);
+                                    \\ }}
                                     \\
                                 , .{
                                     to_pascal(bitfield_val.name),
@@ -876,10 +884,6 @@ pub fn main() !void {
     // Write composite types
     {
         // Object
-        // TODO
-        // - Give every wl_interface an 'object()' function
-        //   to return an 'Object' interface instance.
-        // - Finish writing `Object` interface methods for parse and write.
         try out_contents.writer.print(
             \\
             \\pub const Object = struct {{
