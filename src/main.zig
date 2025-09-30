@@ -3,25 +3,23 @@ const renderer = @import("renderer");
 const Arena = @import("arena");
 const Wayland = @import("wayland.zig");
 const linux = @import("linux.zig");
+const gfx = @import("gfx.zig");
 
 pub fn main() !void {
     Thread.ctx_init();
     const arena: *Arena = .init(.default);
     defer arena.release();
 
-    var conn: Wayland.Connection = try .init(arena);
+    var conn: Wayland.Connection = try .open(arena);
     defer conn.close();
 
     app_log.debug("connection handle :: {d}", .{conn.handle});
     app_log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
-
     var proxy = conn.proxy();
 
     const wl_registry = try conn.display.get_registry(&proxy);
     app_log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
     try conn.flush();
-    conn.objects[1] = conn.display.object();
-    conn.objects[2] = wl_registry.object();
 
     // Bind interfaces
     const wl_seat, const wl_compositor, const xdg_wm_base, const wl_shm = bind: {
@@ -59,7 +57,6 @@ pub fn main() !void {
                                 seat.toInt(),
                                 global.version,
                             });
-                            conn.objects[seat.toInt()] = seat.object();
                         } else if (std.mem.eql(u8, @TypeOf(compositor).InterfaceName, global.interface)) {
                             app_log.debug("Binding interface :: {s}", .{global.interface});
                             compositor = try wl_registry.bind(&proxy, @TypeOf(compositor), .{
@@ -72,7 +69,6 @@ pub fn main() !void {
                                 compositor.toInt(),
                                 global.version,
                             });
-                            conn.objects[compositor.toInt()] = compositor.object();
                         } else if (std.mem.eql(u8, @TypeOf(wm_base).InterfaceName, global.interface)) {
                             app_log.debug("Binding interface :: {s}", .{global.interface});
                             wm_base = try wl_registry.bind(&proxy, @TypeOf(wm_base), .{
@@ -85,7 +81,6 @@ pub fn main() !void {
                                 wm_base.toInt(),
                                 global.version,
                             });
-                            conn.objects[wm_base.toInt()] = wm_base.object();
                         } else if (std.mem.eql(u8, @TypeOf(shm).InterfaceName, global.interface)) {
                             app_log.debug("Binding interface :: {s}", .{global.interface});
                             shm = try wl_registry.bind(&proxy, @TypeOf(shm), .{
@@ -98,7 +93,6 @@ pub fn main() !void {
                                 shm.toInt(),
                                 global.version,
                             });
-                            conn.objects[shm.toInt()] = shm.object();
                         }
                     },
                     .global_remove => |remove| {
@@ -116,12 +110,10 @@ pub fn main() !void {
     };
 
     const wl_surface = try wl_compositor.create_surface(&proxy);
-    conn.objects[wl_surface.toInt()] = wl_surface.object();
 
     const xdg_surface = try xdg_wm_base.get_xdg_surface(&proxy, .{ .surface = wl_surface });
-    conn.objects[xdg_surface.toInt()] = xdg_surface.object();
     const xdg_toplevel = try xdg_surface.get_toplevel(&proxy);
-    conn.objects[xdg_toplevel.toInt()] = xdg_toplevel.object();
+
     try xdg_toplevel.set_title(&proxy, .{ .title = "LmRenderer" });
 
     try wl_surface.commit(&proxy);
@@ -146,25 +138,8 @@ pub fn main() !void {
     const handle = try Thread.spawn(.{}, event_loop, .{&wayland_state});
     defer handle.join();
 
-    var swapchain: ImageQueue = try .init(arena, 960, 540);
-    const swapchain_shm_pool = try wl_shm.create_pool(&proxy, .{
-        .fd = swapchain.fd,
-        .size = @intCast(swapchain.imgs[0].len * 3),
-    });
-
-    var wl_bufs: [3]Wayland.Protocols.Wayland.Buffer = @splat(.fromInt(0));
-    for (swapchain.imgs, 0..) |_, idx| {
-        const stride = swapchain.width * 4;
-        const size = stride * swapchain.height;
-        wl_bufs[idx] = try swapchain_shm_pool.create_buffer(&proxy, .{
-            .format = .argb8888,
-            .width = @intCast(swapchain.width),
-            .height = @intCast(swapchain.height),
-            .stride = @intCast(stride),
-            .offset = @intCast(size * idx),
-        });
-        conn.objects[wl_bufs[idx].toInt()] = wl_bufs[idx].object();
-    }
+    var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, 960, 540);
+    try conn.flush();
 
     const StepType = enum {
         up,
@@ -178,37 +153,105 @@ pub fn main() !void {
     const red: u8 = 0;
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
-        app_log.debug("Begin frame #{d}", .{frame_idx});
         const frame_time_us = (std.time.us_per_ms * 32); // 32 ms per frame
         const frame_start_us = std.time.microTimestamp();
 
         if (blue == 255) step = .down;
         if (blue == 0) step = .up;
-        blue = switch (step) { 
+        blue = switch (step) {
             .up => blue + 5,
             .down => blue - 5,
         };
+        if (new_swapchain) |new_sc| if (new_sc.width != swapchain.width or
+            new_sc.height != swapchain.height)
+        {
+            try swapchain.resize(new_sc.width, new_sc.height);
+            // try conn.flush();
+        };
 
-        // clear background
+        // Draw Frame
         if (swapchain.next_img()) |img| {
-            var img_idx: usize = 0;
-            while (img_idx < img.len) : (img_idx += 4) {
-                // B
-                img[img_idx] = blue;
-                // G
-                img[img_idx + 1] = green;
-                // R
-                img[img_idx + 2] = red;
-                // A
-                img[img_idx + 3] = 255;
+            const width = swapchain.width;
+            const height = swapchain.height;
+            const img_pixels: []gfx.Pixel = @ptrCast(@alignCast(img));
+            // clear background
+            {
+                const bg_val: gfx.Pixel = .{
+                    .b = blue,
+                    .g = green,
+                    .r = red,
+                    .a = 255,
+                };
+                @memset(img_pixels, bg_val);
+            }
+
+            // Draw triangle
+            {
+                const x2 = (width - @divFloor(width, 10));
+                const x1 = @divFloor(x2, 2);
+                const x0 = @divFloor(width, 10);
+
+                const y0 = (height - @divFloor(height, 10));
+                const y1 = @divFloor(height, 10);
+
+                const points: []const Point = &.{
+                    .{ x0, y0 },
+                    .{ x1, y1 },
+                    .{ x2, y0},
+                };
+                draw_line(
+                    .{
+                        .pixels = img_pixels,
+                        .width = swapchain.width,
+                        .height = swapchain.height,
+                    },
+                    points[0],
+                    points[1],
+                    .{
+                        .r = 255,
+                        .g = 255,
+                        .b = 255,
+                        .a = 255,
+                    },
+                );
+                draw_line(
+                    .{
+                        .pixels = img_pixels,
+                        .width = swapchain.width,
+                        .height = swapchain.height,
+                    },
+                    points[0],
+                    points[2],
+                    .{
+                        .r = 255,
+                        .g = 255,
+                        .b = 255,
+                        .a = 255,
+                    },
+                );
+                draw_line(
+                    .{
+                        .pixels = img_pixels,
+                        .width = swapchain.width,
+                        .height = swapchain.height,
+                    },
+                    points[1],
+                    points[2],
+                    .{
+                        .r = 255,
+                        .g = 255,
+                        .b = 255,
+                        .a = 255,
+                    },
+                );
             }
 
             try wl_surface.attach(&proxy, .{
-                .buffer = wl_bufs[frame_idx % 3],
+                .buffer = swapchain.buffers[frame_idx % 3],
                 .x = 0,
                 .y = 0,
             });
-            try wl_surface.damage(&proxy, .{
+            try wl_surface.damage_buffer(&proxy, .{
                 .x = 0,
                 .y = 0,
                 .width = @intCast(swapchain.width),
@@ -230,7 +273,7 @@ pub fn main() !void {
 
 fn event_loop(noalias wayland_state: *WaylandState) void {
     const connection = wayland_state.connection;
-    const us_delay = 500;
+    const us_delay = 100;
     while (!wayland_state.should_close) loop: {
         const us_start = std.time.microTimestamp();
         var attempts: u16 = 0;
@@ -238,7 +281,6 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
             connection.load_events() catch |err| {
                 switch (err) {
                     error.NoData => {
-                        // event_log.err("connection::load_events() returned {s}", .{@errorName(err)});
                     },
                     else => {
                         event_log.err("Failed to load Wayland events :: {s}", .{
@@ -263,7 +305,6 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
         const us_elapsed = us_end - us_start;
         if (us_elapsed < us_delay) {
             const diff = us_delay - us_elapsed;
-            // event_log.debug("Event Thread sleeping for {d}ns ({d}us)", .{ (diff) * std.time.ns_per_us, diff });
             std.Thread.sleep(@intCast(diff * std.time.ns_per_us));
         }
     }
@@ -277,8 +318,7 @@ fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Prot
                     err.object_id, err.code, err.message,
                 });
             },
-            .delete_id => |delete_id| {
-                event_log.debug("Display Delete ID :: {d}", .{delete_id.id});
+            .delete_id => {
             },
         },
         .wl_seat => |seat_event| switch (seat_event) {
@@ -297,24 +337,40 @@ fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Prot
             else => event_log.debug("wl_surface_event :: {any}", .{surface_event}),
         },
         .wl_buffer => |buffer_event| switch (buffer_event) {
-            .release => {
-                event_log.debug("wl_buffer released", .{});
+            .release => {},
+        },
+        .xdg_wm_base => |xdg_wm_base_event| switch (xdg_wm_base_event) {
+            .ping => |ping| {
+                try state.wm_base.pong(state.proxy, .{ .serial = ping.serial });
             },
         },
         .xdg_surface => |xdg_surface_event| switch (xdg_surface_event) {
             .configure => |configure| {
-                event_log.debug("xdg_configure_event :: {{ .serial={d} }}", .{
-                    configure.serial,
-                });
                 try state.xdg_surface.ack_configure(state.proxy, .{ .serial = configure.serial });
             },
         },
         .xdg_toplevel => |xdg_toplevel_event| switch (xdg_toplevel_event) {
             .configure => |configure| {
-                event_log.debug("xdg_toplevel :: configure :: {{ .width={d}, .height={d} }}", .{
-                    configure.width,
-                    configure.height,
-                });
+                if (configure.width > 0) new_swapchain = .{
+                    .width = configure.width,
+                    .height = configure.height,
+                };
+            },
+            .wm_capabilities => |wm_capabilities| {
+                const Capability = Wayland.Protocols.XdgShell.Toplevel.Enum.WmCapabilities;
+                var iter = std.mem.window(
+                    u8,
+                    wm_capabilities.capabilities,
+                    @sizeOf(Capability),
+                    @sizeOf(Capability),
+                );
+
+                while (iter.next()) |cap_bytes| {
+                    const capability = std.mem.bytesToValue(Capability, cap_bytes);
+                    event_log.debug("xdg_toplevel :: wm_capability :: {s}", .{
+                        @tagName(capability),
+                    });
+                }
             },
             .close => {
                 event_log.debug("xdg_toplevel :: received close event", .{});
@@ -327,6 +383,61 @@ fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Prot
         else => {
             event_log.debug("event :: {any}", .{event});
         },
+    }
+}
+
+pub var new_swapchain: ?struct { width: i32, height: i32 } = null;
+inline fn draw_line(
+    img: struct {
+        pixels: []gfx.Pixel,
+        width: i32,
+        height: i32,
+    },
+    a: Point,
+    b: Point,
+    color: gfx.Pixel,
+) void {
+    const width: u32 = @intCast(img.width);
+    const height: u32 = @intCast(img.height);
+    const x0 = a[0];
+    const y0 = a[1];
+    const x1 = b[0];
+    const y1 = b[1];
+
+    const dx: i32 = @intCast(@abs(x1 - x0));
+    const dy: i32 = @intCast(@abs(y1 - y0));
+
+    var sx: i32 = 0;
+    var sy: i32 = 0;
+    sx = if (x0 < x1) 1 else -1;
+    sy = if (y0 < y1) 1 else -1;
+
+    var err: i32 = 0;
+    if (dx > dy) err = dx else err = -dy;
+    err = @divFloor(err, 2);
+
+    var xc = x0;
+    var yc = y0;
+
+    while (true) {
+        // Bounds checking
+        if (xc >= 0 and xc < width and yc >= 0 and yc < height) {
+            const x: u32 = @intCast(xc);
+            const y: u32 = @intCast(yc);
+            img.pixels[y * width + x] = color;
+        }
+
+        if (xc == x1 and yc == y1) break;
+
+        const e2 = err;
+        if (e2 > -dx) {
+            err -= dy;
+            xc += sx;
+        }
+        if (e2 < dy) {
+            err += dx;
+            yc += sy;
+        }
     }
 }
 
@@ -348,86 +459,7 @@ const WaylandState = struct {
     should_close: bool = false,
 };
 
-const ImageQueue = struct {
-    fd: std.posix.fd_t,
-    imgs: [3][]u8,
-    buffer: []u8,
-    width: u32,
-    height: u32,
-    active: [3]bool,
-    write: u32,
-    read: u32,
-
-    pub fn init(arena: *Arena, width: u32, height: u32) !ImageQueue {
-        const tmp = arena.temp();
-        defer tmp.end();
-        const shm_fd = try alloc_shm_file(tmp.arena);
-        const img_stride = width * 4;
-        const img_size = height * img_stride;
-        const size = img_size * 3;
-
-        try std.posix.ftruncate(shm_fd, size);
-        const buffer = try std.posix.mmap(
-            null,
-            size,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
-            .{ .TYPE = .SHARED },
-            shm_fd,
-            0,
-        );
-
-        const imgs: [3][]u8 = blk: {
-            const img_1 = buffer[0..img_size];
-            const img_2 = buffer[img_size..][0..img_size];
-            const img_3 = buffer[img_size * 2..][0..img_size];
-
-            break :blk .{ img_1, img_2, img_3 };
-        };
-
-        return .{
-            .fd = shm_fd,
-            .buffer = buffer,
-            .imgs = imgs,
-            .width = width,
-            .height = height,
-            .active = @splat(false),
-            .write = 0,
-            .read = 0,
-        };
-    }
-
-    pub fn next_img(queue: *ImageQueue) ?Image {
-        if (!queue.active[queue.write % queue.active.len]) {
-            defer queue.write += 1;
-            return queue.imgs[queue.write % queue.active.len];
-        } else return null;
-    }
-
-    inline fn alloc_shm_file(arena: *Arena) !std.posix.fd_t {
-        const timestamp = std.time.nanoTimestamp();
-        const name_template = "/dev/wl_shm-XXXXXX";
-        var name = try arena.allocator().dupe(u8, name_template);
-        for (name[(name.len - 6)..], 0..) |_, idx| {
-            name[idx] = @intCast(('A' +
-                (timestamp & 15) +
-                ((timestamp & 16) * 2)));
-        }
-
-        const fd = try std.posix.open(
-            name,
-            .{
-                .ACCMODE = .RDWR,
-                .CREAT = true,
-                .EXCL = true,
-            },
-            0o600,
-        );
-        try std.posix.unlink(name);
-        return fd;
-    }
-};
-
-const Image = []u8;
+const Point = @Vector(2, i32);
 
 const Thread = linux.Thread;
 const app_log = std.log.scoped(.App);

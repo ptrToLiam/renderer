@@ -3,6 +3,7 @@ const Arena = @import("arena");
 
 pub const Protocols = @import("generated/wayland_protocols.zig");
 const linux = @import("linux.zig");
+const gfx = @import("gfx.zig");
 
 pub const WireEvent = struct {
     header: Header,
@@ -33,7 +34,7 @@ pub const Connection = struct {
     fd_in_buf: [256]u8 = @splat(0),
     fd_in_buf_idx: usize = 0,
 
-    pub fn init(arena: *Arena) !Connection {
+    pub fn open(arena: *Arena) !Connection {
         const temp = arena.temp();
         defer temp.end();
         const xdg_runtime_dir = posix.getenv("XDG_RUNTIME_DIR").?;
@@ -69,12 +70,16 @@ pub const Connection = struct {
             log.err("Failed to connect to Wayland Socket with err :: {s}", .{@errorName(err)});
             return err;
         };
+        const display: Protocols.Wayland.Display = .fromInt(1);
+
+        const objects = arena.push(Protocols.Object, 128);
+        objects[display.toInt()] = display.object();
 
         return .{
             .handle = sockfd,
             .addr = addr,
             .display = .fromInt(1),
-            .objects = arena.push(Protocols.Object, 128),
+            .objects = objects,
         };
     }
 
@@ -147,29 +152,25 @@ pub const Connection = struct {
         };
 
         const rc = linux.recvmsg(
-                conn.handle,
-                &message,
-                linux.MSG.DONTWAIT,
-            );
+            conn.handle,
+            &message,
+            linux.MSG.DONTWAIT,
+        );
         if (rc > iov[0].len) {
-            const err = std.posix.errno(rc);
+            const err = posix.errno(rc);
             switch (err) {
                 .AGAIN => {
                     return error.NoData;
                 },
                 else => {
-                    // log.debug("rc :: {d}", .{@as(isize, @bitCast(rc))});
-                    // log.err("Socket read failed with err :: {s}", .{@tagName(err)});
                     return error.SocketReadFailed;
-                }
+                },
             }
         }
 
         const bytes_read: u32 = @intCast(rc);
-        // log.debug("load_events :: bytes read :: {d}", .{bytes_read});
         // Control messages
         {
-            // log.debug("Parsing Control Messages", .{});
             var cmsg_iter = linux.cmsghdr.iter(
                 conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
             );
@@ -186,10 +187,8 @@ pub const Connection = struct {
 
         // Standard wire events
         {
-            // log.debug("Parsing Standard Wire Events", .{});
             var idx: u32 = 0;
             const event_buf = conn.in_buf[0..bytes_read];
-            // log.debug("event_buf length :: {d}", .{event_buf.len});
             while (idx < bytes_read) {
                 const event_bytes = event_buf[idx..];
 
@@ -199,8 +198,8 @@ pub const Connection = struct {
                 }
 
                 const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
-
                 defer idx += header.len;
+
                 if (header.len > event_bytes.len) {
                     log.debug("Not enough space for data", .{});
                     break;
@@ -213,23 +212,25 @@ pub const Connection = struct {
                     conn.ev_queue_in.push(parsed_event);
                 }
             }
-            // log.debug("Standard Wire Event Parsing Complete", .{});
         }
     }
 
     fn next_id(noalias ctx: *anyopaque) u32 {
         const connection: *Connection = @ptrCast(@alignCast(ctx));
-        return if (connection.idx_free_queue.next()) |free_idx|
+        const id =  if (connection.idx_free_queue.next()) |free_idx|
             free_idx
         else idx: {
             defer connection.cur_idx += 1;
             break :idx connection.cur_idx;
         };
+
+        return id;
     }
 
-    fn push_object(noalias ctx: *anyopaque, id: u32, noalias object: *Protocols.Object) void {
+    fn push_object(noalias ctx: *anyopaque, object: Protocols.Object) void {
         const connection: *Connection = @ptrCast(@alignCast(ctx));
-        connection.objects[id] = object.*;
+        const idx = @as(*const u32, @ptrCast(@alignCast(object.ptr))).*;
+        connection.objects[idx] = object;
     }
 
     fn destroy_object(noalias ctx: *anyopaque, id: u32) void {
@@ -461,7 +462,235 @@ pub const Connection = struct {
     const log = std.log.scoped(.WaylandConnection);
 };
 
+pub const ShmImageQueue = struct {
+    conn: *Connection,
+    fd: posix.fd_t,
+    width: i32,
+    height: i32,
+    images: [3]gfx.Image,
+    active: [3]bool,
+    buffers: [3]Protocols.Wayland.Buffer,
+    shm_pool: Protocols.Wayland.ShmPool,
+    write: usize,
+    size: usize,
+
+    pub fn create(conn: *Connection, shm: Protocols.Wayland.Shm, width: i32, height: i32) !ShmImageQueue {
+        log.debug("Creating Swapchain with dims :: {{ .width={d}, .height={d} }}", .{
+            width, height,
+        });
+        const tmp = scratch_begin(0, .{}).?;
+        defer tmp.end();
+        var proxy = conn.proxy();
+
+        const shm_fd = try alloc_shm_file(tmp.arena);
+        const img_stride = width * 4;
+        const img_size: usize = @intCast(height * img_stride);
+        const size: usize = @intCast(img_size * 3);
+
+        try posix.ftruncate(shm_fd, size);
+        const buffer = try std.posix.mmap(
+            null,
+            size,
+            posix.PROT.READ | posix.PROT.WRITE,
+            .{ .TYPE = .SHARED },
+            shm_fd,
+            0,
+        );
+
+        const imgs: [3]gfx.Image = blk: {
+            const img_1 = buffer[0..img_size];
+            const img_2 = buffer[img_size..][0..img_size];
+            const img_3 = buffer[img_size * 2 ..][0..img_size];
+
+            break :blk .{
+                @ptrCast(@alignCast(img_1)),
+                @ptrCast(@alignCast(img_2)),
+                @ptrCast(@alignCast(img_3)),
+            };
+        };
+
+        const shm_pool = try shm.create_pool(&proxy, .{
+            .fd = shm_fd,
+            .size = @intCast(size),
+        });
+
+        const buffers: [3]Protocols.Wayland.Buffer = .{
+            try shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = 0,
+                .stride = img_stride,
+            }),
+            try shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = @intCast(img_size),
+                .stride = img_stride,
+            }),
+            try shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = @intCast(img_size * 2),
+                .stride = img_stride,
+            }),
+        };
+
+        return .{
+            .conn = conn,
+            .fd = shm_fd,
+            .images = imgs,
+            .width = width,
+            .height = height,
+            .shm_pool = shm_pool,
+            .buffers = buffers,
+            .active = @splat(false),
+            .write = 0,
+            .size = size,
+        };
+    }
+
+    pub fn resize(queue: *ShmImageQueue, width: i32, height: i32) !void {
+        var proxy = queue.conn.proxy();
+
+        const img_stride = width * 4;
+        const img_size: usize = @intCast(height * img_stride);
+        const new_size: usize = @intCast(img_size * 3);
+
+        const buffer = buffer: {
+            const ptr: [*]u8 = @ptrFromInt(@intFromPtr(queue.images[0].ptr));
+            const buf: []align(4096)u8 = @alignCast(ptr[0..queue.size]);
+
+            if (new_size > queue.size) {
+                defer queue.size = new_size;
+                std.posix.munmap(buf);
+
+                try posix.ftruncate(queue.fd, new_size);
+
+                try queue.shm_pool.resize(&proxy, .{ .size = @intCast(new_size) });
+                const buffer = try std.posix.mmap(
+                    null,
+                    new_size,
+                    posix.PROT.READ | posix.PROT.WRITE,
+                    .{ .TYPE = .SHARED },
+                    queue.fd,
+                    0,
+                );
+
+                break :buffer buffer;
+            } else
+                break :buffer buf;
+        };
+
+        std.debug.assert(buffer.len >= img_size * 3);
+        queue.images = blk: {
+            const img_1 = buffer[0..img_size];
+            const img_2 = buffer[img_size..][0..img_size];
+            const img_3 = buffer[img_size * 2 ..][0..img_size];
+
+            break :blk .{
+                @ptrCast(@alignCast(img_1)),
+                @ptrCast(@alignCast(img_2)),
+                @ptrCast(@alignCast(img_3)),
+            };
+        };
+
+        for (queue.buffers) |wl_buffer| {
+            try wl_buffer.destroy(&proxy);
+        }
+
+
+        queue.buffers = .{
+            try queue.shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = 0,
+                .stride = img_stride,
+            }),
+            try queue.shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = @intCast(img_size),
+                .stride = img_stride,
+            }),
+            try queue.shm_pool.create_buffer(&proxy, .{
+                .width = width,
+                .height = height,
+                .format = .argb8888,
+                .offset = @intCast(img_size * 2),
+                .stride = img_stride,
+            }),
+        };
+        queue.width = width; queue.height = height;
+    }
+
+    pub fn destroy(queue: *ShmImageQueue) !void {
+        var proxy = queue.conn.proxy();
+
+        for (queue.buffers) |wl_buffer| {
+            try wl_buffer.destroy(&proxy);
+        }
+
+        const ptr: [*]align(4096) u8 = @ptrCast(@alignCast(queue.images[0].ptr));
+        const mem = ptr[0 .. (queue.images[0].len * 3) * @sizeOf(gfx.Pixel)];
+        defer posix.close(queue.fd);
+
+        defer queue.shm_pool.destroy(&proxy) catch unreachable;
+        defer posix.munmap(mem);
+    }
+
+    pub fn next_img(queue: *ShmImageQueue) ?gfx.Image {
+        if (!queue.active[queue.write % 3]) {
+            defer queue.write += 1;
+            return queue.images[queue.write % 3];
+        } else return null;
+    }
+
+    inline fn alloc_shm_file(arena: *Arena) !posix.fd_t {
+        const timestamp = std.time.nanoTimestamp();
+        const name_template = "/var/tmp/Lm_Renderer-XXXXXX";
+        var name = try arena.allocator().dupeZ(u8, name_template);
+        for (name[(name.len - 6)..]) |*byte| {
+            byte.* = @intCast(('A' +
+                (timestamp & 15) +
+                ((timestamp & 16) * 2)));
+        }
+
+        log.debug("attempting to open shm file with name '{s}'", .{
+            name,
+        });
+
+        const fd = posix.open(
+            name,
+            .{
+                .ACCMODE = .RDWR,
+                .CREAT = true,
+                .EXCL = true,
+                .CLOEXEC = true,
+            },
+            0o600,
+        ) catch |err| {
+            log.err("shm file open failed :: {s}", .{@errorName(err)});
+            return err;
+        };
+
+        log.debug("Opened shm file :: {{ .name={s}, .fd={d} }}", .{
+            name,
+            fd,
+        });
+        posix.unlink(name) catch unreachable;
+        return fd;
+    }
+    const log = std.log.scoped(.ShmImageQueue);
+};
+
 pub const Event = Protocols.Event;
+const Thread = linux.Thread;
+const scratch_begin = Thread.scratch_begin;
 
 const posix = std.posix;
 // Begin Tests
