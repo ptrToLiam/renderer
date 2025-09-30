@@ -45,29 +45,31 @@ pub const Wayland = struct {
         pub fn sync(noalias self: *const Display, noalias proxy: *Proxy) !wl_callback {
             const request_op = 0;
 
-            const new_id = proxy.next_id();
+            const result: wl_callback = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_registry(noalias self: *const Display, noalias proxy: *Proxy) !wl_registry {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: wl_registry = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Event = union(enum) {
@@ -237,7 +239,7 @@ pub const Wayland = struct {
             },
         ) !InterfaceT {
             const request_op = 0;
-            const new_id = proxy.next_id();
+            const result: InterfaceT = .fromInt(proxy.next_id());
 
             if (InterfaceT.InterfaceVersion != params.interface_version)
                 log.warn("Interface {s} version mismatch :: client expects v{d}, compositor has v{d}", .{
@@ -253,11 +255,12 @@ pub const Wayland = struct {
                     .{ .uint = params.name },
                     .{ .string = InterfaceT.InterfaceName },
                     .{ .uint = params.interface_version },
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Event = union(enum) {
@@ -478,29 +481,31 @@ pub const Wayland = struct {
         pub fn create_surface(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_surface {
             const request_op = 0;
 
-            const new_id = proxy.next_id();
+            const result: wl_surface = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn create_region(noalias self: *const Compositor, noalias proxy: *Proxy) !wl_region {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: wl_region = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Interface = @This();
@@ -562,13 +567,13 @@ pub const Wayland = struct {
             },
         ) !wl_buffer {
             const request_op = 0;
-            const new_id = proxy.next_id();
+            const result: wl_buffer = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .int = params.offset },
                     .{ .int = params.width },
                     .{ .int = params.height },
@@ -581,11 +586,14 @@ pub const Wayland = struct {
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn destroy(noalias self: *const ShmPool, noalias proxy: *Proxy) !void {
             const request_op = 1;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -661,23 +669,26 @@ pub const Wayland = struct {
             },
         ) !wl_shm_pool {
             const request_op = 0;
-            const new_id = proxy.next_id();
+            const result: wl_shm_pool = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .fd = params.fd },
                     .{ .int = params.size },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn release(noalias self: *const Shm, noalias proxy: *Proxy) !void {
             const request_op = 1;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -931,6 +942,8 @@ pub const Wayland = struct {
         pub fn destroy(noalias self: *const Buffer, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -1063,6 +1076,8 @@ pub const Wayland = struct {
 
         pub fn destroy(noalias self: *const DataOffer, noalias proxy: *Proxy) !void {
             const request_op = 2;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -1314,6 +1329,8 @@ pub const Wayland = struct {
 
         pub fn destroy(noalias self: *const DataSource, noalias proxy: *Proxy) !void {
             const request_op = 1;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -1636,6 +1653,8 @@ pub const Wayland = struct {
         pub fn release(noalias self: *const DataDevice, noalias proxy: *Proxy) !void {
             const request_op = 2;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -1908,15 +1927,16 @@ pub const Wayland = struct {
         pub fn create_data_source(noalias self: *const DataDeviceManager, noalias proxy: *Proxy) !wl_data_source {
             const request_op = 0;
 
-            const new_id = proxy.next_id();
+            const result: wl_data_source = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_data_device(
@@ -1927,18 +1947,19 @@ pub const Wayland = struct {
             },
         ) !wl_data_device {
             const request_op = 1;
-            const new_id = proxy.next_id();
+            const result: wl_data_device = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.seat.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Enum = union(enum) {
@@ -2012,18 +2033,19 @@ pub const Wayland = struct {
             },
         ) !wl_shell_surface {
             const request_op = 0;
-            const new_id = proxy.next_id();
+            const result: wl_shell_surface = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.surface.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Enum = union(enum) {
@@ -2524,6 +2546,8 @@ pub const Wayland = struct {
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -2576,15 +2600,16 @@ pub const Wayland = struct {
         pub fn frame(noalias self: *const Surface, noalias proxy: *Proxy) !wl_callback {
             const request_op = 3;
 
-            const new_id = proxy.next_id();
+            const result: wl_callback = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn set_opaque_region(
@@ -2924,47 +2949,52 @@ pub const Wayland = struct {
         pub fn get_pointer(noalias self: *const Seat, noalias proxy: *Proxy) !wl_pointer {
             const request_op = 0;
 
-            const new_id = proxy.next_id();
+            const result: wl_pointer = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_keyboard(noalias self: *const Seat, noalias proxy: *Proxy) !wl_keyboard {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: wl_keyboard = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_touch(noalias self: *const Seat, noalias proxy: *Proxy) !wl_touch {
             const request_op = 2;
 
-            const new_id = proxy.next_id();
+            const result: wl_touch = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn release(noalias self: *const Seat, noalias proxy: *Proxy) !void {
             const request_op = 3;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -3169,6 +3199,8 @@ pub const Wayland = struct {
 
         pub fn release(noalias self: *const Pointer, noalias proxy: *Proxy) !void {
             const request_op = 1;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -3800,6 +3832,8 @@ pub const Wayland = struct {
         pub fn release(noalias self: *const Keyboard, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -4152,6 +4186,8 @@ pub const Wayland = struct {
         pub fn release(noalias self: *const Touch, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -4471,6 +4507,8 @@ pub const Wayland = struct {
         // Begin Output requests
         pub fn release(noalias self: *const Output, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -4858,6 +4896,8 @@ pub const Wayland = struct {
         pub fn destroy(noalias self: *const Region, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -4968,6 +5008,8 @@ pub const Wayland = struct {
         pub fn destroy(noalias self: *const Subcompositor, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -4980,19 +5022,20 @@ pub const Wayland = struct {
             },
         ) !wl_subsurface {
             const request_op = 1;
-            const new_id = proxy.next_id();
+            const result: wl_subsurface = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.surface.toInt() },
                     .{ .object = params.parent.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Enum = union(enum) {
@@ -5093,6 +5136,8 @@ pub const Wayland = struct {
         // Begin Subsurface requests
         pub fn destroy(noalias self: *const Subsurface, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -5222,6 +5267,8 @@ pub const Wayland = struct {
         pub fn destroy(noalias self: *const Fixes, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -5290,21 +5337,24 @@ pub const XdgShell = struct {
         pub fn destroy(noalias self: *const WmBase, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn create_positioner(noalias self: *const WmBase, noalias proxy: *Proxy) !xdg_positioner {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: xdg_positioner = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_xdg_surface(
@@ -5315,18 +5365,19 @@ pub const XdgShell = struct {
             },
         ) !xdg_surface {
             const request_op = 2;
-            const new_id = proxy.next_id();
+            const result: xdg_surface = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.surface.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn pong(
@@ -5478,6 +5529,8 @@ pub const XdgShell = struct {
         // Begin Positioner requests
         pub fn destroy(noalias self: *const Positioner, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -5797,21 +5850,24 @@ pub const XdgShell = struct {
         pub fn destroy(noalias self: *const Surface, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn get_toplevel(noalias self: *const Surface, noalias proxy: *Proxy) !xdg_toplevel {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: xdg_toplevel = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_popup(
@@ -5823,19 +5879,20 @@ pub const XdgShell = struct {
             },
         ) !xdg_popup {
             const request_op = 2;
-            const new_id = proxy.next_id();
+            const result: xdg_popup = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     if (params.parent) |obj| .{ .object = obj.toInt() } else null,
                     .{ .object = params.positioner.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn set_window_geometry(
@@ -6011,6 +6068,8 @@ pub const XdgShell = struct {
         // Begin Toplevel requests
         pub fn destroy(noalias self: *const Toplevel, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -6505,6 +6564,8 @@ pub const XdgShell = struct {
         pub fn destroy(noalias self: *const Popup, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -6739,6 +6800,8 @@ pub const XdgDecorationUnstableV1 = struct {
         pub fn destroy(noalias self: *const DecorationManagerV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -6750,18 +6813,19 @@ pub const XdgDecorationUnstableV1 = struct {
             },
         ) !zxdg_toplevel_decoration_v1 {
             const request_op = 1;
-            const new_id = proxy.next_id();
+            const result: zxdg_toplevel_decoration_v1 = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.toplevel.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Interface = @This();
@@ -6808,6 +6872,8 @@ pub const XdgDecorationUnstableV1 = struct {
         // Begin ToplevelDecorationV1 requests
         pub fn destroy(noalias self: *const ToplevelDecorationV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -7012,35 +7078,39 @@ pub const LinuxDmabufV1 = struct {
         pub fn destroy(noalias self: *const @This(), noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
         pub fn create_params(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_buffer_params_v1 {
             const request_op = 1;
 
-            const new_id = proxy.next_id();
+            const result: zwp_linux_buffer_params_v1 = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_default_feedback(noalias self: *const @This(), noalias proxy: *Proxy) !zwp_linux_dmabuf_feedback_v1 {
             const request_op = 2;
 
-            const new_id = proxy.next_id();
+            const result: zwp_linux_dmabuf_feedback_v1 = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
-                &.{.{ .new_id = new_id }},
+                &.{.{ .new_id = result.toInt() }},
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub fn get_surface_feedback(
@@ -7051,18 +7121,19 @@ pub const LinuxDmabufV1 = struct {
             },
         ) !zwp_linux_dmabuf_feedback_v1 {
             const request_op = 3;
-            const new_id = proxy.next_id();
+            const result: zwp_linux_dmabuf_feedback_v1 = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .object = params.surface.toInt() },
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Event = union(enum) {
@@ -7220,6 +7291,8 @@ pub const LinuxDmabufV1 = struct {
         pub fn destroy(noalias self: *const LinuxBufferParamsV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
 
+            proxy.destroy_object(self.toInt());
+
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
@@ -7290,13 +7363,13 @@ pub const LinuxDmabufV1 = struct {
             },
         ) !wl_buffer {
             const request_op = 3;
-            const new_id = proxy.next_id();
+            const result: wl_buffer = .fromInt(proxy.next_id());
 
             try proxy.msg_write(
                 self.toInt(),
                 request_op,
                 &.{
-                    .{ .new_id = new_id },
+                    .{ .new_id = result.toInt() },
                     .{ .int = params.width },
                     .{ .int = params.height },
                     .{ .uint = params.format },
@@ -7308,7 +7381,8 @@ pub const LinuxDmabufV1 = struct {
                 },
             );
 
-            return .fromInt(new_id);
+            proxy.push_object(result.object());
+            return result;
         }
 
         pub const Event = union(enum) {
@@ -7468,6 +7542,8 @@ pub const LinuxDmabufV1 = struct {
         // Begin LinuxDmabufFeedbackV1 requests
         pub fn destroy(noalias self: *const LinuxDmabufFeedbackV1, noalias proxy: *Proxy) !void {
             const request_op = 0;
+
+            proxy.destroy_object(self.toInt());
 
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
@@ -7797,11 +7873,19 @@ pub const Proxy = struct {
         return @call(.auto, proxy.vtable.next_id_fn, .{proxy.ctx});
     }
 
+    pub fn push_object(noalias proxy: *const Proxy, object: Object) void {
+        return @call(.auto, proxy.vtable.obj_push_fn, .{ proxy.ctx, object });
+    }
+
+    pub fn destroy_object(noalias proxy: *const Proxy, object_id: u32) void {
+        return @call(.auto, proxy.vtable.obj_destroy_fn, .{ proxy.ctx, object_id });
+    }
+
     const VTable = struct {
         msg_parse_fn: *const fn (noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
         msg_write_fn: *const fn (noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void,
         next_id_fn: *const fn (noalias ctx: *anyopaque) u32,
-        obj_push_fn: *const fn (noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
+        obj_push_fn: *const fn (noalias ctx: *anyopaque, object: Object) void,
         obj_destroy_fn: *const fn (noalias ctx: *anyopaque, id: u32) void,
     };
 };

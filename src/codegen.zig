@@ -416,7 +416,11 @@ pub fn main() !void {
                             request_idx,
 
                             if (returns_new_id)
-                                "const new_id = proxy.next_id();"
+                                try std.fmt.allocPrint(
+                                    allocator,
+                                    "const result: {s} = .fromInt(proxy.next_id());",
+                                    .{return_t},
+                                )
                             else
                                 "",
                             if (returns_new_id_comptime)
@@ -443,7 +447,7 @@ pub fn main() !void {
                                             , .{});
                                         }
                                         try out_contents.writer.print(
-                                            \\ .{{ .new_id = new_id }},
+                                            \\ .{{ .new_id = result.toInt() }},
                                             \\
                                         , .{});
                                     },
@@ -500,34 +504,45 @@ pub fn main() !void {
                             \\}}
                             \\
                             \\
-                        , .{if (returns_new_id)
-                            "\nreturn .fromInt(new_id);"
-                        else
-                            ""});
+                        , .{
+                            if (returns_new_id)
+                                \\
+                                \\  proxy.push_object(result.object());
+                                \\  return result;
+                                \\
+                            else
+                                "",
+                        });
                     } else if (returns_new_id) {
                         try out_contents.writer.print(
                             \\) !{s} {{
                             \\  const request_op = {d};
                             \\  
-                            \\  const new_id = proxy.next_id();
+                            \\  const result: {s} = .fromInt(proxy.next_id());
                             \\ 
-                            \\  try proxy.msg_write(self.toInt(), request_op, &.{{ .{{ .new_id = new_id }} }},);
+                            \\  try proxy.msg_write(self.toInt(), request_op, &.{{ .{{ .new_id = result.toInt() }} }},);
                             \\
-                            \\  return .fromInt(new_id);
+                            \\  proxy.push_object(result.object());
+                            \\  return result;
                             \\}}
                             \\  
                             \\  
-                        , .{ return_t, request_idx });
+                        , .{ return_t, request_idx, return_t });
                     } else {
                         try out_contents.writer.print(
                             \\) !void {{
                             \\  const request_op = {d};
-                            \\  
+                            \\  {s}
                             \\  try proxy.msg_write(self.toInt(), request_op, &.{{}});
                             \\}}
                             \\  
                             \\  
-                        , .{request_idx});
+                        , .{
+                            request_idx, 
+                            if (request.destructor)
+                                "\nproxy.destroy_object(self.toInt());\n"
+                            else "",
+                        });
                     }
                 }
 
@@ -917,11 +932,19 @@ pub fn main() !void {
             \\    return @call(.auto, proxy.vtable.next_id_fn, .{{ proxy.ctx }});
             \\  }}
             \\
+            \\  pub fn push_object(noalias proxy: *const Proxy, object: Object) void {{
+            \\    return @call(.auto, proxy.vtable.obj_push_fn, .{{ proxy.ctx, object }});
+            \\  }}
+            \\
+            \\  pub fn destroy_object(noalias proxy: *const Proxy, object_id: u32) void {{
+            \\    return @call(.auto, proxy.vtable.obj_destroy_fn, .{{ proxy.ctx, object_id }});
+            \\  }}
+            \\
             \\  const VTable = struct {{
             \\    msg_parse_fn: *const fn(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) ParseError!void,
             \\    msg_write_fn: *const fn(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) WriteError!void,
             \\    next_id_fn: *const fn(noalias ctx: *anyopaque) u32,
-            \\    obj_push_fn: *const fn(noalias ctx: *anyopaque, id: u32, noalias object: *Object) void,
+            \\    obj_push_fn: *const fn(noalias ctx: *anyopaque, object: Object) void,
             \\    obj_destroy_fn: *const fn(noalias ctx: *anyopaque, id: u32) void,
             \\  }};
             \\}};
