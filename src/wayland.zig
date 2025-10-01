@@ -555,8 +555,10 @@ pub const ShmImageQueue = struct {
     pub fn resize(queue: *ShmImageQueue, width: i32, height: i32) !void {
         var proxy = queue.conn.proxy();
 
-        const img_stride = width * 4;
-        const img_size: usize = @intCast(height * img_stride);
+        const img_width = @max(100, width);
+        const img_height = @max(100, height);
+        const img_stride = img_width * 4;
+        const img_size: usize = @intCast(img_height * img_stride);
         const new_size: usize = @intCast(img_size * 3);
 
         const buffer = buffer: {
@@ -584,7 +586,6 @@ pub const ShmImageQueue = struct {
                 break :buffer buf;
         };
 
-        std.debug.assert(buffer.len >= img_size * 3);
         queue.images = blk: {
             const img_1 = buffer[0..img_size];
             const img_2 = buffer[img_size..][0..img_size];
@@ -604,28 +605,28 @@ pub const ShmImageQueue = struct {
 
         queue.buffers = .{
             try queue.shm_pool.create_buffer(&proxy, .{
-                .width = width,
-                .height = height,
+                .width = img_width,
+                .height = img_height,
                 .format = .argb8888,
                 .offset = 0,
                 .stride = img_stride,
             }),
             try queue.shm_pool.create_buffer(&proxy, .{
-                .width = width,
-                .height = height,
+                .width = img_width,
+                .height = img_height,
                 .format = .argb8888,
                 .offset = @intCast(img_size),
                 .stride = img_stride,
             }),
             try queue.shm_pool.create_buffer(&proxy, .{
-                .width = width,
-                .height = height,
+                .width = img_width,
+                .height = img_height,
                 .format = .argb8888,
                 .offset = @intCast(img_size * 2),
                 .stride = img_stride,
             }),
         };
-        queue.width = width; queue.height = height;
+        queue.width = img_width; queue.height = img_height;
     }
 
     pub fn destroy(queue: *ShmImageQueue) !void {

@@ -141,109 +141,97 @@ pub fn main() !void {
     var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, 960, 540);
     try conn.flush();
 
-    const StepType = enum {
-        up,
-        down,
-    };
-
-    var step: StepType = .down;
     var frame_idx: usize = 0;
-    var blue: u8 = 255;
-    const green: u8 = 128;
-    const red: u8 = 0;
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
         const frame_time_us = (std.time.us_per_ms * 32); // 32 ms per frame
         const frame_start_us = std.time.microTimestamp();
 
-        if (blue == 255) step = .down;
-        if (blue == 0) step = .up;
-        blue = switch (step) {
-            .up => blue + 5,
-            .down => blue - 5,
-        };
         if (new_swapchain) |new_sc| if (new_sc.width != swapchain.width or
             new_sc.height != swapchain.height)
         {
             try swapchain.resize(new_sc.width, new_sc.height);
-            // try conn.flush();
         };
 
         // Draw Frame
         if (swapchain.next_img()) |img| {
             const width = swapchain.width;
             const height = swapchain.height;
-            const img_pixels: []gfx.Pixel = @ptrCast(@alignCast(img));
-            // clear background
+            const stride = width * 4;
+            const size = height * stride;
+            _ = size;
+
+            // Sphere Drawing
             {
-                const bg_val: gfx.Pixel = .{
-                    .b = blue,
-                    .g = green,
-                    .r = red,
+                const bg_color: gfx.Color = .{
+                    .r = 255,
+                    .g = 255,
+                    .b = 255,
                     .a = 255,
                 };
-                @memset(img_pixels, bg_val);
-            }
 
-            // Draw triangle
-            {
-                const x2 = (width - @divFloor(width, 10));
-                const x1 = @divFloor(x2, 2);
-                const x0 = @divFloor(width, 10);
-
-                const y0 = (height - @divFloor(height, 10));
-                const y1 = @divFloor(height, 10);
-
-                const points: []const Point = &.{
-                    .{ x0, y0 },
-                    .{ x1, y1 },
-                    .{ x2, y0},
+                const vp_size = 1;
+                const proj_plane_z: f32 = 1;
+                const cam_pos: Vec3f32 = @splat(0);
+                const spheres: [4]Sphere = .{
+                    .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red },
+                    .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green },
+                    .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue },
+                    .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow },
                 };
-                draw_line(
-                    .{
-                        .pixels = img_pixels,
-                        .width = swapchain.width,
-                        .height = swapchain.height,
-                    },
-                    points[0],
-                    points[1],
-                    .{
-                        .r = 255,
-                        .g = 255,
-                        .b = 255,
-                        .a = 255,
-                    },
-                );
-                draw_line(
-                    .{
-                        .pixels = img_pixels,
-                        .width = swapchain.width,
-                        .height = swapchain.height,
-                    },
-                    points[0],
-                    points[2],
-                    .{
-                        .r = 255,
-                        .g = 255,
-                        .b = 255,
-                        .a = 255,
-                    },
-                );
-                draw_line(
-                    .{
-                        .pixels = img_pixels,
-                        .width = swapchain.width,
-                        .height = swapchain.height,
-                    },
-                    points[1],
-                    points[2],
-                    .{
-                        .r = 255,
-                        .g = 255,
-                        .b = 255,
-                        .a = 255,
-                    },
-                );
+
+                // clear bg
+                @memset(img, @bitCast(bg_color));
+                const half_width = @divFloor(width, 2);
+                const half_height = @divFloor(height, 2);
+
+                var x: i32 = -half_width;
+                while (x < half_width) : (x += 1) {
+                    for (0..@intCast(height)) |y_iter| {
+                        const y: i32 = @as(i32, @intCast(y_iter)) - half_height;
+                        const dir = gfx.canvas_to_viewport(
+                            &.{
+                                .width = vp_size,
+                                .height = vp_size,
+                                .x = 0,
+                                .y = 0,
+                            },
+                            &.{
+                                .width = width,
+                                .height = height,
+                            },
+                            x,
+                            y,
+                            proj_plane_z,
+                        );
+
+                        const col_opt = gfx.trace_ray(
+                            cam_pos,
+                            dir,
+                            &spheres,
+                            1,
+                            1000,
+                        );
+                        const color = if (col_opt) |col| col: {
+                            break :col col;
+                        } else bg_color;
+                        const idx: usize = idx: {
+                            const idx_x = half_width + x;
+                            const idx_y = half_height - y - 1;
+                            if (idx_x < 0 or
+                                idx_x >= width or
+                                idx_y < 0 or
+                                idx_y >= height)
+                            {
+                                continue;
+                            }
+
+                            break :idx @intCast(idx_y * width + idx_x);
+                        };
+
+                        img[idx] = @bitCast(color);
+                    }
+                }
             }
 
             try wl_surface.attach(&proxy, .{
@@ -280,8 +268,7 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
         while (attempts < 5) : (attempts += 1) {
             connection.load_events() catch |err| {
                 switch (err) {
-                    error.NoData => {
-                    },
+                    error.NoData => {},
                     else => {
                         event_log.err("Failed to load Wayland events :: {s}", .{
                             @errorName(err),
@@ -318,8 +305,7 @@ fn handle_event(noalias state: *WaylandState, noalias event: *const Wayland.Prot
                     err.object_id, err.code, err.message,
                 });
             },
-            .delete_id => {
-            },
+            .delete_id => {},
         },
         .wl_seat => |seat_event| switch (seat_event) {
             .capabilities => |seat_capabilities| {
@@ -459,6 +445,9 @@ const WaylandState = struct {
     should_close: bool = false,
 };
 
+const Vec3f32 = gfx.Vec3f32;
+const Position = gfx.Position;
+const Sphere = gfx.Sphere;
 const Point = @Vector(2, i32);
 
 const Thread = linux.Thread;
