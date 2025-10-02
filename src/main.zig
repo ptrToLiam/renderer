@@ -142,8 +142,10 @@ pub fn main() !void {
     try conn.flush();
 
     var frame_idx: usize = 0;
+    var red: u8 = 0;
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
+        red = @intCast(frame_idx % 255);
         const frame_time_us = (std.time.us_per_ms * 32); // 32 ms per frame
         const frame_start_us = std.time.microTimestamp();
 
@@ -161,105 +163,129 @@ pub fn main() !void {
             const size = height * stride;
             _ = size;
 
-            // Sphere Drawing
+            const bg_color: gfx.Color = .{
+                .r = red,
+                .g = 255,
+                .b = 255,
+                .a = 255,
+            };
+
+            const vp_size = 1;
+            const proj_plane_z: f32 = 1;
+            const cam_pos: Vec3f32 = @splat(0);
+            const spheres: [4]Sphere = .{
+                .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red },
+                .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green },
+                .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue },
+                .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow },
+            };
+
+            // clear bg
             {
-                const bg_color: gfx.Color = .{
-                    .r = 255,
-                    .g = 255,
-                    .b = 255,
-                    .a = 255,
-                };
+                if (std.simd.suggestVectorLength(u32)) |simd_width| {
+                    const simd_clear_start = std.time.microTimestamp();
+                    var idx: usize = 0;
+                    while (idx < img.len) {
+                        if (idx + simd_width < img.len) {
+                            defer idx += simd_width;
 
-                const vp_size = 1;
-                const proj_plane_z: f32 = 1;
-                const cam_pos: Vec3f32 = @splat(0);
-                const spheres: [4]Sphere = .{
-                    .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red },
-                    .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green },
-                    .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue },
-                    .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow },
-                };
+                            var vec = std.mem.bytesToValue(
+                                @Vector(simd_width, u32),
+                                img[idx..][0..simd_width],
+                            );
 
-                // clear bg
-                {
-                    if (std.simd.suggestVectorLength(u32)) |simd_width| {
-                        const simd_clear_start = std.time.microTimestamp();
-                        var idx: usize = 0;
-                        while (idx < img.len) {
-                            if (idx + simd_width < img.len) {
-                                defer idx += simd_width;
-                                var vec: @Vector(simd_width, u32) = std.mem.bytesToValue(@Vector(simd_width, u32), img[idx..][0..simd_width]);
-                                vec = @splat(@bitCast(bg_color));
-                            } else {
-                                @branchHint(.cold);
-                                while (idx < img.len) : (idx += 1) {
-                                    img[idx] = @bitCast(bg_color);
-                                }
+                            vec = @splat(@bitCast(bg_color));
+                        } else {
+                            @branchHint(.cold);
+                            while (idx < img.len) : (idx += 1) {
+                                img[idx] = @bitCast(bg_color);
                             }
                         }
-                        const simd_clear_end = std.time.microTimestamp();
-                        const simd_clear_time = simd_clear_end - simd_clear_start;
-                        app_log.info("SIMD screen clear in {d}us", .{simd_clear_time});
-                    } else {
-                        // No SIMD -- Scalar fallback
-                        const memset_clear_start = std.time.microTimestamp();
-                        @memset(img, @bitCast(bg_color));
-                        const memset_clear_end = std.time.microTimestamp();
-                        const memset_clear_time = memset_clear_end - memset_clear_start;
-                        app_log.info("memset screen clear in {d}us", .{memset_clear_time});
                     }
+                    const simd_clear_end = std.time.microTimestamp();
+                    const simd_clear_time = simd_clear_end - simd_clear_start;
+                    app_log.info("SIMD screen clear in {d}us", .{simd_clear_time});
+                } else {
+                    // No SIMD -- Scalar fallback
+                    const memset_clear_start = std.time.microTimestamp();
+                    @memset(img, @bitCast(bg_color));
+                    const memset_clear_end = std.time.microTimestamp();
+                    const memset_clear_time = memset_clear_end - memset_clear_start;
+                    app_log.info("memset screen clear in {d}us", .{memset_clear_time});
                 }
-                
+            }
+
+            // Draw Scene
+            {
                 const half_width = @divFloor(width, 2);
                 const half_height = @divFloor(height, 2);
 
+                var ray_trace_time_sum: i128 = 0;
+                var ray_trace_count: i128 = 0;
                 var x: i32 = -half_width;
                 while (x < half_width) : (x += 1) {
-                    for (0..@intCast(height)) |y_iter| {
-                        const y: i32 = @as(i32, @intCast(y_iter)) - half_height;
-                        const dir = gfx.canvas_to_viewport(
-                            &.{
-                                .width = vp_size,
-                                .height = vp_size,
-                                .x = 0,
-                                .y = 0,
-                            },
-                            &.{
-                                .width = width,
-                                .height = height,
-                            },
-                            x,
-                            y,
-                            proj_plane_z,
-                        );
+                    var height_idx: usize = 0;
+                    while (height_idx < height) {
+                        if (std.simd.suggestVectorLength(i32)) |simd_width| {
+                            defer height_idx += simd_width;
+                            const vp_width: f32 = @floatFromInt(vp_size);
+                            const vp_height: f32 = @floatFromInt(vp_size);
+                            const x_float: f32 = @floatFromInt(x);
+                            const y_float: f32 = @as(f32, @floatFromInt(height_idx)) - (@as(f32, @floatFromInt(half_height)));
+                        } else {
+                            defer height_idx += 1;
+                            const y: i32 = @as(i32, @intCast(height_idx)) - half_height;
+                            const dir = gfx.canvas_to_viewport(
+                                &.{
+                                    .width = vp_size,
+                                    .height = vp_size,
+                                    .x = 0,
+                                    .y = 0,
+                                },
+                                &.{
+                                    .width = width,
+                                    .height = height,
+                                },
+                                x,
+                                y,
+                                proj_plane_z,
+                            );
 
-                        const col_opt = gfx.trace_ray(
-                            cam_pos,
-                            dir,
-                            &spheres,
-                            1,
-                            1000,
-                        );
-                        const color = if (col_opt) |col| col: {
-                            break :col col;
-                        } else bg_color;
-                        const idx: usize = idx: {
-                            const idx_x = half_width + x;
-                            const idx_y = half_height - y - 1;
-                            if (idx_x < 0 or
-                                idx_x >= width or
-                                idx_y < 0 or
-                                idx_y >= height)
-                            {
-                                continue;
-                            }
+                            const ray_trace_start = std.time.nanoTimestamp();
+                            const col_opt = gfx.trace_ray_vectorized(
+                                cam_pos,
+                                dir,
+                                &spheres,
+                                1,
+                                1000,
+                            );
+                            const ray_trace_end = std.time.nanoTimestamp();
+                            const ray_trace_time = ray_trace_end - ray_trace_start;
+                            ray_trace_time_sum += ray_trace_time;
+                            ray_trace_count += 1;
 
-                            break :idx @intCast(idx_y * width + idx_x);
-                        };
+                            const color = col_opt orelse bg_color;
+                            const idx: usize = idx: {
+                                const idx_x = half_width + x;
+                                const idx_y = half_height - y - 1;
+                                if (idx_x < 0 or
+                                    idx_x >= width or
+                                    idx_y < 0 or
+                                    idx_y >= height)
+                                {
+                                    continue;
+                                }
 
-                        img[idx] = @bitCast(color);
+                                break :idx @intCast(idx_y * width + idx_x);
+                            };
+
+                            img[idx] = @bitCast(color);
+                        }
                     }
                 }
+
+                const ray_trace_time_avg = @divFloor(ray_trace_time_sum, ray_trace_count);
+                app_log.info("Mean ray trace time :: {d}ns", .{ray_trace_time_avg});
             }
 
             try wl_surface.attach(&proxy, .{
