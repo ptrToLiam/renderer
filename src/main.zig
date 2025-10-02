@@ -182,24 +182,32 @@ pub fn main() !void {
 
                 // clear bg
                 {
-                    const simd_clear_start = std.time.microTimestamp();
-                    var idx: usize = 0;
-                    while (idx < img.len) {
-                        if (idx + 4 < img.len) {
-                            defer idx += 4;
-                            var vec: @Vector(4, u32) = std.mem.bytesToValue(@Vector(4, u32), img[idx..][0..4]);
-                            vec = @splat(@bitCast(bg_color));
-                        } else {
-                            @branchHint(.cold);
-                            while (idx < img.len) : (idx += 1) {
-                                img[idx] = @bitCast(bg_color);
+                    if (std.simd.suggestVectorLength(u32)) |simd_width| {
+                        const simd_clear_start = std.time.microTimestamp();
+                        var idx: usize = 0;
+                        while (idx < img.len) {
+                            if (idx + simd_width < img.len) {
+                                defer idx += simd_width;
+                                var vec: @Vector(simd_width, u32) = std.mem.bytesToValue(@Vector(simd_width, u32), img[idx..][0..simd_width]);
+                                vec = @splat(@bitCast(bg_color));
+                            } else {
+                                @branchHint(.cold);
+                                while (idx < img.len) : (idx += 1) {
+                                    img[idx] = @bitCast(bg_color);
+                                }
                             }
                         }
+                        const simd_clear_end = std.time.microTimestamp();
+                        const simd_clear_time = simd_clear_end - simd_clear_start;
+                        app_log.info("SIMD screen clear in {d}us", .{simd_clear_time});
+                    } else {
+                        // No SIMD -- Scalar fallback
+                        const memset_clear_start = std.time.microTimestamp();
+                        @memset(img, @bitCast(bg_color));
+                        const memset_clear_end = std.time.microTimestamp();
+                        const memset_clear_time = memset_clear_end - memset_clear_start;
+                        app_log.info("memset screen clear in {d}us", .{memset_clear_time});
                     }
-                    
-                    const simd_clear_end = std.time.microTimestamp();
-                    const simd_clear_time = simd_clear_end - simd_clear_start;
-                    app_log.info("SIMD screen clear in {d}us", .{simd_clear_time});
                 }
                 
                 const half_width = @divFloor(width, 2);
