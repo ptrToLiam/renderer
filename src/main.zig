@@ -181,7 +181,27 @@ pub fn main() !void {
                 };
 
                 // clear bg
-                @memset(img, @bitCast(bg_color));
+                {
+                    const simd_clear_start = std.time.microTimestamp();
+                    var idx: usize = 0;
+                    while (idx < img.len) {
+                        if (idx + 4 < img.len) {
+                            defer idx += 4;
+                            var vec: @Vector(4, u32) = std.mem.bytesToValue(@Vector(4, u32), img[idx..][0..4]);
+                            vec = @splat(@bitCast(bg_color));
+                        } else {
+                            @branchHint(.cold);
+                            while (idx < img.len) : (idx += 1) {
+                                img[idx] = @bitCast(bg_color);
+                            }
+                        }
+                    }
+                    
+                    const simd_clear_end = std.time.microTimestamp();
+                    const simd_clear_time = simd_clear_end - simd_clear_start;
+                    app_log.info("SIMD screen clear in {d}us", .{simd_clear_time});
+                }
+                
                 const half_width = @divFloor(width, 2);
                 const half_height = @divFloor(height, 2);
 
