@@ -187,7 +187,7 @@ pub fn trace_ray_vectorized(origin: Vec3f32, direction: Vec3f32, spheres: []cons
     const t_mins = @min(t1s, t2s);
     const t_min = @reduce(.Min, t_mins);
 
-    if (t_min >= max_t) return null;
+    if (t_min >= max_t or t_min <= min_t) return null;
 
     for (0..4) |idx| {
         if (t_mins[idx] == t_min) {
@@ -195,6 +195,70 @@ pub fn trace_ray_vectorized(origin: Vec3f32, direction: Vec3f32, spheres: []cons
         }
     }
     unreachable;
+}
+
+pub fn trace_rays(
+    len: comptime_int,
+    origin: Vec3f32,
+    bg_color: Color,
+    dirx: @Vector(len, f32),
+    diry: @Vector(len, f32),
+    dirz: @Vector(len, f32),
+    spheres: []const Sphere,
+    min_t: f32,
+    max_t: f32,
+) @Vector(len, u32) {
+    const VecF32 = @Vector(len, f32);
+    const VecU32 = @Vector(len, u32);
+
+    const max_ts: VecF32 = @splat(max_t);
+    const min_ts: VecF32 = @splat(min_t);
+    var min_t_vec: VecF32 = @splat(max_t);
+
+    var colors: VecU32 = @splat(@bitCast(bg_color));
+    for (spheres) |sphere| {
+        const ocx: VecF32 = @splat(origin[0] - sphere.center[0]);
+        const ocy: VecF32 = @splat(origin[1] - sphere.center[1]);
+        const ocz: VecF32 = @splat(origin[2] - sphere.center[2]);
+
+        const zeroes: VecF32 = @splat(0);
+        const twos: VecF32 = @splat(2);
+        const fours: VecF32 = @splat(4);
+        const rads: VecF32 = @splat(sphere.radius);
+        const cols: VecU32 = @splat(@bitCast(sphere.color));
+
+        const k1s = (dirx * dirx) + (diry * diry) + (dirz * dirz);
+        const k2s = twos * ((ocx * dirx) + (ocy * diry) + (ocz * dirz));
+        const k3s = ((ocx * ocx) + (ocy * ocy) + (ocz * ocz)) - (rads * rads);
+
+        const discriminants = (k2s * k2s) - (fours * k1s * k3s);
+        const disc_mask = discriminants >= zeroes;
+
+        const disc_sqrts = @sqrt(@select(
+            f32,
+            disc_mask,
+            discriminants,
+            zeroes,
+        ));
+        const denoms = twos * k1s;
+
+        var t1s = (-k2s + disc_sqrts) / denoms;
+        var t2s = (-k2s - disc_sqrts) / denoms;
+
+        const t1s_mask = disc_mask & (t1s >= min_ts) & (t1s <= max_ts);
+        const t2s_mask = disc_mask & (t2s >= min_ts) & (t2s <= max_ts);
+
+        t1s = @select(f32, t1s_mask, t1s, max_ts);
+        t2s = @select(f32, t2s_mask, t2s, max_ts);
+        const t_mins = @min(t1s, t2s);
+
+        const update_mask = (t_mins < min_t_vec) & ((t_mins > min_ts) & (t_mins < max_ts));
+        min_t_vec = @select(f32, update_mask, t_mins, min_t_vec);
+
+        colors = @select(u32, update_mask, cols, colors);
+    }
+
+    return colors;
 }
 
 pub const Vec2f32 = math.Vec2f32;
