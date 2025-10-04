@@ -208,8 +208,10 @@ pub fn main() !void {
 
             // Draw Scene
             {
+                const scene_draw_start = std.time.microTimestamp();
                 const vp_width: f32 = @floatFromInt(vp_size);
                 const vp_height: f32 = @floatFromInt(vp_size);
+
                 const vw: @Vector(simd_width, f32) = @splat(vp_width);
 
                 const half_width = @divFloor(width, 2);
@@ -264,10 +266,8 @@ pub fn main() !void {
                 //     }
                 // }
 
-                const vectorized_draw_start = std.time.microTimestamp();
-
-                const ch: f32 = @floatFromInt(height);
                 const cw: @Vector(simd_width, f32) = @splat(@floatFromInt(width));
+                const ch: f32 = @floatFromInt(height);
                 var y: i32 = 0;
                 while (y < height) : (y += 1) {
                     const yi32: i32 = half_height - y;
@@ -309,7 +309,7 @@ pub fn main() !void {
                             pixels.* = colors;
                         } else {
                             @branchHint(.cold);
-                            // scalar fallback for row remainder
+                            // Scalar fallback
                             while (x < width) : (x += 1) {
                                 const dir = gfx.canvas_to_viewport(
                                     &.{ .width = vp_size, .height = vp_size, .x = 0, .y = 0 },
@@ -334,11 +334,10 @@ pub fn main() !void {
                         }
                     }
                 }
+                const scene_draw_end = std.time.microTimestamp();
+                const scene_draw_time = scene_draw_end - scene_draw_start;
 
-                const vectorized_draw_end = std.time.microTimestamp();
-                const vectorized_draw_time = vectorized_draw_end - vectorized_draw_start;
-
-                app_log.info("scene vector draw time :: {d}us", .{vectorized_draw_time});
+                app_log.info("Scene draw time  :: {d}us", .{scene_draw_time});
             }
 
             const draw_end = std.time.microTimestamp();
