@@ -143,24 +143,18 @@ pub fn main() !void {
     const handle = try Thread.spawn(.{}, event_loop, .{&wayland_state});
     defer handle.join();
 
-    const initial_width = 800;
-    const initial_height = 800;
+    const initial_width = 400;
+    const initial_height = 400;
 
-    var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, initial_width, initial_height);
+    var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, 2560, 1440);
+    try swapchain.resize(initial_width, initial_height);
     try conn.flush();
 
     var frame_idx: usize = 0;
     var red: u8 = 0;
-    var cam_pos: Vec3f32 = @splat(0);
-    var cam_step: f32 = 0.01;
+    const cam_pos: Vec3f32 = @splat(0);
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
-        if (cam_pos[1] > 1 or
-            cam_pos[1] < -1)
-        {
-            cam_step *= -1;
-        }
-        cam_pos[1] += cam_step;
         red = @intCast(frame_idx % 255);
         const frame_time_us = (std.time.us_per_ms * 16); // 16 ms per frame -- 60fps
         const frame_start_us = std.time.microTimestamp();
@@ -209,131 +203,135 @@ pub fn main() !void {
             // Draw Scene
             {
                 const scene_draw_start = std.time.microTimestamp();
-                const vp_width: f32 = @floatFromInt(vp_size);
-                const vp_height: f32 = @floatFromInt(vp_size);
-
-                const vw: @Vector(simd_width, f32) = @splat(vp_width);
 
                 const half_width = @divFloor(width, 2);
                 const half_height = @divFloor(height, 2);
+                var x: i32 = 0;
+                var y: i32 = 0;
 
                 // SCALAR IMPL
-                // var x: i32 = -half_width;
-                // while (x < half_width) : (x += 1) {
-                //     var height_idx: i32 = 0;
-                //     while (height_idx < height) : (height_idx += 1) {
-                //         const y: i32 = @as(i32, @intCast(height_idx)) - half_height;
-                //         const dir = gfx.canvas_to_viewport(
-                //             &.{
-                //                 .width = vp_size,
-                //                 .height = vp_size,
-                //                 .x = 0,
-                //                 .y = 0,
-                //             },
-                //             &.{
-                //                 .width = width,
-                //                 .height = height,
-                //             },
-                //             x,
-                //             y,
-                //             proj_plane_z,
-                //         );
+                x = -half_width;
+                while (x < half_width) : (x += 1) {
+                    var height_idx: i32 = 0;
+                    while (height_idx < height) : (height_idx += 1) {
+                        y = @as(i32, @intCast(height_idx)) - half_height;
+                        const dir = gfx.canvas_to_viewport(
+                            &.{
+                                .width = vp_size,
+                                .height = vp_size,
+                                .x = 0,
+                                .y = 0,
+                            },
+                            &.{
+                                .width = width,
+                                .height = height,
+                            },
+                            x,
+                            y,
+                            proj_plane_z,
+                        );
 
-                //         const col_opt = gfx.trace_ray(
-                //             cam_pos,
-                //             dir,
-                //             &spheres,
-                //             1,
-                //             1000,
-                //         );
+                        const col_opt = gfx.trace_ray(
+                            cam_pos,
+                            dir,
+                            &spheres,
+                            1,
+                            1000,
+                        );
 
-                //         const color = col_opt orelse bg_color;
-                //         const idx: usize = idx: {
-                //             const idx_x = half_width + x;
-                //             const idx_y = half_height - y - 1;
-                //             if (idx_x < 0 or
-                //                 idx_x >= width or
-                //                 idx_y < 0 or
-                //                 idx_y >= height)
-                //             {
-                //                 continue;
-                //             }
-
-                //             break :idx @intCast(idx_y * width + idx_x);
-                //         };
-
-                //         img[idx] = @bitCast(color);
-                //     }
-                // }
-
-                const cw: @Vector(simd_width, f32) = @splat(@floatFromInt(width));
-                const ch: f32 = @floatFromInt(height);
-                var y: i32 = 0;
-                while (y < height) : (y += 1) {
-                    const yi32: i32 = half_height - y;
-                    const yf32: f32 = @floatFromInt(yi32);
-                    const diry: f32 = yf32 * (vp_height / ch);
-
-                    var x: i32 = 0;
-                    while (x < width) {
-                        const remaining = width - x;
-                        if (remaining >= simd_width) {
-                            defer x += simd_width;
-
-                            var xi32s: @Vector(simd_width, i32) = undefined;
-                            inline for (0..simd_width) |i| {
-                                xi32s[i] = x + @as(i32, @intCast(i)) - half_width;
+                        const color = col_opt orelse bg_color;
+                        const idx: usize = idx: {
+                            const idx_x = half_width + x;
+                            const idx_y = half_height - y - 1;
+                            if (idx_x < 0 or
+                                idx_x >= width or
+                                idx_y < 0 or
+                                idx_y >= height)
+                            {
+                                continue;
                             }
-                            const xf32s: @Vector(simd_width, f32) = @floatFromInt(xi32s);
-                            const dirx: @Vector(simd_width, f32) = xf32s * (vw / cw);
-                            const diry_vec: @Vector(simd_width, f32) = @splat(diry);
-                            const dirz: @Vector(simd_width, f32) = @splat(proj_plane_z);
 
-                            const colors = gfx.trace_rays(
-                                simd_width,
-                                cam_pos,
-                                bg_color,
-                                dirx,
-                                diry_vec,
-                                dirz,
-                                &spheres,
-                                1,
-                                1000,
-                            );
+                            break :idx @intCast(idx_y * width + idx_x);
+                        };
 
-                            const pix_start: usize = @intCast(y * width + x);
-                            const pixels = std.mem.bytesAsValue(
-                                @Vector(simd_width, u32),
-                                img[pix_start..][0..simd_width],
-                            );
-                            pixels.* = colors;
-                        } else {
-                            @branchHint(.cold);
-                            // Scalar fallback
-                            while (x < width) : (x += 1) {
-                                const dir = gfx.canvas_to_viewport(
-                                    &.{ .width = vp_size, .height = vp_size, .x = 0, .y = 0 },
-                                    &.{ .width = width, .height = height },
-                                    x,
-                                    y,
-                                    proj_plane_z,
-                                );
-
-                                const col_opt = gfx.trace_ray(
-                                    cam_pos,
-                                    dir,
-                                    &spheres,
-                                    1,
-                                    1000,
-                                );
-
-                                const color = col_opt orelse bg_color;
-                                const pixel_idx: usize = @intCast(y * width + x);
-                                img[pixel_idx] = @bitCast(color);
-                            }
-                        }
+                        img[idx] = @bitCast(color);
                     }
                 }
+
+                // SIMD IMPL
+                _ = simd_width;
+                // const cw: @Vector(simd_width, f32) = @splat(@floatFromInt(width));
+                // const vp_height: f32 = @floatFromInt(vp_size);
+                // const vp_width: f32 = @floatFromInt(vp_size);
+                // const vw: @Vector(simd_width, f32) = @splat(vp_width);
+                // const ch: f32 = @floatFromInt(height);
+                // y = 0;
+                //
+                // while (y < height) : (y += 1) {
+                //     const yi32: i32 = half_height - y;
+                //     const yf32: f32 = @floatFromInt(yi32);
+                //     const diry: f32 = yf32 * (vp_height / ch);
+
+                //     x = 0;
+                //     while (x < width) {
+                //         const remaining = width - x;
+                //         if (remaining >= simd_width) {
+                //             defer x += simd_width;
+
+                //             var xi32s: @Vector(simd_width, i32) = undefined;
+                //             inline for (0..simd_width) |i| {
+                //                 xi32s[i] = x + @as(i32, @intCast(i)) - half_width;
+                //             }
+                //             const xf32s: @Vector(simd_width, f32) = @floatFromInt(xi32s);
+                //             const dirx: @Vector(simd_width, f32) = xf32s * (vw / cw);
+                //             const diry_vec: @Vector(simd_width, f32) = @splat(diry);
+                //             const dirz: @Vector(simd_width, f32) = @splat(proj_plane_z);
+
+                //             const colors = gfx.trace_rays(
+                //                 simd_width,
+                //                 cam_pos,
+                //                 bg_color,
+                //                 dirx,
+                //                 diry_vec,
+                //                 dirz,
+                //                 &spheres,
+                //                 1,
+                //                 1000,
+                //             );
+
+                //             const pix_start: usize = @intCast(y * width + x);
+                //             const pixels = std.mem.bytesAsValue(
+                //                 @Vector(simd_width, u32),
+                //                 img[pix_start..][0..simd_width],
+                //             );
+                //             pixels.* = colors;
+                //         } else {
+                //             @branchHint(.cold);
+                //             // Scalar fallback
+                //             while (x < width) : (x += 1) {
+                //                 const dir = gfx.canvas_to_viewport(
+                //                     &.{ .width = vp_size, .height = vp_size, .x = 0, .y = 0 },
+                //                     &.{ .width = width, .height = height },
+                //                     x,
+                //                     y,
+                //                     proj_plane_z,
+                //                 );
+
+                //                 const col_opt = gfx.trace_ray(
+                //                     cam_pos,
+                //                     dir,
+                //                     &spheres,
+                //                     1,
+                //                     1000,
+                //                 );
+
+                //                 const color = col_opt orelse bg_color;
+                //                 const pixel_idx: usize = @intCast(y * width + x);
+                //                 img[pixel_idx] = @bitCast(color);
+                //             }
+                //         }
+                //     }
+                // }
                 const scene_draw_end = std.time.microTimestamp();
                 const scene_draw_time = scene_draw_end - scene_draw_start;
 

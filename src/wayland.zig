@@ -35,7 +35,7 @@ pub const Connection = struct {
     fd_in_buf_idx: usize = 0,
 
     pub fn open(arena: *Arena) !Connection {
-        const temp = arena.temp();
+        const temp = Thread.scratch_begin(1, .{arena}).?;
         defer temp.end();
         const xdg_runtime_dir = posix.getenv("XDG_RUNTIME_DIR").?;
         const wayland_display = posix.getenv("WAYLAND_DISPLAY").?;
@@ -72,7 +72,7 @@ pub const Connection = struct {
         };
         const display: Protocols.Wayland.Display = .fromInt(1);
 
-        const objects = arena.push(Protocols.Object, 128);
+        const objects = arena.push(Protocols.Object, 256);
         objects[display.toInt()] = display.object();
 
         return .{
