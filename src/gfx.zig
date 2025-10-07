@@ -40,7 +40,22 @@ pub const Canvas = struct {
     height: i32,
 };
 
+pub const Light = struct {
+    kind: Kind,
+    intensity: f32,
+    position: Position,
+    direction: Position,
+
+    pub const Kind = enum(u32) {
+        ambient,
+        point,
+        directional,
+    };
+};
+
 pub const Position = Vec3f32;
+pub const Direction = Vec3f32;
+
 pub const Sphere = struct {
     center: Position,
     radius: f32,
@@ -88,7 +103,7 @@ pub fn intersect_ray_sphere(origin: Position, direction: Vec3f32, sphere: Sphere
     return .{ t1, t2 };
 }
 
-pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, min_t: f32, max_t: f32) ?Color {
+pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, lights: []const Light, min_t: f32, max_t: f32,) ?Color {
     var closest_t: f32 = max_t;
     var closest_sphere: ?Sphere = null;
 
@@ -105,7 +120,47 @@ pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, m
     }
 
     const sphere = closest_sphere orelse return null;
-    return sphere.color;
+    const point = origin + (direction * @as(Vec3f32, @splat(closest_t)));
+    const normal_direction = point - sphere.center;
+    const normal = normal_direction * @as(Vec3f32, @splat(1 / math.mag(normal_direction)));
+
+    const light_intensity = compute_lighting(lights, point, normal);
+
+    const computed_color = .{
+        @as(f32, @floatFromInt(sphere.color.r)) * light_intensity,
+        @as(f32, @floatFromInt(sphere.color.g)) * light_intensity,
+        @as(f32, @floatFromInt(sphere.color.b)) * light_intensity,
+    };
+
+    return .{
+        .r = @intFromFloat(computed_color[0]),
+        .g = @intFromFloat(computed_color[1]),
+        .b = @intFromFloat(computed_color[2]),
+        .a = sphere.color.a,
+    };
+}
+
+pub fn compute_lighting(lights: []const Light, point: Position, normal: Direction) f32 {
+    var intensity: f32 = 0;
+
+    for (lights) |light| switch (light.kind) {
+        .ambient => {
+            intensity += light.intensity;
+        },
+        .point, .directional => {
+            const l_vec = if (light.kind == .point) 
+                light.position - point
+            else
+                light.direction;
+
+            const n_dot_l = math.dot(normal, l_vec);
+
+            if (n_dot_l > 0) {
+                intensity += (light.intensity * n_dot_l / (math.mag(normal) * math.mag(l_vec)));
+            }
+        },
+    };
+    return intensity;
 }
 
 pub fn trace_ray_vectorized(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, min_t: f32, max_t: f32) ?Color {

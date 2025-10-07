@@ -151,11 +151,9 @@ pub fn main() !void {
     try conn.flush();
 
     var frame_idx: usize = 0;
-    var red: u8 = 0;
     const cam_pos: Vec3f32 = @splat(0);
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
-        red = @intCast(frame_idx % 255);
         const frame_time_us = (std.time.us_per_ms * 16); // 16 ms per frame -- 60fps
         const frame_start_us = std.time.microTimestamp();
 
@@ -174,7 +172,7 @@ pub fn main() !void {
             _ = size;
 
             const bg_color: gfx.Color = .{
-                .r = red,
+                .r = 255,
                 .g = 255,
                 .b = 255,
                 .a = 255,
@@ -182,6 +180,11 @@ pub fn main() !void {
 
             const vp_size = 1;
             const proj_plane_z: f32 = 1;
+            const lights: [3]Light = .{
+                .{ .kind = .ambient, .intensity = 0.2, .position = undefined, .direction = undefined },
+                .{ .kind = .point, .intensity = 0.6, .position = .{2, 1, 0}, .direction = undefined },
+                .{ .kind = .directional, .intensity = 0.2, .position = undefined, .direction = .{1, 4, 4} },
+            };
             const spheres: [4]Sphere = .{
                 .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red },
                 .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green },
@@ -235,6 +238,7 @@ pub fn main() !void {
                             cam_pos,
                             dir,
                             &spheres,
+                            &lights,
                             1,
                             1000,
                         );
@@ -556,6 +560,7 @@ const WaylandState = struct {
 const Vec3f32 = gfx.Vec3f32;
 const Position = gfx.Position;
 const Sphere = gfx.Sphere;
+const Light = gfx.Light;
 const Point = @Vector(2, i32);
 
 const Thread = linux.Thread;
