@@ -9,6 +9,9 @@ pub const Color = packed struct(u32) {
     r: u8 = 0,
     a: u8 = 0,
 
+    pub const black: Color = .{
+        .a = 255,
+    };
     pub const red: Color = .{
         .r = 255,
         .a = 255,

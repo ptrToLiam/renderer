@@ -13,6 +13,8 @@ pub fn main() !void {
     Thread.ctx_init();
     const arena: *Arena = .init(.default);
     defer arena.release();
+    const simd_width = std.simd.suggestVectorLength(u32).?;
+
     const app_name = "LmDev-" ++ AppName;
 
     var conn: Wayland.Connection = try .open(arena);
@@ -171,12 +173,7 @@ pub fn main() !void {
             const size = height * stride;
             _ = size;
 
-            const bg_color: gfx.Color = .{
-                .r = 255,
-                .g = 255,
-                .b = 255,
-                .a = 255,
-            };
+            const bg_color: gfx.Color = .black;
 
             const vp_size = 1;
             const proj_plane_z: f32 = 1;
@@ -193,26 +190,16 @@ pub fn main() !void {
             };
 
             const draw_start = std.time.microTimestamp();
-            const simd_width = std.simd.suggestVectorLength(u32).?;
-            // clear bg
-            {
-                const memset_clear_start = std.time.microTimestamp();
-                @memset(img, @bitCast(bg_color));
-                const memset_clear_end = std.time.microTimestamp();
-                const memset_clear_time = memset_clear_end - memset_clear_start;
-                app_log.info("Screen clear time      :: {d}us", .{memset_clear_time});
-            }
+
+            @memset(img, @bitCast(bg_color));
 
             // Draw Scene
             {
-                const scene_draw_start = std.time.microTimestamp();
-
                 const half_width = @divFloor(width, 2);
                 const half_height = @divFloor(height, 2);
                 var x: i32 = 0;
                 var y: i32 = 0;
 
-                // SCALAR IMPL
                 x = -half_width;
                 while (x < half_width) : (x += 1) {
                     var height_idx: i32 = 0;
@@ -336,10 +323,6 @@ pub fn main() !void {
                 //         }
                 //     }
                 // }
-                const scene_draw_end = std.time.microTimestamp();
-                const scene_draw_time = scene_draw_end - scene_draw_start;
-
-                app_log.info("Scene draw time  :: {d}us", .{scene_draw_time});
             }
 
             const draw_end = std.time.microTimestamp();
