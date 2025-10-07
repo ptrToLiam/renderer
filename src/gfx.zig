@@ -59,6 +59,7 @@ pub const Direction = Vec3f32;
 pub const Sphere = struct {
     center: Position,
     radius: f32,
+    specular: f32,
     color: Color,
 };
 
@@ -103,7 +104,14 @@ pub fn intersect_ray_sphere(origin: Position, direction: Vec3f32, sphere: Sphere
     return .{ t1, t2 };
 }
 
-pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, lights: []const Light, min_t: f32, max_t: f32,) ?Color {
+pub fn trace_ray(
+    origin: Vec3f32,
+    direction: Vec3f32,
+    spheres: []const Sphere,
+    lights: []const Light,
+    min_t: f32,
+    max_t: f32,
+) ?Color {
     var closest_t: f32 = max_t;
     var closest_sphere: ?Sphere = null;
 
@@ -124,7 +132,7 @@ pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, l
     const normal_direction = point - sphere.center;
     const normal = normal_direction * @as(Vec3f32, @splat(1 / math.mag(normal_direction)));
 
-    const light_intensity = compute_lighting(lights, point, normal);
+    const light_intensity = compute_lighting(lights, point, normal, -direction, sphere.specular);
 
     const computed_color = .{
         @as(f32, @floatFromInt(sphere.color.r)) * light_intensity,
@@ -133,33 +141,60 @@ pub fn trace_ray(origin: Vec3f32, direction: Vec3f32, spheres: []const Sphere, l
     };
 
     return .{
-        .r = @intFromFloat(computed_color[0]),
-        .g = @intFromFloat(computed_color[1]),
-        .b = @intFromFloat(computed_color[2]),
+        .r = @intFromFloat(@min(@max(0, computed_color[0]), 255)),
+        .g = @intFromFloat(@min(@max(0, computed_color[1]), 255)),
+        .b = @intFromFloat(@min(@max(0, computed_color[2]), 255)),
         .a = sphere.color.a,
     };
 }
 
-pub fn compute_lighting(lights: []const Light, point: Position, normal: Direction) f32 {
+pub fn compute_lighting(
+    lights: []const Light,
+    point: Position,
+    normal: Direction,
+    view: Direction,
+    specular: f32,
+) f32 {
     var intensity: f32 = 0;
+    const mag_norm = math.mag(normal);
+    const mag_view = math.mag(view);
 
     for (lights) |light| switch (light.kind) {
         .ambient => {
             intensity += light.intensity;
         },
         .point, .directional => {
-            const l_vec = if (light.kind == .point) 
+            const l_vec = if (light.kind == .point)
                 light.position - point
             else
                 light.direction;
 
+            // diffuse
             const n_dot_l = math.dot(normal, l_vec);
 
             if (n_dot_l > 0) {
-                intensity += (light.intensity * n_dot_l / (math.mag(normal) * math.mag(l_vec)));
+                intensity += ((light.intensity * n_dot_l) / (mag_norm * math.mag(l_vec)));
+            }
+
+            // specular
+            if (specular != -1) {
+                const two_n_dot_l_vec: Vec3f32 = @splat(2 * n_dot_l);
+                const reflection = (normal * two_n_dot_l_vec) - l_vec;
+
+                const r_dot_v = math.dot(reflection, view);
+                const mag_ref = math.mag(reflection);
+                if (r_dot_v > 0) {
+                    intensity += light.intensity *
+                        math.pow(
+                            f32,
+                            r_dot_v / (mag_ref * mag_view),
+                            specular,
+                        );
+                }
             }
         },
     };
+
     return intensity;
 }
 

@@ -633,6 +633,7 @@ pub const cos = math.cos;
 pub const sin = math.sin;
 pub const tan = math.tan;
 pub const inf = math.inf;
+pub const pow = math.pow;
 pub const sqrt = math.sqrt;
 pub const maxInt = math.maxInt;
 pub const maxFloat = math.floatMax;

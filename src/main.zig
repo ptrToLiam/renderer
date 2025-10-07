@@ -181,15 +181,15 @@ pub fn main() !void {
             const vp_size = 1;
             const proj_plane_z: f32 = 1;
             const lights: [3]Light = .{
-                .{ .kind = .ambient, .intensity = 0.2, .position = undefined, .direction = undefined },
+                .{ .kind = .ambient, .intensity = 0.00, .position = undefined, .direction = undefined },
                 .{ .kind = .point, .intensity = 0.6, .position = .{2, 1, 0}, .direction = undefined },
                 .{ .kind = .directional, .intensity = 0.2, .position = undefined, .direction = .{1, 4, 4} },
             };
             const spheres: [4]Sphere = .{
-                .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red },
-                .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green },
-                .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue },
-                .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow },
+                .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red, .specular = 500 },
+                .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green, .specular = 10  },
+                .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue, .specular = 500  },
+                .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow, .specular = 1000  },
             };
 
             const draw_start = std.time.microTimestamp();
