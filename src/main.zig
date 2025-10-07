@@ -181,7 +181,7 @@ pub fn main() !void {
             const vp_size = 1;
             const proj_plane_z: f32 = 1;
             const lights: [3]Light = .{
-                .{ .kind = .ambient, .intensity = 0.00, .position = undefined, .direction = undefined },
+                .{ .kind = .ambient, .intensity = 0.2, .position = undefined, .direction = undefined },
                 .{ .kind = .point, .intensity = 0.6, .position = .{2, 1, 0}, .direction = undefined },
                 .{ .kind = .directional, .intensity = 0.2, .position = undefined, .direction = .{1, 4, 4} },
             };
