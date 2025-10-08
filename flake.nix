@@ -26,6 +26,9 @@
             vulkan-validation-layers
             zig.packages.${system}."0.15.1"
           ];
+          shellHook = ''
+            LD_LIBRARY_PATH="${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH"
+          '';
         };
       });
     };

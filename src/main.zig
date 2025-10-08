@@ -38,6 +38,10 @@ pub fn main() !void {
                         std.Thread.sleep(std.time.ns_per_us);
                         break :load_loop;
                     },
+                    error.SocketReadFailed => {
+                        std.Thread.sleep(std.time.ns_per_us);
+                        break :load_loop;
+                    },
                     else => return err,
                 }
             };
@@ -150,6 +154,9 @@ pub fn main() !void {
 
     var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, 2560, 1440);
     try swapchain.resize(initial_width, initial_height);
+    defer swapchain.destroy() catch |err| {
+        app_log.err("failed to destroy shm_pool swapchain :: {s}", .{@errorName(err)});
+    };
     try conn.flush();
 
     var frame_idx: usize = 0;
@@ -364,6 +371,7 @@ fn event_loop(noalias wayland_state: *WaylandState) void {
             connection.load_events() catch |err| {
                 switch (err) {
                     error.NoData => {},
+                    error.SocketReadFailed => {},
                     else => {
                         event_log.err("Failed to load Wayland events :: {s}", .{
                             @errorName(err),

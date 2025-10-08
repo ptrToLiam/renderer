@@ -22,6 +22,23 @@ pub fn build(b: *std.Build) void {
         "output name for generated code",
     ) orelse "wayland_protocols.zig";
 
+    const use_llvm = b.option(
+        bool,
+        "use-llvm",
+        "use llvm backend",
+    ) orelse false;
+    const use_lld = b.option(
+        bool,
+        "use-lld",
+        "use lld for linking",
+    ) orelse use_llvm;
+
+    const link_libc = b.option(
+        bool,
+        "link-libc",
+        "link program against libc",
+    ) orelse false;
+
     const math_mod = b.addModule("math", .{
         .root_source_file = b.path("src/math.zig"),
         .target = target,
@@ -73,6 +90,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc =  link_libc,
             .imports = &.{
                 .{ .name = "arena", .module = arena_mod },
                 .{ .name = "math", .module = math_mod },
@@ -80,6 +98,8 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "wayland", .module = wayland_mod },
             },
         }),
+        .use_llvm = use_llvm,
+        .use_lld = use_lld,
     });
 
     b.installArtifact(exe);
