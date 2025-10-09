@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Arena = @import("arena");
 const Xml = @import("xml.zig");
-const linux = @import("linux.zig");
+const linux = @import("linux");
 
 pub fn main() !void {
     Thread.ctx_init();
@@ -229,6 +229,16 @@ pub fn main() !void {
                     "@This()"
                 else
                     try std.fmt.allocPrint(allocator, "@\"{s}\"", .{interface_name});
+
+                const interface_event_t = if (interface.events.count > 0)
+                    try std.fmt.allocPrint(allocator, "{s}Event", .{interface_name})
+                else
+                    null;
+                const interface_enum_t = if (interface.enums.count > 0)
+                    try std.fmt.allocPrint(allocator, "{s}Enum", .{interface_name})
+                else
+                    null;
+
                 try out_contents.writer.print(
                     \\  pub const @"{s}" = enum (u32) {{
                     \\    _,
@@ -392,10 +402,10 @@ pub fn main() !void {
                                             to_pascal(enum_str),
                                         });
                                     } else {
-                                        try out_contents.writer.print("@\"{s}\": {s}@\"{f}\".Enum.@\"{f}\",\n", .{
+                                        try out_contents.writer.print("@\"{s}\": {s}{s}.Enum.@\"{f}\",\n", .{
                                             param.name,
                                             if (param.nullable) "?" else "",
-                                            to_identifier(interface.name),
+                                            interface_enum_t.?,
                                             to_pascal(param_type),
                                         });
                                     }
@@ -538,10 +548,11 @@ pub fn main() !void {
                             \\  
                             \\  
                         , .{
-                            request_idx, 
+                            request_idx,
                             if (request.destructor)
                                 "\nproxy.destroy_object(self.toInt());\n"
-                            else "",
+                            else
+                                "",
                         });
                     }
                 }
@@ -553,14 +564,15 @@ pub fn main() !void {
                 });
                 if (interface.events.count > 0) {
                     var event_node_opt: ?*MessageList.Node = null;
-                    try out_contents.writer.print("    pub const Event = union (enum) {{\n", .{});
+                    try out_contents.writer.print("    pub const {s} = union (enum) {{\n", .{interface_event_t.?});
 
                     // Event Type Declarations
                     event_node_opt = interface.events.first;
                     while (event_node_opt) |event_node| : (event_node_opt = event_node.next) {
                         const event = event_node.val.event;
-                        try out_contents.writer.print("      @\"{s}\": Interface.Event.@\"{f}\",\n", .{
+                        try out_contents.writer.print("      @\"{s}\": {s}.@\"{f}\",\n", .{
                             event.name,
+                            interface_event_t.?,
                             to_pascal(event.name),
                         });
                     }
@@ -709,12 +721,26 @@ pub fn main() !void {
                                             else => |T| T.to_zig_type_string(),
                                         },
                                         .@"enum" => |enum_t| str: {
-                                            const interface_str, const enum_str = blk: {
+                                            const interface_str, const enum_str = {
                                                 if (std.mem.containsAtLeast(u8, enum_t, 1, ".")) {
                                                     var iter = std.mem.splitScalar(u8, enum_t, '.');
-                                                    break :blk .{ iter.next().?, iter.next().? };
+                                                    break :str try std.fmt.allocPrint(
+                                                        allocator,
+                                                        "@\"{f}\".Enum.@\"{f}\"",
+                                                        .{
+                                                            to_identifier(iter.next().?),
+                                                            to_pascal(iter.next().?),
+                                                        },
+                                                    );
                                                 } else {
-                                                    break :blk .{ interface.name, enum_t };
+                                                    break :str try std.fmt.allocPrint(
+                                                        allocator,
+                                                        "{s}.{f}",
+                                                        .{
+                                                            interface_enum_t.?,
+                                                            to_pascal(enum_t),
+                                                        },
+                                                    );
                                                 }
                                             };
                                             break :str try std.fmt.allocPrint(allocator, "@\"{f}\".Enum.@\"{f}\"", .{
@@ -728,10 +754,11 @@ pub fn main() !void {
 
                             try out_contents.writer.print(
                                 \\
-                                \\ pub inline fn fromMsgArgs(msg_args: []MessageArg,) Interface.Event.@"{f}" {{
+                                \\ pub inline fn fromMsgArgs(msg_args: []MessageArg,) {s}.@"{f}" {{
                                 \\   return .{{
                                 \\
                             , .{
+                                interface_event_t.?,
                                 to_pascal(event.name),
                             });
                             arg_node_opt = event.args.first;
@@ -791,7 +818,9 @@ pub fn main() !void {
                     });
                     var enum_node_opt: ?*EnumList.Node = null;
 
-                    try out_contents.writer.print("    pub const Enum = union (enum) {{\n", .{});
+                    try out_contents.writer.print("    pub const {s} = union (enum) {{\n", .{
+                        interface_enum_t.?,
+                    });
                     enum_node_opt = interface.enums.first;
                     while (enum_node_opt) |enum_node| : (enum_node_opt = enum_node.next) {
                         const @"enum" = enum_node.val;
@@ -868,29 +897,43 @@ pub fn main() !void {
                         }
                     }
                     try out_contents.writer.print("\n", .{});
-                    // Write composite `Enum` type
-                    if (debug) log.debug("Writing {f}::{f} Enum Union", .{
-                        capitalize(protocol.name),
-                        capitalize(interface.name),
-                    });
-                    // End Interface Enums
                     try out_contents.writer.print("    }};\n\n", .{});
+                    // End Interface Enums
                 }
 
                 // Begin Interface Enums
 
                 // End Interface
+                const interface_event_t_alias_opt = if (interface.events.count > 0)
+                    try std.fmt.allocPrint(allocator, "pub const Event = {s};", .{interface_event_t.?})
+                else
+                    null;
+                const interface_enum_t_alias_opt = if (interface.enums.count > 0)
+                    try std.fmt.allocPrint(allocator, "pub const Enum = {s};", .{interface_enum_t.?})
+                else
+                    null;
                 try out_contents.writer.print(
                     \\
-                    \\    pub const Interface = @This();
+                    \\    {s}
+                    \\    {s}
                     \\    pub const InterfaceName = "{s}";
                     \\    pub const InterfaceVersion = {s};
                     \\  }};
                     \\
                     \\
-                , .{ interface.name, interface.version });
+                , .{
+                    if (interface_event_t_alias_opt) |interface_event_t_alias|
+                        interface_event_t_alias
+                    else
+                        "",
+                    if (interface_enum_t_alias_opt) |interface_enum_t_alias|
+                        interface_enum_t_alias
+                    else
+                        "",
+                    interface.name,
+                    interface.version,
+                });
             }
-
             // Write end of Protocol
             try out_contents.writer.print("}};\n\n", .{});
         }
@@ -1008,6 +1051,23 @@ pub fn main() !void {
             }
         }
         try out_contents.writer.print("}};\n\n", .{});
+
+        // Interface
+        try out_contents.writer.print("pub const Interface = union (enum(u32)) {{\n", .{});
+        protocol_node_opt = protocols.first;
+        while (protocol_node_opt) |protocol_node| : (protocol_node_opt = protocol_node.next) {
+            const protocol = protocol_node.val;
+            var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
+            while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
+                const interface = interface_node.val;
+                try out_contents.writer.print("  @\"{s}\" = @\"{f}\".@\"{f}\",\n", .{
+                    interface.name,
+                    to_pascal(protocol.name),
+                    to_identifier(interface.name),
+                });
+            }
+        }
+        try out_contents.writer.print("}};\n\n", .{});
     }
 
     // Write interface aliases
@@ -1018,7 +1078,7 @@ pub fn main() !void {
             var interface_node_opt: ?*InterfaceList.Node = protocol.interfaces.first;
             while (interface_node_opt) |interface_node| : (interface_node_opt = interface_node.next) {
                 const interface = interface_node.val;
-                try out_contents.writer.print("const @\"{s}\" = @\"{f}\".@\"{f}\";\n", .{
+                try out_contents.writer.print("pub const @\"{s}\" = @\"{f}\".@\"{f}\";\n", .{
                     interface.name,
                     to_pascal(protocol.name),
                     to_identifier(interface.name),

@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const renderer = @import("renderer");
-const Arena = @import("arena");
 
-const Wayland = @import("wayland.zig");
-const linux = @import("linux.zig");
-const gfx = @import("gfx.zig");
+const Arena = @import("arena");
+const Wayland = @import("wayland");
+const linux = @import("linux");
+const gfx = @import("gfx");
+
+const platform = @import("platform.zig");
 
 const AppName = "Renderer";
 
@@ -17,8 +18,11 @@ pub fn main() !void {
 
     const app_name = "LmDev-" ++ AppName;
 
-    var conn: Wayland.Connection = try .open(arena);
-    defer conn.close();
+    var window: platform.Window(builtin.target.os) = try .create(arena);
+    defer window.destroy();
+    var conn: *Wayland.Connection = @ptrCast(@alignCast(&window.handle));
+    // var conn: Wayland.Connection = try .open(arena);
+    // defer conn.close();
 
     app_log.debug("connection handle :: {d}", .{conn.handle});
     app_log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
@@ -132,7 +136,7 @@ pub fn main() !void {
 
     var wayland_state: WaylandState = .{
         // connection
-        .connection = &conn,
+        .connection = conn,
         .proxy = &proxy,
 
         // globals
@@ -152,7 +156,7 @@ pub fn main() !void {
     const initial_width = 400;
     const initial_height = 400;
 
-    var swapchain: Wayland.ShmImageQueue = try .create(&conn, wl_shm, 2560, 1440);
+    var swapchain: Wayland.ShmImageQueue = try .create(conn, wl_shm, 2560, 1440);
     try swapchain.resize(initial_width, initial_height);
     defer swapchain.destroy() catch |err| {
         app_log.err("failed to destroy shm_pool swapchain :: {s}", .{@errorName(err)});

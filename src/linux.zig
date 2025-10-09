@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const Arena = @import("arena");
 
 pub const Context = struct {

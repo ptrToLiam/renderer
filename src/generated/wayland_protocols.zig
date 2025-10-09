@@ -72,9 +72,9 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Event = union(enum) {
-            @"error": Interface.Event.Error,
-            delete_id: Interface.Event.DeleteId,
+        pub const DisplayEvent = union(enum) {
+            @"error": DisplayEvent.Error,
+            delete_id: DisplayEvent.DeleteId,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -131,7 +131,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Error {
+                ) DisplayEvent.Error {
                     return .{
                         .object_id = msg_args[0].object,
                         .code = msg_args[1].uint,
@@ -151,7 +151,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.DeleteId {
+                ) DisplayEvent.DeleteId {
                     return .{
                         .id = msg_args[0].uint,
                     };
@@ -159,7 +159,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const DisplayEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -174,7 +174,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = DisplayEvent;
+        pub const Enum = DisplayEnum;
         pub const InterfaceName = "wl_display";
         pub const InterfaceVersion = 1;
     };
@@ -263,9 +264,9 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Event = union(enum) {
-            global: Interface.Event.Global,
-            global_remove: Interface.Event.GlobalRemove,
+        pub const RegistryEvent = union(enum) {
+            global: RegistryEvent.Global,
+            global_remove: RegistryEvent.GlobalRemove,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -319,7 +320,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Global {
+                ) RegistryEvent.Global {
                     return .{
                         .name = msg_args[0].uint,
                         .interface = msg_args[1].string,
@@ -342,7 +343,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.GlobalRemove {
+                ) RegistryEvent.GlobalRemove {
                     return .{
                         .name = msg_args[0].uint,
                     };
@@ -350,7 +351,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = RegistryEvent;
+
         pub const InterfaceName = "wl_registry";
         pub const InterfaceVersion = 1;
     };
@@ -390,8 +392,8 @@ pub const Wayland = struct {
             return try Callback.Event.parse(proxy, op, data);
         }
 
-        pub const Event = union(enum) {
-            done: Interface.Event.Done,
+        pub const CallbackEvent = union(enum) {
+            done: CallbackEvent.Done,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -427,7 +429,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Done {
+                ) CallbackEvent.Done {
                     return .{
                         .callback_data = msg_args[0].uint,
                     };
@@ -435,7 +437,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = CallbackEvent;
+
         pub const InterfaceName = "wl_callback";
         pub const InterfaceVersion = 1;
     };
@@ -508,7 +511,6 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Interface = @This();
         pub const InterfaceName = "wl_compositor";
         pub const InterfaceVersion = 6;
     };
@@ -616,7 +618,6 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Interface = @This();
         pub const InterfaceName = "wl_shm_pool";
         pub const InterfaceVersion = 2;
     };
@@ -693,8 +694,8 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            format: Interface.Event.Format,
+        pub const ShmEvent = union(enum) {
+            format: ShmEvent.Format,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -732,11 +733,11 @@ pub const Wayland = struct {
             /// argb8888 and xrgb8888.
             ///
             pub const Format = struct {
-                format: Shm.Enum.Format,
+                format: ShmEnum.Format,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Format {
+                ) ShmEvent.Format {
                     return .{
                         .format = msg_args[0].@"enum".wl_shm.format,
                     };
@@ -744,7 +745,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const ShmEnum = union(enum) {
             @"error": Error,
             format: Format,
 
@@ -889,7 +890,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = ShmEvent;
+        pub const Enum = ShmEnum;
         pub const InterfaceName = "wl_shm";
         pub const InterfaceVersion = 2;
     };
@@ -947,8 +949,8 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            release: Interface.Event.Release,
+        pub const BufferEvent = union(enum) {
+            release: BufferEvent.Release,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -991,7 +993,8 @@ pub const Wayland = struct {
             pub const Release = void;
         };
 
-        pub const Interface = @This();
+        pub const Event = BufferEvent;
+
         pub const InterfaceName = "wl_buffer";
         pub const InterfaceVersion = 1;
     };
@@ -1116,10 +1119,10 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            offer: Interface.Event.Offer,
-            source_actions: Interface.Event.SourceActions,
-            action: Interface.Event.Action,
+        pub const DataOfferEvent = union(enum) {
+            offer: DataOfferEvent.Offer,
+            source_actions: DataOfferEvent.SourceActions,
+            action: DataOfferEvent.Action,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -1186,7 +1189,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Offer {
+                ) DataOfferEvent.Offer {
                     return .{
                         .mime_type = msg_args[0].string,
                     };
@@ -1203,7 +1206,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.SourceActions {
+                ) DataOfferEvent.SourceActions {
                     return .{
                         .source_actions = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
@@ -1245,7 +1248,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Action {
+                ) DataOfferEvent.Action {
                     return .{
                         .dnd_action = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
@@ -1253,7 +1256,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const DataOfferEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -1268,7 +1271,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = DataOfferEvent;
+        pub const Enum = DataOfferEnum;
         pub const InterfaceName = "wl_data_offer";
         pub const InterfaceVersion = 3;
     };
@@ -1357,13 +1361,13 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            target: Interface.Event.Target,
-            send: Interface.Event.Send,
-            cancelled: Interface.Event.Cancelled,
-            dnd_drop_performed: Interface.Event.DndDropPerformed,
-            dnd_finished: Interface.Event.DndFinished,
-            action: Interface.Event.Action,
+        pub const DataSourceEvent = union(enum) {
+            target: DataSourceEvent.Target,
+            send: DataSourceEvent.Send,
+            cancelled: DataSourceEvent.Cancelled,
+            dnd_drop_performed: DataSourceEvent.DndDropPerformed,
+            dnd_finished: DataSourceEvent.DndFinished,
+            action: DataSourceEvent.Action,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -1455,7 +1459,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Target {
+                ) DataSourceEvent.Target {
                     return .{
                         .mime_type = msg_args[0].string,
                     };
@@ -1472,7 +1476,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Send {
+                ) DataSourceEvent.Send {
                     return .{
                         .mime_type = msg_args[0].string,
                         .fd = msg_args[1].fd,
@@ -1544,7 +1548,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Action {
+                ) DataSourceEvent.Action {
                     return .{
                         .dnd_action = msg_args[0].@"enum".wl_data_device_manager.dnd_action,
                     };
@@ -1552,7 +1556,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const DataSourceEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -1565,7 +1569,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = DataSourceEvent;
+        pub const Enum = DataSourceEnum;
         pub const InterfaceName = "wl_data_source";
         pub const InterfaceVersion = 3;
     };
@@ -1658,13 +1663,13 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            data_offer: Interface.Event.DataOffer,
-            enter: Interface.Event.Enter,
-            leave: Interface.Event.Leave,
-            motion: Interface.Event.Motion,
-            drop: Interface.Event.Drop,
-            selection: Interface.Event.Selection,
+        pub const DataDeviceEvent = union(enum) {
+            data_offer: DataDeviceEvent.DataOffer,
+            enter: DataDeviceEvent.Enter,
+            leave: DataDeviceEvent.Leave,
+            motion: DataDeviceEvent.Motion,
+            drop: DataDeviceEvent.Drop,
+            selection: DataDeviceEvent.Selection,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -1763,7 +1768,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.DataOffer {
+                ) DataDeviceEvent.DataOffer {
                     return .{
                         .id = .fromInt(msg_args[0].new_id),
                     };
@@ -1784,7 +1789,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Enter {
+                ) DataDeviceEvent.Enter {
                     return .{
                         .serial = msg_args[0].uint,
                         .surface = .fromInt(msg_args[1].object),
@@ -1813,7 +1818,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Motion {
+                ) DataDeviceEvent.Motion {
                     return .{
                         .time = msg_args[0].uint,
                         .x = msg_args[1].fixed,
@@ -1854,7 +1859,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Selection {
+                ) DataDeviceEvent.Selection {
                     return .{
                         .id = .fromInt(msg_args[0].object),
                     };
@@ -1862,7 +1867,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const DataDeviceEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -1875,7 +1880,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = DataDeviceEvent;
+        pub const Enum = DataDeviceEnum;
         pub const InterfaceName = "wl_data_device";
         pub const InterfaceVersion = 3;
     };
@@ -1962,7 +1968,7 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Enum = union(enum) {
+        pub const DataDeviceManagerEnum = union(enum) {
             dnd_action: DndAction,
 
             pub const DndAction = packed struct(u32) {
@@ -1978,7 +1984,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Enum = DataDeviceManagerEnum;
         pub const InterfaceName = "wl_data_device_manager";
         pub const InterfaceVersion = 3;
     };
@@ -2048,7 +2054,7 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Enum = union(enum) {
+        pub const ShellEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -2060,7 +2066,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Enum = ShellEnum;
         pub const InterfaceName = "wl_shell";
         pub const InterfaceVersion = 1;
     };
@@ -2150,7 +2156,7 @@ pub const Wayland = struct {
             params: struct {
                 seat: wl_seat,
                 serial: u32,
-                edges: ShellSurface.Enum.Resize,
+                edges: ShellSurfaceEnum.Enum.Resize,
             },
         ) !void {
             const request_op = 2;
@@ -2183,7 +2189,7 @@ pub const Wayland = struct {
                 parent: wl_surface,
                 x: i32,
                 y: i32,
-                flags: ShellSurface.Enum.Transient,
+                flags: ShellSurfaceEnum.Enum.Transient,
             },
         ) !void {
             const request_op = 4;
@@ -2208,7 +2214,7 @@ pub const Wayland = struct {
             noalias self: *const ShellSurface,
             noalias proxy: *Proxy,
             params: struct {
-                method: ShellSurface.Enum.FullscreenMethod,
+                method: ShellSurfaceEnum.Enum.FullscreenMethod,
                 framerate: u32,
                 output: ?wl_output,
             },
@@ -2239,7 +2245,7 @@ pub const Wayland = struct {
                 parent: wl_surface,
                 x: i32,
                 y: i32,
-                flags: ShellSurface.Enum.Transient,
+                flags: ShellSurfaceEnum.Enum.Transient,
             },
         ) !void {
             const request_op = 6;
@@ -2316,10 +2322,10 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            ping: Interface.Event.Ping,
-            configure: Interface.Event.Configure,
-            popup_done: Interface.Event.PopupDone,
+        pub const ShellSurfaceEvent = union(enum) {
+            ping: ShellSurfaceEvent.Ping,
+            configure: ShellSurfaceEvent.Configure,
+            popup_done: ShellSurfaceEvent.PopupDone,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -2382,7 +2388,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Ping {
+                ) ShellSurfaceEvent.Ping {
                     return .{
                         .serial = msg_args[0].uint,
                     };
@@ -2404,13 +2410,13 @@ pub const Wayland = struct {
             /// in surface-local coordinates.
             ///
             pub const Configure = struct {
-                edges: ShellSurface.Enum.Resize,
+                edges: ShellSurfaceEnum.Resize,
                 width: i32,
                 height: i32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Configure {
+                ) ShellSurfaceEvent.Configure {
                     return .{
                         .edges = msg_args[0].@"enum".wl_shell_surface.resize,
                         .width = msg_args[1].int,
@@ -2426,7 +2432,7 @@ pub const Wayland = struct {
             pub const PopupDone = void;
         };
 
-        pub const Enum = union(enum) {
+        pub const ShellSurfaceEnum = union(enum) {
             resize: Resize,
             transient: Transient,
             fullscreen_method: FullscreenMethod,
@@ -2469,7 +2475,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = ShellSurfaceEvent;
+        pub const Enum = ShellSurfaceEnum;
         pub const InterfaceName = "wl_shell_surface";
         pub const InterfaceVersion = 1;
     };
@@ -2738,11 +2745,11 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            enter: Interface.Event.Enter,
-            leave: Interface.Event.Leave,
-            preferred_buffer_scale: Interface.Event.PreferredBufferScale,
-            preferred_buffer_transform: Interface.Event.PreferredBufferTransform,
+        pub const SurfaceEvent = union(enum) {
+            enter: SurfaceEvent.Enter,
+            leave: SurfaceEvent.Leave,
+            preferred_buffer_scale: SurfaceEvent.PreferredBufferScale,
+            preferred_buffer_transform: SurfaceEvent.PreferredBufferTransform,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -2818,7 +2825,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Enter {
+                ) SurfaceEvent.Enter {
                     return .{
                         .output = .fromInt(msg_args[0].object),
                     };
@@ -2839,7 +2846,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Leave {
+                ) SurfaceEvent.Leave {
                     return .{
                         .output = .fromInt(msg_args[0].object),
                     };
@@ -2861,7 +2868,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.PreferredBufferScale {
+                ) SurfaceEvent.PreferredBufferScale {
                     return .{
                         .factor = msg_args[0].int,
                     };
@@ -2881,7 +2888,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.PreferredBufferTransform {
+                ) SurfaceEvent.PreferredBufferTransform {
                     return .{
                         .transform = msg_args[0].@"enum".wl_output.transform,
                     };
@@ -2889,7 +2896,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const SurfaceEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -2905,7 +2912,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = SurfaceEvent;
+        pub const Enum = SurfaceEnum;
         pub const InterfaceName = "wl_surface";
         pub const InterfaceVersion = 6;
     };
@@ -2999,9 +3007,9 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            capabilities: Interface.Event.Capabilities,
-            name: Interface.Event.Name,
+        pub const SeatEvent = union(enum) {
+            capabilities: SeatEvent.Capabilities,
+            name: SeatEvent.Name,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -3068,11 +3076,11 @@ pub const Wayland = struct {
             /// keyboard and touch capabilities, respectively.
             ///
             pub const Capabilities = struct {
-                capabilities: Seat.Enum.Capability,
+                capabilities: SeatEnum.Capability,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Capabilities {
+                ) SeatEvent.Capabilities {
                     return .{
                         .capabilities = msg_args[0].@"enum".wl_seat.capability,
                     };
@@ -3097,7 +3105,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Name {
+                ) SeatEvent.Name {
                     return .{
                         .name = msg_args[0].string,
                     };
@@ -3105,7 +3113,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const SeatEnum = union(enum) {
             capability: Capability,
             @"error": Error,
 
@@ -3129,7 +3137,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = SeatEvent;
+        pub const Enum = SeatEnum;
         pub const InterfaceName = "wl_seat";
         pub const InterfaceVersion = 10;
     };
@@ -3205,18 +3214,18 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            enter: Interface.Event.Enter,
-            leave: Interface.Event.Leave,
-            motion: Interface.Event.Motion,
-            button: Interface.Event.Button,
-            axis: Interface.Event.Axis,
-            frame: Interface.Event.Frame,
-            axis_source: Interface.Event.AxisSource,
-            axis_stop: Interface.Event.AxisStop,
-            axis_discrete: Interface.Event.AxisDiscrete,
-            axis_value120: Interface.Event.AxisValue120,
-            axis_relative_direction: Interface.Event.AxisRelativeDirection,
+        pub const PointerEvent = union(enum) {
+            enter: PointerEvent.Enter,
+            leave: PointerEvent.Leave,
+            motion: PointerEvent.Motion,
+            button: PointerEvent.Button,
+            axis: PointerEvent.Axis,
+            frame: PointerEvent.Frame,
+            axis_source: PointerEvent.AxisSource,
+            axis_stop: PointerEvent.AxisStop,
+            axis_discrete: PointerEvent.AxisDiscrete,
+            axis_value120: PointerEvent.AxisValue120,
+            axis_relative_direction: PointerEvent.AxisRelativeDirection,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -3414,7 +3423,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Enter {
+                ) PointerEvent.Enter {
                     return .{
                         .serial = msg_args[0].uint,
                         .surface = .fromInt(msg_args[1].object),
@@ -3435,7 +3444,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Leave {
+                ) PointerEvent.Leave {
                     return .{
                         .serial = msg_args[0].uint,
                         .surface = .fromInt(msg_args[1].object),
@@ -3454,7 +3463,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Motion {
+                ) PointerEvent.Motion {
                     return .{
                         .time = msg_args[0].uint,
                         .surface_x = msg_args[1].fixed,
@@ -3479,11 +3488,11 @@ pub const Wayland = struct {
                 serial: u32,
                 time: u32,
                 button: u32,
-                state: Pointer.Enum.ButtonState,
+                state: PointerEnum.ButtonState,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Button {
+                ) PointerEvent.Button {
                     return .{
                         .serial = msg_args[0].uint,
                         .time = msg_args[1].uint,
@@ -3508,12 +3517,12 @@ pub const Wayland = struct {
             ///
             pub const Axis = struct {
                 time: u32,
-                axis: Pointer.Enum.Axis,
+                axis: PointerEnum.Axis,
                 value: f32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Axis {
+                ) PointerEvent.Axis {
                     return .{
                         .time = msg_args[0].uint,
                         .axis = msg_args[1].@"enum".wl_pointer.axis,
@@ -3577,11 +3586,11 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisSource = struct {
-                axis_source: Pointer.Enum.AxisSource,
+                axis_source: PointerEnum.AxisSource,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.AxisSource {
+                ) PointerEvent.AxisSource {
                     return .{
                         .axis_source = msg_args[0].@"enum".wl_pointer.axis_source,
                     };
@@ -3602,11 +3611,11 @@ pub const Wayland = struct {
             ///
             pub const AxisStop = struct {
                 time: u32,
-                axis: Pointer.Enum.Axis,
+                axis: PointerEnum.Axis,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.AxisStop {
+                ) PointerEvent.AxisStop {
                     return .{
                         .time = msg_args[0].uint,
                         .axis = msg_args[1].@"enum".wl_pointer.axis,
@@ -3639,12 +3648,12 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisDiscrete = struct {
-                axis: Pointer.Enum.Axis,
+                axis: PointerEnum.Axis,
                 discrete: i32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.AxisDiscrete {
+                ) PointerEvent.AxisDiscrete {
                     return .{
                         .axis = msg_args[0].@"enum".wl_pointer.axis,
                         .discrete = msg_args[1].int,
@@ -3670,12 +3679,12 @@ pub const Wayland = struct {
             /// not guaranteed.
             ///
             pub const AxisValue120 = struct {
-                axis: Pointer.Enum.Axis,
+                axis: PointerEnum.Axis,
                 value120: i32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.AxisValue120 {
+                ) PointerEvent.AxisValue120 {
                     return .{
                         .axis = msg_args[0].@"enum".wl_pointer.axis,
                         .value120 = msg_args[1].int,
@@ -3715,12 +3724,12 @@ pub const Wayland = struct {
             /// guaranteed.
             ///
             pub const AxisRelativeDirection = struct {
-                axis: Pointer.Enum.Axis,
-                direction: Pointer.Enum.AxisRelativeDirection,
+                axis: PointerEnum.Axis,
+                direction: PointerEnum.AxisRelativeDirection,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.AxisRelativeDirection {
+                ) PointerEvent.AxisRelativeDirection {
                     return .{
                         .axis = msg_args[0].@"enum".wl_pointer.axis,
                         .direction = msg_args[1].@"enum".wl_pointer.axis_relative_direction,
@@ -3729,7 +3738,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const PointerEnum = union(enum) {
             @"error": Error,
             button_state: ButtonState,
             axis: Axis,
@@ -3783,7 +3792,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = PointerEvent;
+        pub const Enum = PointerEnum;
         pub const InterfaceName = "wl_pointer";
         pub const InterfaceVersion = 10;
     };
@@ -3837,13 +3847,13 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            keymap: Interface.Event.Keymap,
-            enter: Interface.Event.Enter,
-            leave: Interface.Event.Leave,
-            key: Interface.Event.Key,
-            modifiers: Interface.Event.Modifiers,
-            repeat_info: Interface.Event.RepeatInfo,
+        pub const KeyboardEvent = union(enum) {
+            keymap: KeyboardEvent.Keymap,
+            enter: KeyboardEvent.Enter,
+            leave: KeyboardEvent.Leave,
+            key: KeyboardEvent.Key,
+            modifiers: KeyboardEvent.Modifiers,
+            repeat_info: KeyboardEvent.RepeatInfo,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -3955,13 +3965,13 @@ pub const Wayland = struct {
             /// the recipient, as MAP_SHARED may fail.
             ///
             pub const Keymap = struct {
-                format: Keyboard.Enum.KeymapFormat,
+                format: KeyboardEnum.KeymapFormat,
                 fd: std.posix.fd_t,
                 size: u32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Keymap {
+                ) KeyboardEvent.Keymap {
                     return .{
                         .format = msg_args[0].@"enum".wl_keyboard.keymap_format,
                         .fd = msg_args[1].fd,
@@ -3988,7 +3998,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Enter {
+                ) KeyboardEvent.Enter {
                     return .{
                         .serial = msg_args[0].uint,
                         .surface = .fromInt(msg_args[1].object),
@@ -4012,7 +4022,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Leave {
+                ) KeyboardEvent.Leave {
                     return .{
                         .serial = msg_args[0].uint,
                         .surface = .fromInt(msg_args[1].object),
@@ -4044,11 +4054,11 @@ pub const Wayland = struct {
                 serial: u32,
                 time: u32,
                 key: u32,
-                state: Keyboard.Enum.KeyState,
+                state: KeyboardEnum.KeyState,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Key {
+                ) KeyboardEvent.Key {
                     return .{
                         .serial = msg_args[0].uint,
                         .time = msg_args[1].uint,
@@ -4079,7 +4089,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Modifiers {
+                ) KeyboardEvent.Modifiers {
                     return .{
                         .serial = msg_args[0].uint,
                         .mods_depressed = msg_args[1].uint,
@@ -4106,7 +4116,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.RepeatInfo {
+                ) KeyboardEvent.RepeatInfo {
                     return .{
                         .rate = msg_args[0].int,
                         .delay = msg_args[1].int,
@@ -4115,7 +4125,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const KeyboardEnum = union(enum) {
             keymap_format: KeymapFormat,
             key_state: KeyState,
 
@@ -4139,7 +4149,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = KeyboardEvent;
+        pub const Enum = KeyboardEnum;
         pub const InterfaceName = "wl_keyboard";
         pub const InterfaceVersion = 10;
     };
@@ -4191,14 +4202,14 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            down: Interface.Event.Down,
-            up: Interface.Event.Up,
-            motion: Interface.Event.Motion,
-            frame: Interface.Event.Frame,
-            cancel: Interface.Event.Cancel,
-            shape: Interface.Event.Shape,
-            orientation: Interface.Event.Orientation,
+        pub const TouchEvent = union(enum) {
+            down: TouchEvent.Down,
+            up: TouchEvent.Up,
+            motion: TouchEvent.Motion,
+            frame: TouchEvent.Frame,
+            cancel: TouchEvent.Cancel,
+            shape: TouchEvent.Shape,
+            orientation: TouchEvent.Orientation,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -4317,7 +4328,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Down {
+                ) TouchEvent.Down {
                     return .{
                         .serial = msg_args[0].uint,
                         .time = msg_args[1].uint,
@@ -4340,7 +4351,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Up {
+                ) TouchEvent.Up {
                     return .{
                         .serial = msg_args[0].uint,
                         .time = msg_args[1].uint,
@@ -4359,7 +4370,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Motion {
+                ) TouchEvent.Motion {
                     return .{
                         .time = msg_args[0].uint,
                         .id = msg_args[1].int,
@@ -4418,7 +4429,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Shape {
+                ) TouchEvent.Shape {
                     return .{
                         .id = msg_args[0].int,
                         .major = msg_args[1].fixed,
@@ -4453,7 +4464,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Orientation {
+                ) TouchEvent.Orientation {
                     return .{
                         .id = msg_args[0].int,
                         .orientation = msg_args[1].fixed,
@@ -4462,7 +4473,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = TouchEvent;
+
         pub const InterfaceName = "wl_touch";
         pub const InterfaceVersion = 10;
     };
@@ -4513,13 +4525,13 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            geometry: Interface.Event.Geometry,
-            mode: Interface.Event.Mode,
-            done: Interface.Event.Done,
-            scale: Interface.Event.Scale,
-            name: Interface.Event.Name,
-            description: Interface.Event.Description,
+        pub const OutputEvent = union(enum) {
+            geometry: OutputEvent.Geometry,
+            mode: OutputEvent.Mode,
+            done: OutputEvent.Done,
+            scale: OutputEvent.Scale,
+            name: OutputEvent.Name,
+            description: OutputEvent.Description,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -4645,14 +4657,14 @@ pub const Wayland = struct {
                 y: i32,
                 physical_width: i32,
                 physical_height: i32,
-                subpixel: Output.Enum.Subpixel,
+                subpixel: OutputEnum.Subpixel,
                 make: [:0]const u8,
                 model: [:0]const u8,
-                transform: Output.Enum.Transform,
+                transform: OutputEnum.Transform,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Geometry {
+                ) OutputEvent.Geometry {
                     return .{
                         .x = msg_args[0].int,
                         .y = msg_args[1].int,
@@ -4694,14 +4706,14 @@ pub const Wayland = struct {
             /// refresh rate or the size.
             ///
             pub const Mode = struct {
-                flags: Output.Enum.Mode,
+                flags: OutputEnum.Mode,
                 width: i32,
                 height: i32,
                 refresh: i32,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Mode {
+                ) OutputEvent.Mode {
                     return .{
                         .flags = msg_args[0].@"enum".wl_output.mode,
                         .width = msg_args[1].int,
@@ -4740,7 +4752,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Scale {
+                ) OutputEvent.Scale {
                     return .{
                         .factor = msg_args[0].int,
                     };
@@ -4774,7 +4786,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Name {
+                ) OutputEvent.Name {
                     return .{
                         .name = msg_args[0].string,
                     };
@@ -4798,7 +4810,7 @@ pub const Wayland = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Description {
+                ) OutputEvent.Description {
                     return .{
                         .description = msg_args[0].string,
                     };
@@ -4806,7 +4818,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const OutputEnum = union(enum) {
             subpixel: Subpixel,
             transform: Transform,
             mode: Mode,
@@ -4850,7 +4862,8 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = OutputEvent;
+        pub const Enum = OutputEnum;
         pub const InterfaceName = "wl_output";
         pub const InterfaceVersion = 4;
     };
@@ -4949,7 +4962,6 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Interface = @This();
         pub const InterfaceName = "wl_region";
         pub const InterfaceVersion = 1;
     };
@@ -5038,7 +5050,7 @@ pub const Wayland = struct {
             return result;
         }
 
-        pub const Enum = union(enum) {
+        pub const SubcompositorEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -5051,7 +5063,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Enum = SubcompositorEnum;
         pub const InterfaceName = "wl_subcompositor";
         pub const InterfaceVersion = 1;
     };
@@ -5210,7 +5222,7 @@ pub const Wayland = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Enum = union(enum) {
+        pub const SubsurfaceEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -5222,7 +5234,7 @@ pub const Wayland = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Enum = SubsurfaceEnum;
         pub const InterfaceName = "wl_subsurface";
         pub const InterfaceVersion = 1;
     };
@@ -5290,7 +5302,6 @@ pub const Wayland = struct {
             );
         }
 
-        pub const Interface = @This();
         pub const InterfaceName = "wl_fixes";
         pub const InterfaceVersion = 1;
     };
@@ -5398,8 +5409,8 @@ pub const XdgShell = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            ping: Interface.Event.Ping,
+        pub const WmBaseEvent = union(enum) {
+            ping: WmBaseEvent.Ping,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -5445,7 +5456,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Ping {
+                ) WmBaseEvent.Ping {
                     return .{
                         .serial = msg_args[0].uint,
                     };
@@ -5453,7 +5464,7 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const WmBaseEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -5471,7 +5482,8 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = WmBaseEvent;
+        pub const Enum = WmBaseEnum;
         pub const InterfaceName = "xdg_wm_base";
         pub const InterfaceVersion = 6;
     };
@@ -5583,7 +5595,7 @@ pub const XdgShell = struct {
             noalias self: *const Positioner,
             noalias proxy: *Proxy,
             params: struct {
-                anchor: Positioner.Enum.Anchor,
+                anchor: PositionerEnum.Enum.Anchor,
             },
         ) !void {
             const request_op = 3;
@@ -5605,7 +5617,7 @@ pub const XdgShell = struct {
             noalias self: *const Positioner,
             noalias proxy: *Proxy,
             params: struct {
-                gravity: Positioner.Enum.Gravity,
+                gravity: PositionerEnum.Enum.Gravity,
             },
         ) !void {
             const request_op = 4;
@@ -5627,7 +5639,7 @@ pub const XdgShell = struct {
             noalias self: *const Positioner,
             noalias proxy: *Proxy,
             params: struct {
-                constraint_adjustment: Positioner.Enum.ConstraintAdjustment,
+                constraint_adjustment: PositionerEnum.Enum.ConstraintAdjustment,
             },
         ) !void {
             const request_op = 5;
@@ -5709,7 +5721,7 @@ pub const XdgShell = struct {
             );
         }
 
-        pub const Enum = union(enum) {
+        pub const PositionerEnum = union(enum) {
             @"error": Error,
             anchor: Anchor,
             gravity: Gravity,
@@ -5771,7 +5783,7 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Enum = PositionerEnum;
         pub const InterfaceName = "xdg_positioner";
         pub const InterfaceVersion = 6;
     };
@@ -5937,8 +5949,8 @@ pub const XdgShell = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            configure: Interface.Event.Configure,
+        pub const SurfaceEvent = union(enum) {
+            configure: SurfaceEvent.Configure,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -5986,7 +5998,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Configure {
+                ) SurfaceEvent.Configure {
                     return .{
                         .serial = msg_args[0].uint,
                     };
@@ -5994,7 +6006,7 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const SurfaceEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -6011,7 +6023,8 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = SurfaceEvent;
+        pub const Enum = SurfaceEnum;
         pub const InterfaceName = "xdg_surface";
         pub const InterfaceVersion = 6;
     };
@@ -6178,7 +6191,7 @@ pub const XdgShell = struct {
             params: struct {
                 seat: wl_seat,
                 serial: u32,
-                edges: Toplevel.Enum.ResizeEdge,
+                edges: ToplevelEnum.Enum.ResizeEdge,
             },
         ) !void {
             const request_op = 6;
@@ -6280,11 +6293,11 @@ pub const XdgShell = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            configure: Interface.Event.Configure,
-            close: Interface.Event.Close,
-            configure_bounds: Interface.Event.ConfigureBounds,
-            wm_capabilities: Interface.Event.WmCapabilities,
+        pub const ToplevelEvent = union(enum) {
+            configure: ToplevelEvent.Configure,
+            close: ToplevelEvent.Close,
+            configure_bounds: ToplevelEvent.ConfigureBounds,
+            wm_capabilities: ToplevelEvent.WmCapabilities,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -6370,7 +6383,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Configure {
+                ) ToplevelEvent.Configure {
                     return .{
                         .width = msg_args[0].int,
                         .height = msg_args[1].int,
@@ -6408,7 +6421,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.ConfigureBounds {
+                ) ToplevelEvent.ConfigureBounds {
                     return .{
                         .width = msg_args[0].int,
                         .height = msg_args[1].int,
@@ -6438,7 +6451,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.WmCapabilities {
+                ) ToplevelEvent.WmCapabilities {
                     return .{
                         .capabilities = msg_args[0].array,
                     };
@@ -6446,7 +6459,7 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const ToplevelEnum = union(enum) {
             @"error": Error,
             resize_edge: ResizeEdge,
             state: State,
@@ -6506,7 +6519,8 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = ToplevelEvent;
+        pub const Enum = ToplevelEnum;
         pub const InterfaceName = "xdg_toplevel";
         pub const InterfaceVersion = 6;
     };
@@ -6609,10 +6623,10 @@ pub const XdgShell = struct {
             );
         }
 
-        pub const Event = union(enum) {
-            configure: Interface.Event.Configure,
-            popup_done: Interface.Event.PopupDone,
-            repositioned: Interface.Event.Repositioned,
+        pub const PopupEvent = union(enum) {
+            configure: PopupEvent.Configure,
+            popup_done: PopupEvent.PopupDone,
+            repositioned: PopupEvent.Repositioned,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -6683,7 +6697,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Configure {
+                ) PopupEvent.Configure {
                     return .{
                         .x = msg_args[0].int,
                         .y = msg_args[1].int,
@@ -6717,7 +6731,7 @@ pub const XdgShell = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Repositioned {
+                ) PopupEvent.Repositioned {
                     return .{
                         .token = msg_args[0].uint,
                     };
@@ -6725,7 +6739,7 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const PopupEnum = union(enum) {
             @"error": Error,
 
             pub const Error = enum(u32) {
@@ -6737,7 +6751,8 @@ pub const XdgShell = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = PopupEvent;
+        pub const Enum = PopupEnum;
         pub const InterfaceName = "xdg_popup";
         pub const InterfaceVersion = 6;
     };
@@ -6828,7 +6843,6 @@ pub const XdgDecorationUnstableV1 = struct {
             return result;
         }
 
-        pub const Interface = @This();
         pub const InterfaceName = "zxdg_decoration_manager_v1";
         pub const InterfaceVersion = 1;
     };
@@ -6882,7 +6896,7 @@ pub const XdgDecorationUnstableV1 = struct {
             noalias self: *const ToplevelDecorationV1,
             noalias proxy: *Proxy,
             params: struct {
-                mode: ToplevelDecorationV1.Enum.Mode,
+                mode: ToplevelDecorationV1Enum.Enum.Mode,
             },
         ) !void {
             const request_op = 1;
@@ -6906,8 +6920,8 @@ pub const XdgDecorationUnstableV1 = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            configure: Interface.Event.Configure,
+        pub const ToplevelDecorationV1Event = union(enum) {
+            configure: ToplevelDecorationV1Event.Configure,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -6948,11 +6962,11 @@ pub const XdgDecorationUnstableV1 = struct {
             /// obeyed by the client.
             ///
             pub const Configure = struct {
-                mode: ToplevelDecorationV1.Enum.Mode,
+                mode: ToplevelDecorationV1Enum.Mode,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Configure {
+                ) ToplevelDecorationV1Event.Configure {
                     return .{
                         .mode = msg_args[0].@"enum".zxdg_toplevel_decoration_v1.mode,
                     };
@@ -6960,7 +6974,7 @@ pub const XdgDecorationUnstableV1 = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const ToplevelDecorationV1Enum = union(enum) {
             @"error": Error,
             mode: Mode,
 
@@ -6985,7 +6999,8 @@ pub const XdgDecorationUnstableV1 = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = ToplevelDecorationV1Event;
+        pub const Enum = ToplevelDecorationV1Enum;
         pub const InterfaceName = "zxdg_toplevel_decoration_v1";
         pub const InterfaceVersion = 1;
     };
@@ -7136,9 +7151,9 @@ pub const LinuxDmabufV1 = struct {
             return result;
         }
 
-        pub const Event = union(enum) {
-            format: Interface.Event.Format,
-            modifier: Interface.Event.Modifier,
+        pub const LinuxDmabufV1Event = union(enum) {
+            format: LinuxDmabufV1Event.Format,
+            modifier: LinuxDmabufV1Event.Modifier,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -7195,7 +7210,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Format {
+                ) LinuxDmabufV1Event.Format {
                     return .{
                         .format = msg_args[0].uint,
                     };
@@ -7229,7 +7244,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Modifier {
+                ) LinuxDmabufV1Event.Modifier {
                     return .{
                         .format = msg_args[0].uint,
                         .modifier_hi = msg_args[1].uint,
@@ -7239,7 +7254,8 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = LinuxDmabufV1Event;
+
         pub const InterfaceName = "zwp_linux_dmabuf_v1";
         pub const InterfaceVersion = 5;
     };
@@ -7331,7 +7347,7 @@ pub const LinuxDmabufV1 = struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1.Enum.Flags,
+                flags: LinuxBufferParamsV1Enum.Enum.Flags,
             },
         ) !void {
             const request_op = 2;
@@ -7359,7 +7375,7 @@ pub const LinuxDmabufV1 = struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1.Enum.Flags,
+                flags: LinuxBufferParamsV1Enum.Enum.Flags,
             },
         ) !wl_buffer {
             const request_op = 3;
@@ -7385,9 +7401,9 @@ pub const LinuxDmabufV1 = struct {
             return result;
         }
 
-        pub const Event = union(enum) {
-            created: Interface.Event.Created,
-            failed: Interface.Event.Failed,
+        pub const LinuxBufferParamsV1Event = union(enum) {
+            created: LinuxBufferParamsV1Event.Created,
+            failed: LinuxBufferParamsV1Event.Failed,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -7435,7 +7451,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.Created {
+                ) LinuxBufferParamsV1Event.Created {
                     return .{
                         .buffer = .fromInt(msg_args[0].new_id),
                     };
@@ -7451,7 +7467,7 @@ pub const LinuxDmabufV1 = struct {
             pub const Failed = void;
         };
 
-        pub const Enum = union(enum) {
+        pub const LinuxBufferParamsV1Enum = union(enum) {
             @"error": Error,
             flags: Flags,
 
@@ -7482,7 +7498,8 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = LinuxBufferParamsV1Event;
+        pub const Enum = LinuxBufferParamsV1Enum;
         pub const InterfaceName = "zwp_linux_buffer_params_v1";
         pub const InterfaceVersion = 5;
     };
@@ -7548,14 +7565,14 @@ pub const LinuxDmabufV1 = struct {
             try proxy.msg_write(self.toInt(), request_op, &.{});
         }
 
-        pub const Event = union(enum) {
-            done: Interface.Event.Done,
-            format_table: Interface.Event.FormatTable,
-            main_device: Interface.Event.MainDevice,
-            tranche_done: Interface.Event.TrancheDone,
-            tranche_target_device: Interface.Event.TrancheTargetDevice,
-            tranche_formats: Interface.Event.TrancheFormats,
-            tranche_flags: Interface.Event.TrancheFlags,
+        pub const LinuxDmabufFeedbackV1Event = union(enum) {
+            done: LinuxDmabufFeedbackV1Event.Done,
+            format_table: LinuxDmabufFeedbackV1Event.FormatTable,
+            main_device: LinuxDmabufFeedbackV1Event.MainDevice,
+            tranche_done: LinuxDmabufFeedbackV1Event.TrancheDone,
+            tranche_target_device: LinuxDmabufFeedbackV1Event.TrancheTargetDevice,
+            tranche_formats: LinuxDmabufFeedbackV1Event.TrancheFormats,
+            tranche_flags: LinuxDmabufFeedbackV1Event.TrancheFlags,
 
             inline fn parse(
                 proxy: *const Proxy,
@@ -7676,7 +7693,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.FormatTable {
+                ) LinuxDmabufFeedbackV1Event.FormatTable {
                     return .{
                         .fd = msg_args[0].fd,
                         .size = msg_args[1].uint,
@@ -7709,7 +7726,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.MainDevice {
+                ) LinuxDmabufFeedbackV1Event.MainDevice {
                     return .{
                         .device = msg_args[0].array,
                     };
@@ -7750,7 +7767,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.TrancheTargetDevice {
+                ) LinuxDmabufFeedbackV1Event.TrancheTargetDevice {
                     return .{
                         .device = msg_args[0].array,
                     };
@@ -7781,7 +7798,7 @@ pub const LinuxDmabufV1 = struct {
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.TrancheFormats {
+                ) LinuxDmabufFeedbackV1Event.TrancheFormats {
                     return .{
                         .indices = msg_args[0].array,
                     };
@@ -7796,11 +7813,11 @@ pub const LinuxDmabufV1 = struct {
             /// This event is tied to a preference tranche, see the tranche_done event.
             ///
             pub const TrancheFlags = struct {
-                flags: LinuxDmabufFeedbackV1.Enum.TrancheFlags,
+                flags: LinuxDmabufFeedbackV1Enum.TrancheFlags,
 
                 pub inline fn fromMsgArgs(
                     msg_args: []MessageArg,
-                ) Interface.Event.TrancheFlags {
+                ) LinuxDmabufFeedbackV1Event.TrancheFlags {
                     return .{
                         .flags = msg_args[0].@"enum".zwp_linux_dmabuf_feedback_v1.tranche_flags,
                     };
@@ -7808,7 +7825,7 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
-        pub const Enum = union(enum) {
+        pub const LinuxDmabufFeedbackV1Enum = union(enum) {
             tranche_flags: TrancheFlags,
 
             pub const TrancheFlags = packed struct(u32) {
@@ -7821,7 +7838,8 @@ pub const LinuxDmabufV1 = struct {
             };
         };
 
-        pub const Interface = @This();
+        pub const Event = LinuxDmabufFeedbackV1Event;
+        pub const Enum = LinuxDmabufFeedbackV1Enum;
         pub const InterfaceName = "zwp_linux_dmabuf_feedback_v1";
         pub const InterfaceVersion = 5;
     };
@@ -7962,39 +7980,75 @@ pub const Enum = union(enum) {
     zwp_linux_dmabuf_feedback_v1: zwp_linux_dmabuf_feedback_v1.Enum,
 };
 
-const wl_display = Wayland.Display;
-const wl_registry = Wayland.Registry;
-const wl_callback = Wayland.Callback;
-const wl_compositor = Wayland.Compositor;
-const wl_shm_pool = Wayland.ShmPool;
-const wl_shm = Wayland.Shm;
-const wl_buffer = Wayland.Buffer;
-const wl_data_offer = Wayland.DataOffer;
-const wl_data_source = Wayland.DataSource;
-const wl_data_device = Wayland.DataDevice;
-const wl_data_device_manager = Wayland.DataDeviceManager;
-const wl_shell = Wayland.Shell;
-const wl_shell_surface = Wayland.ShellSurface;
-const wl_surface = Wayland.Surface;
-const wl_seat = Wayland.Seat;
-const wl_pointer = Wayland.Pointer;
-const wl_keyboard = Wayland.Keyboard;
-const wl_touch = Wayland.Touch;
-const wl_output = Wayland.Output;
-const wl_region = Wayland.Region;
-const wl_subcompositor = Wayland.Subcompositor;
-const wl_subsurface = Wayland.Subsurface;
-const wl_fixes = Wayland.Fixes;
-const xdg_wm_base = XdgShell.WmBase;
-const xdg_positioner = XdgShell.Positioner;
-const xdg_surface = XdgShell.Surface;
-const xdg_toplevel = XdgShell.Toplevel;
-const xdg_popup = XdgShell.Popup;
-const zxdg_decoration_manager_v1 = XdgDecorationUnstableV1.DecorationManagerV1;
-const zxdg_toplevel_decoration_v1 = XdgDecorationUnstableV1.ToplevelDecorationV1;
-const zwp_linux_dmabuf_v1 = LinuxDmabufV1.LinuxDmabufV1;
-const zwp_linux_buffer_params_v1 = LinuxDmabufV1.LinuxBufferParamsV1;
-const zwp_linux_dmabuf_feedback_v1 = LinuxDmabufV1.LinuxDmabufFeedbackV1;
+pub const Interface = union(enum(u32)) {
+    wl_display = Wayland.Display,
+    wl_registry = Wayland.Registry,
+    wl_callback = Wayland.Callback,
+    wl_compositor = Wayland.Compositor,
+    wl_shm_pool = Wayland.ShmPool,
+    wl_shm = Wayland.Shm,
+    wl_buffer = Wayland.Buffer,
+    wl_data_offer = Wayland.DataOffer,
+    wl_data_source = Wayland.DataSource,
+    wl_data_device = Wayland.DataDevice,
+    wl_data_device_manager = Wayland.DataDeviceManager,
+    wl_shell = Wayland.Shell,
+    wl_shell_surface = Wayland.ShellSurface,
+    wl_surface = Wayland.Surface,
+    wl_seat = Wayland.Seat,
+    wl_pointer = Wayland.Pointer,
+    wl_keyboard = Wayland.Keyboard,
+    wl_touch = Wayland.Touch,
+    wl_output = Wayland.Output,
+    wl_region = Wayland.Region,
+    wl_subcompositor = Wayland.Subcompositor,
+    wl_subsurface = Wayland.Subsurface,
+    wl_fixes = Wayland.Fixes,
+    xdg_wm_base = XdgShell.WmBase,
+    xdg_positioner = XdgShell.Positioner,
+    xdg_surface = XdgShell.Surface,
+    xdg_toplevel = XdgShell.Toplevel,
+    xdg_popup = XdgShell.Popup,
+    zxdg_decoration_manager_v1 = XdgDecorationUnstableV1.DecorationManagerV1,
+    zxdg_toplevel_decoration_v1 = XdgDecorationUnstableV1.ToplevelDecorationV1,
+    zwp_linux_dmabuf_v1 = LinuxDmabufV1.LinuxDmabufV1,
+    zwp_linux_buffer_params_v1 = LinuxDmabufV1.LinuxBufferParamsV1,
+    zwp_linux_dmabuf_feedback_v1 = LinuxDmabufV1.LinuxDmabufFeedbackV1,
+};
+
+pub const wl_display = Wayland.Display;
+pub const wl_registry = Wayland.Registry;
+pub const wl_callback = Wayland.Callback;
+pub const wl_compositor = Wayland.Compositor;
+pub const wl_shm_pool = Wayland.ShmPool;
+pub const wl_shm = Wayland.Shm;
+pub const wl_buffer = Wayland.Buffer;
+pub const wl_data_offer = Wayland.DataOffer;
+pub const wl_data_source = Wayland.DataSource;
+pub const wl_data_device = Wayland.DataDevice;
+pub const wl_data_device_manager = Wayland.DataDeviceManager;
+pub const wl_shell = Wayland.Shell;
+pub const wl_shell_surface = Wayland.ShellSurface;
+pub const wl_surface = Wayland.Surface;
+pub const wl_seat = Wayland.Seat;
+pub const wl_pointer = Wayland.Pointer;
+pub const wl_keyboard = Wayland.Keyboard;
+pub const wl_touch = Wayland.Touch;
+pub const wl_output = Wayland.Output;
+pub const wl_region = Wayland.Region;
+pub const wl_subcompositor = Wayland.Subcompositor;
+pub const wl_subsurface = Wayland.Subsurface;
+pub const wl_fixes = Wayland.Fixes;
+pub const xdg_wm_base = XdgShell.WmBase;
+pub const xdg_positioner = XdgShell.Positioner;
+pub const xdg_surface = XdgShell.Surface;
+pub const xdg_toplevel = XdgShell.Toplevel;
+pub const xdg_popup = XdgShell.Popup;
+pub const zxdg_decoration_manager_v1 = XdgDecorationUnstableV1.DecorationManagerV1;
+pub const zxdg_toplevel_decoration_v1 = XdgDecorationUnstableV1.ToplevelDecorationV1;
+pub const zwp_linux_dmabuf_v1 = LinuxDmabufV1.LinuxDmabufV1;
+pub const zwp_linux_buffer_params_v1 = LinuxDmabufV1.LinuxBufferParamsV1;
+pub const zwp_linux_dmabuf_feedback_v1 = LinuxDmabufV1.LinuxDmabufFeedbackV1;
 
 const log = std.log.scoped(.WaylandProtocols);
 

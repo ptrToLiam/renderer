@@ -59,16 +59,40 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const linux_mod = b.addModule("wayland", .{
+        .root_source_file = b.path("src/linux.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "arena", .module = arena_mod },
+        },
+    });
+
     const vulkan_mod = b.addModule("vulkan", .{
         .root_source_file = b.path("src/generated/vulkan.zig"),
         .target = target,
     });
 
-    const codegen_output_path = b.pathJoin(&.{ codegen_output_dir, codegen_output_name });
-    const wayland_mod = b.addModule("wayland", .{
-        .root_source_file = b.path(codegen_output_path),
+    const gfx_mod = b.addModule("wayland", .{
+        .root_source_file = b.path("src/gfx.zig"),
         .target = target,
+        .imports = &.{
+            .{ .name = "arena", .module = arena_mod },
+            .{ .name = "math", .module = math_mod },
+            .{ .name = "vulkan", .module = vulkan_mod },
+        },
     });
+
+    const wayland_mod = b.addModule("wayland", .{
+        .root_source_file = b.path("src/wayland.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "arena", .module = arena_mod },
+            .{ .name = "linux", .module = linux_mod },
+            .{ .name = "gfx", .module = gfx_mod },
+        },
+    });
+
+    // const codegen_output_path = b.pathJoin(&.{ codegen_output_dir, codegen_output_name });
 
     const codegen_exe = b.addExecutable(.{
         .name = "codegen",
@@ -77,8 +101,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "arena", .module = arena_mod },
                 .{ .name = "math", .module = math_mod },
+                .{ .name = "arena", .module = arena_mod },
+                .{ .name = "linux", .module = linux_mod },
             },
         }),
     });
@@ -95,6 +120,8 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "arena", .module = arena_mod },
                 .{ .name = "math", .module = math_mod },
                 .{ .name = "vulkan", .module = vulkan_mod },
+                .{ .name = "linux", .module = linux_mod },
+                .{ .name = "gfx", .module = gfx_mod },
                 .{ .name = "wayland", .module = wayland_mod },
             },
         }),

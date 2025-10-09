@@ -1,5 +1,9 @@
+const builtin = @import("builtin");
 const std = @import("std");
+
 const math = @import("math");
+const Arena = @import("arena");
+
 pub const Image = []Pixel;
 
 pub const Pixel = u32;

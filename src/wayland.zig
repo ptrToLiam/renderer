@@ -1,9 +1,9 @@
 const std = @import("std");
 const Arena = @import("arena");
+const linux = @import("linux");
+const gfx = @import("gfx");
 
 pub const Protocols = @import("generated/wayland_protocols.zig");
-const linux = @import("linux.zig");
-const gfx = @import("gfx.zig");
 
 pub const WireEvent = struct {
     header: Header,
@@ -100,6 +100,12 @@ pub const Connection = struct {
         };
     }
 
+    pub fn peek_event(conn: *Connection) ?Event {
+        return conn.ev_queue_in.peek();
+    }
+    pub fn pop_event(conn: *Connection) void {
+        return conn.ev_queue_in.pop();
+    }
     pub fn event(conn: *Connection) ?Event {
         return conn.ev_queue_in.next();
     }
@@ -388,6 +394,19 @@ pub const Connection = struct {
             const write_idx = queue.write % queue.buf.len;
             queue.buf[write_idx] = ev;
             queue.write += 1;
+        }
+
+        pub fn pop(noalias queue: *EventQueue) void {
+            queue.read += 1;
+        }
+
+        pub fn peek(noalias queue: *EventQueue) ?Event {
+            if (queue.read != queue.write) {
+                const read_idx = queue.read % queue.buf.len;
+                return queue.buf[read_idx];
+            } else {
+                return null;
+            }
         }
 
         pub fn next(noalias queue: *EventQueue) ?Event {
