@@ -1,8 +1,7 @@
 const std = @import("std");
 
-const Arena = @import("arena");
+const base = @import("base");
 const Xml = @import("xml.zig");
-const linux = @import("linux");
 
 pub fn main() !void {
     Thread.ctx_init();
@@ -10,7 +9,7 @@ pub fn main() !void {
     const xml_arena: *Arena = .init(.default);
 
     defer {
-        Thread.ctx_deinit();
+        Thread.ctx_release();
         program_arena.release();
         xml_arena.release();
     }
@@ -1374,5 +1373,6 @@ const ArgList = List(Arg);
 const EnumList = List(EnumOrBitfield);
 const EntryList = List(Entry);
 
-const Thread = linux.Thread;
+const Thread = base.Thread;
+const Arena = base.Arena;
 const log = std.log.scoped(.wl_codegen);

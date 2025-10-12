@@ -1,9 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const Arena = @import("arena");
 const Wayland = @import("wayland");
-const linux = @import("linux");
+const base = @import("base");
 const gfx = @import("gfx");
 
 const platform = @import("platform.zig");
@@ -558,7 +557,9 @@ const Sphere = gfx.Sphere;
 const Light = gfx.Light;
 const Point = @Vector(2, i32);
 
-const Thread = linux.Thread;
+const Thread = base.Thread;
+const Arena = base.Arena;
+
 const app_log = std.log.scoped(.App);
 const event_log = std.log.scoped(.EventThread);
 

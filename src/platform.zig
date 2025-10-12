@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const Arena = @import("arena");
+const base = @import("base");
 const wayland = @import("wayland");
 const linux = @import("linux");
 
@@ -42,3 +42,4 @@ pub fn Window(comptime Target: std.Target.Os) type {
     };
 }
 
+const Arena = base.Arena;

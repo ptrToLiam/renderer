@@ -2,7 +2,8 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const math = @import("math");
+
+const math = @import("math.zig");
 
 pub const Arena = @This();
 

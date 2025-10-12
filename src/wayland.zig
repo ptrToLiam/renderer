@@ -1,5 +1,6 @@
 const std = @import("std");
-const Arena = @import("arena");
+
+const base = @import("base");
 const linux = @import("linux");
 const gfx = @import("gfx");
 
@@ -35,7 +36,7 @@ pub const Connection = struct {
     fd_in_buf_idx: usize = 0,
 
     pub fn open(arena: *Arena) !Connection {
-        const temp = Thread.scratch_begin(1, .{arena}).?;
+        const temp = Thread.Context.get_scratch(1, .{arena}).?;
         defer temp.end();
         const xdg_runtime_dir = posix.getenv("XDG_RUNTIME_DIR").?;
         const wayland_display = posix.getenv("WAYLAND_DISPLAY").?;
@@ -709,8 +710,7 @@ pub const ShmImageQueue = struct {
 };
 
 pub const Event = Protocols.Event;
-const Thread = linux.Thread;
-const scratch_begin = Thread.scratch_begin;
+const scratch_begin = Thread.Context.get_scratch;
 
 const posix = std.posix;
 // Begin Tests
@@ -759,5 +759,8 @@ test "Proxied Event Parse" {
         else => {},
     }
 }
+
+const Arena = base.Arena;
+const Thread = base.Thread;
 
 const testing = std.testing;

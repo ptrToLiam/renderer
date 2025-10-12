@@ -1,8 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const math = @import("math");
-const Arena = @import("arena");
+const base = @import("base");
 
 pub const Image = []Pixel;
 
@@ -360,3 +359,6 @@ pub fn trace_rays(
 
 pub const Vec2f32 = math.Vec2f32;
 pub const Vec3f32 = math.Vec3f32;
+
+const math = base.math;
+const Arena = base.Arena;

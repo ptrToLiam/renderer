@@ -39,11 +39,6 @@ pub fn build(b: *std.Build) void {
         "link program against libc",
     ) orelse false;
 
-    const math_mod = b.addModule("math", .{
-        .root_source_file = b.path("src/math.zig"),
-        .target = target,
-    });
-
     const wayland_protocols = &.{
         b.pathFromRoot("protocols/wayland/wayland.xml"),
         b.pathFromRoot("protocols/wayland/xdg-shell.xml"),
@@ -51,20 +46,14 @@ pub fn build(b: *std.Build) void {
         b.pathFromRoot("protocols/wayland/linux-dmabuf-v1.xml"),
     };
 
-    const arena_mod = b.addModule("arena", .{
-        .root_source_file = b.path("src/Arena.zig"),
-        .target = target,
-        .imports = &.{
-            .{ .name = "math", .module = math_mod },
-        },
-    });
-
     const linux_mod = b.addModule("wayland", .{
         .root_source_file = b.path("src/linux.zig"),
         .target = target,
-        .imports = &.{
-            .{ .name = "arena", .module = arena_mod },
-        },
+    });
+
+    const base_mod = b.addModule("base", .{
+        .root_source_file = b.path("src/base/base.zig"),
+        .target = target,
     });
 
     const vulkan_mod = b.addModule("vulkan", .{
@@ -76,8 +65,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/gfx.zig"),
         .target = target,
         .imports = &.{
-            .{ .name = "arena", .module = arena_mod },
-            .{ .name = "math", .module = math_mod },
+            .{ .name = "base", .module = base_mod },
             .{ .name = "vulkan", .module = vulkan_mod },
         },
     });
@@ -86,7 +74,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/wayland.zig"),
         .target = target,
         .imports = &.{
-            .{ .name = "arena", .module = arena_mod },
+            .{ .name = "base", .module = base_mod },
             .{ .name = "linux", .module = linux_mod },
             .{ .name = "gfx", .module = gfx_mod },
         },
@@ -101,9 +89,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "math", .module = math_mod },
-                .{ .name = "arena", .module = arena_mod },
-                .{ .name = "linux", .module = linux_mod },
+                .{ .name = "base", .module = base_mod },
             },
         }),
     });
@@ -117,8 +103,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc =  link_libc,
             .imports = &.{
-                .{ .name = "arena", .module = arena_mod },
-                .{ .name = "math", .module = math_mod },
+                .{ .name = "base", .module = base_mod },
                 .{ .name = "vulkan", .module = vulkan_mod },
                 .{ .name = "linux", .module = linux_mod },
                 .{ .name = "gfx", .module = gfx_mod },
@@ -130,6 +115,24 @@ pub fn build(b: *std.Build) void {
     });
 
     b.installArtifact(exe);
+    const exe2 = b.addExecutable(.{
+        .name = "renderer",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/app_entry.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc =  link_libc,
+            .imports = &.{
+                .{ .name = "base", .module = base_mod },
+                .{ .name = "linux", .module = linux_mod },
+                .{ .name = "gfx", .module = gfx_mod },
+                .{ .name = "wayland", .module = wayland_mod },
+            },
+        }),
+        .use_llvm = use_llvm,
+        .use_lld = use_lld,
+    });
+    b.installArtifact(exe2);
 
     const codegen_step = b.step("codegen", "Run codegen");
     const codegen_cmd = b.addRunArtifact(codegen_exe);

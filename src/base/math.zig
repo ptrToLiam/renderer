@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const builtin = @import("builtin");
 const cpu_arch = builtin.cpu.arch;
 const has_avx = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx) else false;
