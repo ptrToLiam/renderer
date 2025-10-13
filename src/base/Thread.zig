@@ -157,6 +157,7 @@ const Impl = struct {
     };
 };
 
+const log = std.log.scoped(.Thread);
 
 // File Imports
 const Arena = @import("Arena.zig");

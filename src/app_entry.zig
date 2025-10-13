@@ -160,22 +160,22 @@ pub fn main() !void {
 
     const thread_count = 8;
 
-    var app_threads: [8]Thread = undefined;
-    var thread_lctxs: [8]Thread.LaneContext = undefined;
+    var app_threads = arena.push(Thread, thread_count);
+    var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
     var barrier: Thread.Barrier = .init(thread_count);
 
     for (0..thread_count) |idx| {
-        thread_lctxs[idx] = .{
+        app_thread_lctxs[idx] = .{
             .lane_idx = idx,
             .lane_count = thread_count,
             .barrier = &barrier,
         };
-        app_threads[idx] = try .launch(app_thread_entry, &thread_lctxs[idx]);
+        app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
         app_log.debug("Launched app thread#{d} with LaneContext :: {{ .lane_idx={d}, .lane_count={d}, .barrier=0x{d} }}", .{
             idx,
-            thread_lctxs[idx].lane_idx,
-            thread_lctxs[idx].lane_count,
-            @intFromPtr(thread_lctxs[idx].barrier),
+            app_thread_lctxs[idx].lane_idx,
+            app_thread_lctxs[idx].lane_count,
+            @intFromPtr(app_thread_lctxs[idx].barrier),
         });
     }
 
@@ -196,7 +196,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
     const bg_color: gfx.Color = .black;
     const vp_size = 1;
     const proj_plane_z: f32 = 1;
-    var cam_pos: Vec3f32 = @splat(0);
+    const cam_pos: Vec3f32 = @splat(0);
     const lights: [3]Light = .{
         .{ .kind = .ambient, .intensity = 0.2, .position = undefined, .direction = undefined },
         .{ .kind = .point, .intensity = 0.6, .position = .{ 2, 1, 0 }, .direction = undefined },
@@ -209,16 +209,12 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
         .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow, .specular = 1000 },
     };
 
-    var step: f32 = 0.5;
     while (true) {
         const target_ms = 32;
         const target_us = target_ms * std.time.us_per_ms;
         const frame_start_us = std.time.microTimestamp();
-        cam_pos[1] += step;
-        if (cam_pos[1] >= 1 or cam_pos[1] <= -1)
-            step = -step;
-
         if (Thread.lane_idx() == 0) {
+            app_state.frame_idx += 1;
             var attempts: u16 = 0;
             while (attempts < 5) : (attempts += 1) {
                 connection.load_events() catch |err| {
@@ -242,6 +238,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                     });
                 };
             }
+
             if (app_state.swapchain.next_img()) |img| {
                 cur_img = img;
             }
@@ -258,9 +255,10 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
             const rng = Thread.lane_range(img.len);
 
             for (rng.min..rng.max) |idx| {
+                if (idx > img.len) break;
                 const idxi32: i32 = @intCast(idx);
                 const x: i32 = @mod(idxi32, width) - half_width;
-                const y: i32 = half_height - @divFloor(idxi32, width);
+                const y: i32 = half_height - @divFloor(idxi32, width) - 1;
                 const dir = gfx.canvas_to_viewport(
                     &.{
                         .width = vp_size,
@@ -294,7 +292,6 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
         Thread.lane_sync();
 
         if (Thread.lane_idx() == 0) {
-            defer app_state.frame_idx += 1;
             const wl_surface = app_state.wayland_state.wl_surface;
             const proxy = app_state.wayland_state.proxy;
             wl_surface.attach(proxy, .{
@@ -323,8 +320,6 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                 @divFloor(std.time.us_per_s, frame_time_us),
             });
         }
-
-
     }
     app_log.info("App thread #{d} exiting", .{Thread.lane_idx()});
 }
