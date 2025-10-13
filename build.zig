@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
     const exe2 = b.addExecutable(.{
-        .name = "renderer",
+        .name = "renderer2",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/app_entry.zig"),
             .target = target,

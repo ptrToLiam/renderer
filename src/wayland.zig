@@ -209,6 +209,12 @@ pub const Connection = struct {
 
                 if (header.len > event_bytes.len) {
                     log.debug("Not enough space for data", .{});
+                    log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
+                        header.id,
+                        header.op,
+                        header.len,
+                    });
+                    log.debug("Bytes Read :: {d}", .{bytes_read});
                     break;
                 } else {
                     const parsed_event = try conn.objects[header.id].parse_msg(

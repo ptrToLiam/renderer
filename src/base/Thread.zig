@@ -29,12 +29,26 @@ pub inline fn ctx_release() void {
     tctx.release();
 }
 
+pub inline fn lane_ctx(lctx: LaneContext) void {
+    std.log.debug("setting tctx.lane_ctx to :: {any}", .{lctx});
+    tctx.lane_ctx = lctx;
+}
 pub inline fn lane_idx() u64 {
     return tctx.lane_ctx.lane_idx;
 }
 
 pub inline fn lane_count() u64 {
     return tctx.lane_ctx.lane_count;
+}
+
+pub fn lane_range(count: u64) struct { min: u64, max: u64 } {
+    const per_lane = count / lane_count();
+    const leftovers = count % lane_count();
+    const has_leftover = lane_idx() < leftovers;
+    const before = if (has_leftover) lane_idx() else leftovers;
+    const min = per_lane * lane_idx() + before;
+    const max = min + per_lane + @intFromBool(has_leftover);
+    return .{ .min = min, .max = max };
 }
 
 pub inline fn lane_sync() void {
@@ -131,11 +145,11 @@ const Impl = struct {
             const gen = barrier.generation.load(.monotonic);
             if (barrier.counter.fetchAdd(1, .release) + 1 == barrier.expected) {
                 barrier.generation.store(gen + 1, .release);
-                Futex.wait(&barrier.counter.raw, barrier.expected);
+                Futex.wake(&barrier.counter, barrier.expected);
                 barrier.counter.store(0, .monotonic);
             } else {
                 while (barrier.generation.load(.acquire) == gen) {
-                    Futex.wait(&barrier.counter.raw, barrier.expected - 1);
+                    Futex.wait(&barrier.counter, barrier.expected - 1);
                 }
             }
         }

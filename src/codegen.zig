@@ -418,6 +418,7 @@ pub fn main() !void {
                             \\  {s}
                             \\  {s}
                             \\
+                            // \\  std.log.debug("Writing msg from {{s}} (id={{d}})", .{{@typeName(@TypeOf(self.*)), @intFromEnum(self.*)}});
                             \\  try proxy.msg_write(self.toInt(), request_op, &.{{
                             \\
                         , .{
