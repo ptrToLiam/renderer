@@ -1,11 +1,3 @@
-const std = @import("std");
-
-const builtin = @import("builtin");
-const cpu_arch = builtin.cpu.arch;
-const has_avx = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx) else false;
-const has_avx512f = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f) else false;
-const has_fma = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .fma) else false;
-
 pub const Units = struct {
     pub inline fn KB(val: anytype) @TypeOf(val) {
         comptime {
@@ -641,4 +633,14 @@ pub const maxFloat = math.floatMax;
 pub const degToRad = math.degreesToRadians;
 pub const radToDeg = math.radiansToDegrees;
 
-const log = std.log.scoped(.MATH);
+const log = std.log.scoped(.Math);
+
+const cpu_arch = builtin.cpu.arch;
+const has_avx = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx) else false;
+const has_avx512f = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f) else false;
+const has_fma = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .fma) else false;
+
+
+// 3rd-Party Imports
+const std = @import("std");
+const builtin = @import("builtin");

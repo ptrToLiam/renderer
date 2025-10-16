@@ -1,10 +1,8 @@
 const AppName = "Renderer";
 
 var app_state: AppState = undefined;
-pub fn main() !void {
-    Thread.ctx_init();
-    defer Thread.ctx_release();
 
+pub fn app_main_entry() !void {
     const app_name = "LmDev-" ++ AppName;
     const arena: *Arena = .init(.default);
     defer arena.release();

@@ -48,6 +48,9 @@ pub inline fn lane_count() u64 {
     return tctx.lane_ctx.lane_count;
 }
 
+pub inline fn get_cpu_count() u64 {
+}
+
 pub fn lane_range(count: u64) struct { min: u64, max: u64 } {
     const per_lane = count / lane_count();
     const leftovers = count % lane_count();
@@ -186,13 +189,14 @@ const Impl = struct {
     const TargetOs = builtin.target.os;
 };
 
+const linux = os.linux;
 const log = std.log.scoped(.Thread);
 
 // File Imports
 const Arena = @import("Arena.zig");
 
 // Internal Module Imports
-const linux = @import("linux");
+const os = @import("os");
 
 // 3rd-Party Module Imports
 const builtin = @import("builtin");

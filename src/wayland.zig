@@ -1,11 +1,3 @@
-const std = @import("std");
-
-const base = @import("base");
-const linux = @import("linux");
-const gfx = @import("gfx");
-
-pub const Protocols = @import("generated/wayland_protocols.zig");
-
 pub const WireEvent = struct {
     header: Header,
     data: []const u8,
@@ -770,3 +762,15 @@ const Arena = base.Arena;
 const Thread = base.Thread;
 
 const testing = std.testing;
+
+pub const Protocols = @import("generated/wayland_protocols.zig");
+
+const linux = os.linux;
+const os = @import("os");
+const gfx = @import("gfx");
+const base = @import("base");
+
+
+const std = @import("std");
+
+

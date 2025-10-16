@@ -46,8 +46,8 @@ pub fn build(b: *std.Build) void {
         b.pathFromRoot("protocols/wayland/linux-dmabuf-v1.xml"),
     };
 
-    const linux_mod = b.addModule("wayland", .{
-        .root_source_file = b.path("src/linux.zig"),
+    const os_mod = b.addModule("wayland", .{
+        .root_source_file = b.path("src/os/os.zig"),
         .target = target,
     });
 
@@ -55,7 +55,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/base/base.zig"),
         .target = target,
         .imports = &.{
-            .{ .name = "linux", .module = linux_mod },
+            .{ .name = "os", .module = os_mod },
         },
     });
 
@@ -78,7 +78,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .imports = &.{
             .{ .name = "base", .module = base_mod },
-            .{ .name = "linux", .module = linux_mod },
+            .{ .name = "os", .module = os_mod },
             .{ .name = "gfx", .module = gfx_mod },
         },
     });
@@ -107,8 +107,7 @@ pub fn build(b: *std.Build) void {
             .link_libc =  link_libc,
             .imports = &.{
                 .{ .name = "base", .module = base_mod },
-                .{ .name = "vulkan", .module = vulkan_mod },
-                .{ .name = "linux", .module = linux_mod },
+                .{ .name = "os", .module = os_mod },
                 .{ .name = "gfx", .module = gfx_mod },
                 .{ .name = "wayland", .module = wayland_mod },
             },
@@ -116,26 +115,7 @@ pub fn build(b: *std.Build) void {
         .use_llvm = use_llvm,
         .use_lld = use_lld,
     });
-
     b.installArtifact(exe);
-    const exe2 = b.addExecutable(.{
-        .name = "renderer2",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/app_entry.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc =  link_libc,
-            .imports = &.{
-                .{ .name = "base", .module = base_mod },
-                .{ .name = "linux", .module = linux_mod },
-                .{ .name = "gfx", .module = gfx_mod },
-                .{ .name = "wayland", .module = wayland_mod },
-            },
-        }),
-        .use_llvm = use_llvm,
-        .use_lld = use_lld,
-    });
-    b.installArtifact(exe2);
 
     const codegen_step = b.step("codegen", "Run codegen");
     const codegen_cmd = b.addRunArtifact(codegen_exe);

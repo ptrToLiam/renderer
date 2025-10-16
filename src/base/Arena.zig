@@ -1,58 +1,4 @@
 // Copyright (c) Liam Malone. All rights reserved.
-
-const std = @import("std");
-const builtin = @import("builtin");
-
-const math = @import("math.zig");
-
-pub const Arena = @This();
-
-pub const Flags = packed struct {
-    no_chain: bool,
-    large_pages: bool,
-
-    pub const default: @This() = .{
-        .no_chain = false,
-        .large_pages = false,
-    };
-
-    pub const largepage: @This() = .{
-        .no_chain = false,
-        .large_pages = true,
-    };
-
-    pub const nochain: @This() = .{
-        .no_chain = true,
-        .large_pages = false,
-    };
-
-    pub const large_nochain: @This() = .{
-        .no_chain = true,
-        .large_pages = true,
-    };
-};
-
-pub const InitParams = struct {
-    flags: Flags,
-    reserve_size: usize,
-    commit_size: usize,
-    backing_buffer: ?[]align(std.heap.page_size_min) u8,
-
-    pub const default: @This() = .{
-        .flags = .default,
-        .reserve_size = std.heap.page_size_min,
-        .commit_size = std.heap.page_size_min,
-        .backing_buffer = null,
-    };
-
-    pub const large_pages: @This() = .{
-        .flags = .largepage,
-        .reserve_size = math.Units.MB(2),
-        .commit_size = math.Units.MB(2),
-        .backing_buffer = null,
-    };
-};
-
 prev: ?*Arena,
 cur: *Arena,
 flags: Flags,
@@ -270,35 +216,12 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
 }
 
 fn mem_reserve(size: usize) ?[]align(std.heap.page_size_min) u8 {
-    const windows = std.os.windows;
-    const ptr = switch (builtin.os.tag) {
-        .linux, .macos => posix.mmap(
-            null,
-            size,
-            posix.PROT.NONE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        ),
-        .windows => windows.VirtualAlloc(
-            null,
-            size,
-            windows.MEM_RESERVE,
-            windows.PAGE_READWRITE,
-        ),
-
-        else => @compileError("Unusupported platform"),
-    } catch |err| ptr: {
-        log.err("Failed to reserve memory with err :: {s}", .{@errorName(err)});
-        break :ptr null;
-    };
-
-    return @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(ptr)))[0..size];
+    return os.mem_reserve(size);
 }
 
 fn mem_commit(ptr: []align(std.heap.page_size_min) u8) bool {
     const windows = std.os.windows;
-    switch (builtin.os.tag) {
+    switch (TargetOs.tag) {
         .linux, .macos => {
             posix.mprotect(ptr, posix.PROT.READ | posix.PROT.WRITE) catch |err| {
                 log.err("Memory commit error :: {s}", .{@errorName(err)});
@@ -321,7 +244,7 @@ fn mem_commit(ptr: []align(std.heap.page_size_min) u8) bool {
 
 fn mem_decommit(ptr: []align(std.heap.page_size_min) const u8) void {
     const windows = std.os.windows;
-    switch (builtin.os.tag) {
+    switch (TargetOs.tag) {
         .linux, .macos => {
             posix.madvise(ptr, ptr.len, posix.MADV.DONTNEED);
             posix.mprotect(ptr, posix.PROT.NONE);
@@ -335,7 +258,7 @@ fn mem_decommit(ptr: []align(std.heap.page_size_min) const u8) void {
 
 fn mem_release(ptr: []align(std.heap.page_size_min) const u8) void {
     const windows = std.os.windows;
-    switch (builtin.os.tag) {
+    switch (TargetOs.tag) {
         .linux, .macos => {
             posix.munmap(ptr);
         },
@@ -346,7 +269,7 @@ fn mem_release(ptr: []align(std.heap.page_size_min) const u8) void {
 
 fn mem_reserve_large(size: usize) ?[]align(std.heap.page_size_min) u8 {
     const windows = std.os.windows;
-    const ptr = switch (builtin.os.tag) {
+    const ptr = switch (TargetOs.tag) {
         .linux => posix.mmap(
             null,
             size,
@@ -387,7 +310,7 @@ fn mem_reserve_large(size: usize) ?[]align(std.heap.page_size_min) u8 {
 
 fn mem_commit_large(ptr: []align(std.heap.page_size_min) u8) bool {
     const windows = std.os.windows;
-    switch (builtin.os.tag) {
+    switch (TargetOs.tag) {
         .linux, .macos => {
             posix.mprotect(ptr, posix.PROT.READ | posix.PROT.WRITE) catch |err| {
                 log.err("Memory commit error :: {s}", .{@errorName(err)});
@@ -408,7 +331,64 @@ fn mem_commit_large(ptr: []align(std.heap.page_size_min) u8) bool {
     return true;
 }
 
+pub const Temp = packed struct {
+    arena: *Arena,
+    pos: usize,
+
+    pub fn end(tmp: *const Temp) void {
+        tmp.arena.pop_to(tmp.pos);
+    }
+};
+
+pub const Flags = packed struct {
+    no_chain: bool,
+    large_pages: bool,
+
+    pub const default: @This() = .{
+        .no_chain = false,
+        .large_pages = false,
+    };
+
+    pub const largepage: @This() = .{
+        .no_chain = false,
+        .large_pages = true,
+    };
+
+    pub const nochain: @This() = .{
+        .no_chain = true,
+        .large_pages = false,
+    };
+
+    pub const large_nochain: @This() = .{
+        .no_chain = true,
+        .large_pages = true,
+    };
+};
+
+pub const InitParams = struct {
+    flags: Flags,
+    reserve_size: usize,
+    commit_size: usize,
+    backing_buffer: ?[]align(std.heap.page_size_min) u8,
+
+    pub const default: @This() = .{
+        .flags = .default,
+        .reserve_size = std.heap.page_size_min,
+        .commit_size = std.heap.page_size_min,
+        .backing_buffer = null,
+    };
+
+    pub const large_pages: @This() = .{
+        .flags = .largepage,
+        .reserve_size = math.Units.MB(2),
+        .commit_size = math.Units.MB(2),
+        .backing_buffer = null,
+    };
+};
+
+//-----------------------------------------------------------------------------
 // Zig Allocator Interface Implementation
+//-----------------------------------------------------------------------------
 pub fn allocator(arena: *Arena) std.mem.Allocator {
     return .{
         .ptr = @ptrCast(arena),
@@ -449,15 +429,6 @@ fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: mem.Alignment, new_len: us
     }
 }
 
-pub const Temp = packed struct {
-    arena: *Arena,
-    pos: usize,
-
-    pub fn end(tmp: *const Temp) void {
-        tmp.arena.pop_to(tmp.pos);
-    }
-};
-
 fn remap(
     context: *anyopaque,
     memory: []u8,
@@ -476,6 +447,7 @@ fn free(ctx: *anyopaque, buf: []u8, pow2_buf_align: mem.Alignment, ret_addr: usi
     // TODO: Implement a free list in arena
     _ = buf;
 }
+//-----------------------------------------------------------------------------
 
 test "Normal Page Size" {
     const arena: *Arena = .init(.default);
@@ -557,10 +529,24 @@ test "Temp Arena" {
     try std.testing.expect(start_pos == end_pos);
 }
 
-pub fn align_pow2(x: usize, b: usize) usize {
+pub inline fn align_pow2(x: usize, b: usize) usize {
     return @as(usize, (@as(usize, (x + b - 1)) & (~@as(usize, (b - 1)))));
 }
+
+pub const Arena = @This();
 
 const log = std.log.scoped(.Arena);
 const mem = std.mem;
 const posix = std.posix;
+
+const TargetOs = builtin.target.os;
+
+// File Imports
+const math = @import("math.zig");
+
+// Internal Module Imports
+const os = @import("os");
+
+// 3rd-Party Module Imports
+const std = @import("std");
+const builtin = @import("builtin");

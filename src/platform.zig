@@ -1,10 +1,3 @@
-const builtin = @import("builtin");
-const std = @import("std");
-
-const base = @import("base");
-const wayland = @import("wayland");
-const linux = @import("linux");
-
 pub fn Window(comptime Target: std.Target.Os) type {
     const handle_t, const software_swapchain_t = target_types: switch (Target.tag) {
         .linux => {
@@ -42,4 +35,13 @@ pub fn Window(comptime Target: std.Target.Os) type {
     };
 }
 
+const linux = os.linux;
 const Arena = base.Arena;
+
+const os = @import("os");
+const base = @import("base");
+const wayland = @import("wayland");
+
+
+const std = @import("std");
+const builtin = @import("builtin");

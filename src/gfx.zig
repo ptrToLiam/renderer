@@ -1,8 +1,3 @@
-const builtin = @import("builtin");
-const std = @import("std");
-
-const base = @import("base");
-
 pub const Image = []Pixel;
 
 pub const Pixel = u32;
@@ -336,6 +331,7 @@ pub fn trace_rays(
             discriminants,
             zeroes,
         ));
+
         const denoms = twos * k1s;
 
         var t1s = (-k2s + disc_sqrts) / denoms;
@@ -362,3 +358,10 @@ pub const Vec3f32 = math.Vec3f32;
 
 const math = base.math;
 const Arena = base.Arena;
+
+// Internal Modules Imports
+const base = @import("base");
+
+// 3rd-Party Module Imports
+const std = @import("std");
+const builtin = @import("builtin");

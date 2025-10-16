@@ -1,3 +1,42 @@
+// Memory Allocation API Surface
+
+pub inline fn mem_reserve(size: usize) []align(page_size_min) u8 {
+    const rc = mmap(
+        null,
+        size,
+        PROT.NONE,
+        .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
+        -1,
+        0,
+    );
+
+    // intentional crash on failed alloc
+    if (builtin.link_libc) {
+        if (rc == std.c.MAP_FAILED) unreachable;
+    } else {
+        if (errno(rc) != .SUCCESS) unreachable;
+    }
+
+    const ptr: [*]align(page_size_min) u8 = @ptrFromInt(rc);
+    return ptr[0..size];
+
+}
+
+pub inline fn mem_commit() bool {
+    return false;
+}
+pub inline fn mem_decommit() void {
+}
+pub inline fn mem_release() void {
+}
+
+pub inline fn mem_reserve_large() []align(page_size_min) u8 {
+    return &.{};
+}
+pub inline fn mem_commit_large() bool {
+    return false;
+}
+
 /// Create container type for control messages
 pub fn cmsg(comptime T: type) type {
     const msg_len = cmsghdr.msg_len(@sizeOf(T));
@@ -125,14 +164,22 @@ pub const cmsghdr = packed struct {
 // Syscall aliases
 pub const recvmsg = std.os.linux.recvmsg;
 pub const prctl = std.os.linux.prctl;
+pub const mmap = std.os.linux.mmap;
+pub const munmap = std.os.linux.munmap;
+pub const madvise = std.os.linux.madvise;
+pub const mprotect = std.os.linux.mprotect;
+pub const errno = std.posix.errno;
 
 // Constant/Namespace aliases
 pub const MSG = std.os.linux.MSG;
 pub const PR = std.os.linux.PR;
+pub const PROT = std.os.linux.PROT;
+pub const MAP = std.os.linux.MAP;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
 
+const page_size_min = std.heap.page_size_min;
 // 3rd-Party Module Imports
 const builtin = @import("builtin");
 const std = @import("std");

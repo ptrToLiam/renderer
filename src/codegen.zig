@@ -1,8 +1,3 @@
-const std = @import("std");
-
-const base = @import("base");
-const Xml = @import("xml.zig");
-
 pub fn main() !void {
     Thread.ctx_init();
     const program_arena: *Arena = .init(.default);
@@ -1377,3 +1372,12 @@ const EntryList = List(Entry);
 const Thread = base.Thread;
 const Arena = base.Arena;
 const log = std.log.scoped(.wl_codegen);
+
+// File Imports
+const Xml = @import("xml.zig");
+
+// Internal Module Imports
+const base = @import("base");
+
+// 3rd-Party Module Imports
+const std = @import("std");
