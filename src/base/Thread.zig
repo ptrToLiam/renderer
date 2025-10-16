@@ -11,15 +11,23 @@ pub fn join(thread: *const Thread) void {
     thread.handle.join();
 }
 
-// pub inline fn set_name(name: []const u8) void {
-//     const this = std.Thread.getCpuCount
-//     thread.handle.setName(name) catch |err| {
-//         std.log.err("failed to set thread name ({s}) :: {s}", .{
-//             name,
-//             @errorName(err),
-//         });
-//     };
-// }
+pub inline fn set_name(name: []const u8) void {
+    @memcpy(tctx.name[0..name.len], name);
+    tctx.name_len = name.len;
+
+    Impl.set_name(name);
+}
+
+pub inline fn set_namef(fmt: []const u8, args: anytype) void {
+    const N = Impl.ThreadNameLength;
+    var buf: [N]u8 = undefined;
+    const name = std.fmt.bufPrint(buf[0..], fmt, args) catch unreachable;
+    set_name(name);
+}
+
+pub inline fn get_name() []const u8 {
+    return tctx.name[0..tctx.name_len];
+}
 
 pub inline fn ctx_init() void {
     tctx = .init();
@@ -59,8 +67,8 @@ pub const sleep = Impl.sleep;
 pub const Context = struct {
     arenas: [2]*Arena,
 
-    name: [32]u8,
-    name_len: u64,
+    name: [32]u8 = @splat(0),
+    name_len: u64 = 0,
 
     lane_ctx: LaneContext,
 
@@ -129,6 +137,15 @@ const Impl = struct {
         std.Thread.sleep(ns);
     }
 
+    pub fn set_name(name: []const u8) void {
+        switch (TargetOs.tag) {
+            .linux => {
+                _ = linux.prctl(@intFromEnum(linux.PR.SET_NAME), @intFromPtr(name.ptr), 0, 0, 0);
+            },
+            else => @compileError("Thread::set_name unsupported target -- " ++ @tagName(TargetOs.tag)),
+        }
+    }
+
     pub const Handle = std.Thread;
 
     pub const Barrier = struct {
@@ -144,7 +161,7 @@ const Impl = struct {
             const gen = @atomicLoad(u32, &barrier.generation.raw, .acquire);
             const old_counter = @atomicRmw(u32, &barrier.counter.raw, .Add, 1, .acq_rel);
 
-            if (old_counter + 1 >= barrier.expected) {
+            if (old_counter + 1 == barrier.expected) {
                 @atomicStore(u32, &barrier.generation.raw, gen+1, .release);
                 @atomicStore(u32, &barrier.counter.raw, 0, .release);
                 Futex.wake(&barrier.counter, barrier.expected);
@@ -161,6 +178,12 @@ const Impl = struct {
 
         const Futex = std.Thread.Futex;
     };
+
+    pub const ThreadNameLength = switch (TargetOs.tag) {
+        .linux => 15,
+        else => @compileError("Thread::set_name unsupported target -- " ++ @tagName(TargetOs.tag)),
+    };
+    const TargetOs = builtin.target.os;
 };
 
 const log = std.log.scoped(.Thread);

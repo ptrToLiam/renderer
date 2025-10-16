@@ -122,8 +122,14 @@ pub const cmsghdr = packed struct {
     const Size = @sizeOf(@This());
 };
 
+// Syscall aliases
 pub const recvmsg = std.os.linux.recvmsg;
+pub const prctl = std.os.linux.prctl;
+
+// Constant/Namespace aliases
 pub const MSG = std.os.linux.MSG;
+pub const PR = std.os.linux.PR;
+
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
 

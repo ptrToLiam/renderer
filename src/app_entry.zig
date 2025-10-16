@@ -142,9 +142,6 @@ pub fn main() !void {
         .xdg_toplevel = xdg_toplevel,
     };
 
-    // const wl_event_thread_handle = try Thread.launch(event_loop, &wayland_state);
-    // defer wl_event_thread_handle.join();
-
     app_state.wayland_state = &wayland_state;
 
     const initial_width = 400;
@@ -158,12 +155,13 @@ pub fn main() !void {
 
     app_state.swapchain = swapchain;
 
-    const thread_count = 8;
+    const thread_count = std.Thread.getCpuCount() catch 1;
+    app_log.info("available thread count :: {d}", .{thread_count});
 
     var app_threads = arena.push(Thread, thread_count);
     var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
     const barrier: *Thread.Barrier = arena.create(Thread.Barrier);
-    barrier.* = .init(thread_count);
+    barrier.* = .init(@intCast(thread_count));
 
     for (0..thread_count) |idx| {
         app_thread_lctxs[idx] = .{
@@ -191,6 +189,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
     defer Thread.ctx_release();
 
     Thread.lane_ctx(lctx.*);
+    Thread.set_namef("app_lane_{d}", .{Thread.lane_idx()});
 
     const connection = app_state.wayland_state.connection;
 
@@ -330,7 +329,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
             });
         }
     }
-    app_log.info("App thread #{d} exiting", .{Thread.lane_idx()});
+    app_log.info("{s} exiting", .{Thread.get_name()});
 }
 
 fn event_loop(noalias wayland_state: *WaylandState) void {

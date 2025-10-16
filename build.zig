@@ -54,6 +54,9 @@ pub fn build(b: *std.Build) void {
     const base_mod = b.addModule("base", .{
         .root_source_file = b.path("src/base/base.zig"),
         .target = target,
+        .imports = &.{
+            .{ .name = "linux", .module = linux_mod },
+        },
     });
 
     const vulkan_mod = b.addModule("vulkan", .{
