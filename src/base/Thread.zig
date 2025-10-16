@@ -30,7 +30,6 @@ pub inline fn ctx_release() void {
 }
 
 pub inline fn lane_ctx(lctx: LaneContext) void {
-    std.log.debug("setting tctx.lane_ctx to :: {any}", .{lctx});
     tctx.lane_ctx = lctx;
 }
 pub inline fn lane_idx() u64 {
@@ -142,28 +141,20 @@ const Impl = struct {
         }
 
         pub fn wait(barrier: *Impl.Barrier) void {
-            const gen = barrier.generation.load(.acquire);
-            const old_counter = barrier.counter.fetchAdd(1, .release);
-            if (old_counter + 1 == barrier.expected) {
-                const ts = std.time.nanoTimestamp();
-                log.info("timestamp: {d}ns -- lane#{d} waking all", .{
-                    ts,
-                    lane_idx(),
-                });
-                barrier.generation.store(gen + 1, .seq_cst);
-                Futex.wake(&barrier.counter, barrier.expected);
-                barrier.counter.store(0, .release);
-            } else {
-                while (barrier.generation.load(.seq_cst) == gen) {
-                    const ts = std.time.nanoTimestamp();
-                    log.info("timestamp: {d}ns -- lane#{d} waiting -- (gen={d}, counter={d})", .{
-                        ts,
-                        lane_idx(),
-                        gen,
-                        barrier.counter.load(.acquire),
-                    });
+            const gen = @atomicLoad(u32, &barrier.generation.raw, .acquire);
+            const old_counter = @atomicRmw(u32, &barrier.counter.raw, .Add, 1, .acq_rel);
 
-                    Futex.wait(&barrier.counter, barrier.expected - 1);
+            if (old_counter + 1 >= barrier.expected) {
+                @atomicStore(u32, &barrier.generation.raw, gen+1, .release);
+                @atomicStore(u32, &barrier.counter.raw, 0, .release);
+                Futex.wake(&barrier.counter, barrier.expected);
+            } else {
+                var generation_current: u32 = gen;
+                generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
+
+                while (generation_current == gen) {
+                    generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
+                    Futex.wait(&barrier.counter, barrier.expected);
                 }
             }
         }

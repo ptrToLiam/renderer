@@ -250,9 +250,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
             }
         }
 
-        app_log.info("lane#{d} -- pre-draw sync reached", .{Thread.lane_idx()});
         Thread.lane_sync();
-        app_log.info("lane#{d} -- pre-draw sync complete", .{Thread.lane_idx()});
 
         if (app_state.should_close) {
             break;
