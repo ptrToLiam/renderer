@@ -105,7 +105,7 @@ pub const Context = struct {
                 }
             }
         }
-    
+
         return result;
     }
 };
@@ -142,17 +142,32 @@ const Impl = struct {
         }
 
         pub fn wait(barrier: *Impl.Barrier) void {
-            const gen = barrier.generation.load(.monotonic);
-            if (barrier.counter.fetchAdd(1, .release) + 1 == barrier.expected) {
-                barrier.generation.store(gen + 1, .release);
+            const gen = barrier.generation.load(.acquire);
+            const old_counter = barrier.counter.fetchAdd(1, .release);
+            if (old_counter + 1 == barrier.expected) {
+                const ts = std.time.nanoTimestamp();
+                log.info("timestamp: {d}ns -- lane#{d} waking all", .{
+                    ts,
+                    lane_idx(),
+                });
+                barrier.generation.store(gen + 1, .seq_cst);
                 Futex.wake(&barrier.counter, barrier.expected);
-                barrier.counter.store(0, .monotonic);
+                barrier.counter.store(0, .release);
             } else {
-                while (barrier.generation.load(.acquire) == gen) {
+                while (barrier.generation.load(.seq_cst) == gen) {
+                    const ts = std.time.nanoTimestamp();
+                    log.info("timestamp: {d}ns -- lane#{d} waiting -- (gen={d}, counter={d})", .{
+                        ts,
+                        lane_idx(),
+                        gen,
+                        barrier.counter.load(.acquire),
+                    });
+
                     Futex.wait(&barrier.counter, barrier.expected - 1);
                 }
             }
         }
+
         const Futex = std.Thread.Futex;
     };
 };

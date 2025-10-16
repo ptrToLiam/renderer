@@ -162,17 +162,11 @@ pub fn main() !void {
     try conn.flush();
 
     var frame_idx: usize = 0;
-    var cam_pos: Vec3f32 = @splat(0);
-
-    var step: f32 = 0.5;
+    const cam_pos: Vec3f32 = @splat(0);
 
     while (!wayland_state.should_close) : (frame_idx += 1) {
         const frame_time_us = (std.time.us_per_ms * 16); // 16 ms per frame -- 60fps
         const frame_start_us = std.time.microTimestamp();
-
-        cam_pos[1] += step;
-        if (cam_pos[1] >= 2 or cam_pos[1] <= -2)
-            step = -step;
 
         if (new_swapchain) |new_sc| if (new_sc.width != swapchain.width or
             new_sc.height != swapchain.height)

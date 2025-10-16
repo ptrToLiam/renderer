@@ -162,13 +162,14 @@ pub fn main() !void {
 
     var app_threads = arena.push(Thread, thread_count);
     var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
-    var barrier: Thread.Barrier = .init(thread_count);
+    const barrier: *Thread.Barrier = arena.create(Thread.Barrier);
+    barrier.* = .init(thread_count);
 
     for (0..thread_count) |idx| {
         app_thread_lctxs[idx] = .{
             .lane_idx = idx,
             .lane_count = thread_count,
-            .barrier = &barrier,
+            .barrier = barrier,
         };
         app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
         app_log.debug("Launched app thread#{d} with LaneContext :: {{ .lane_idx={d}, .lane_count={d}, .barrier=0x{d} }}", .{
@@ -210,6 +211,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
     };
 
     while (true) {
+        Thread.lane_sync();
         const target_ms = 32;
         const target_us = target_ms * std.time.us_per_ms;
         const frame_start_us = std.time.microTimestamp();
@@ -238,14 +240,23 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                     });
                 };
             }
+            app_state.wayland_state.connection.flush() catch |err| {
+                std.log.err("Events Flush Failed :: {s}", .{@errorName(err)});
+                app_state.should_close = true;
+            };
 
             if (app_state.swapchain.next_img()) |img| {
                 cur_img = img;
             }
         }
 
+        app_log.info("lane#{d} -- pre-draw sync reached", .{Thread.lane_idx()});
         Thread.lane_sync();
-        if (app_state.should_close) break;
+        app_log.info("lane#{d} -- pre-draw sync complete", .{Thread.lane_idx()});
+
+        if (app_state.should_close) {
+            break;
+        }
 
         const width = app_state.swapchain.width;
         const height = app_state.swapchain.height;
