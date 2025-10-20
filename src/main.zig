@@ -1,6 +1,6 @@
 pub fn main() !void {
     Thread.ctx_init();
-    Thread.set_name("app_main_thread");
+    Thread.set_name("LmRenderer");
 
     try entry.app_main_entry();
 
