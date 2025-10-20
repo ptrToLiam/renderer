@@ -209,7 +209,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
 
     while (true) {
         Thread.lane_sync();
-        const target_ms = 32;
+        const target_ms = 64;
         const target_us = target_ms * std.time.us_per_ms;
         const frame_start_us = std.time.microTimestamp();
         if (Thread.lane_idx() == 0) {
@@ -293,9 +293,12 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                 const color = col_opt orelse bg_color;
                 img[idx] = @bitCast(color);
             }
+
         }
 
         Thread.lane_sync();
+        const frame_end_us = std.time.microTimestamp();
+        const frame_time_us = frame_end_us - frame_start_us;
 
         if (Thread.lane_idx() == 0) {
             const wl_surface = app_state.wayland_state.wl_surface;
@@ -318,13 +321,14 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                 });
                 app_state.should_close = true;
             };
-            const frame_end_us = std.time.microTimestamp();
-            const frame_time_us = frame_end_us - frame_start_us;
-            _ = target_us;
             app_log.info("frame time :: {d}us -- ({d} FPS)", .{
                 frame_time_us,
                 @divFloor(std.time.us_per_s, frame_time_us),
             });
+        }
+        if (frame_time_us < target_us) {
+            const diff = target_us - frame_time_us;
+            Thread.sleep(@intCast(diff * std.time.ns_per_us));
         }
     }
     app_log.info("{s} exiting", .{Thread.get_name()});

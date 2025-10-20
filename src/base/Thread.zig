@@ -175,6 +175,7 @@ const Impl = struct {
                 while (generation_current == gen) {
                     generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
                     Futex.wait(&barrier.counter, barrier.expected);
+                    std.Thread.yield() catch unreachable;
                 }
             }
         }

@@ -105,14 +105,13 @@ pub fn intersect_ray_sphere(origin: Position, direction: Vec3f32, sphere: Sphere
     return .{ t1, t2 };
 }
 
-pub fn trace_ray(
+pub fn closest_intersection(
     origin: Vec3f32,
-    direction: Vec3f32,
+    direction: Direction,
     spheres: []const Sphere,
-    lights: []const Light,
     min_t: f32,
     max_t: f32,
-) ?Color {
+) struct { ?Sphere, f32 } {
     var closest_t: f32 = max_t;
     var closest_sphere: ?Sphere = null;
 
@@ -128,12 +127,31 @@ pub fn trace_ray(
         }
     }
 
+    return .{ closest_sphere, closest_t };
+}
+
+pub fn trace_ray(
+    origin: Vec3f32,
+    direction: Vec3f32,
+    spheres: []const Sphere,
+    lights: []const Light,
+    min_t: f32,
+    max_t: f32,
+) ?Color {
+    const closest_sphere, const closest_t = closest_intersection(
+        origin,
+        direction,
+        spheres,
+        min_t,
+        max_t,
+    );
     const sphere = closest_sphere orelse return null;
+
     const point = origin + (direction * @as(Vec3f32, @splat(closest_t)));
     const normal_direction = point - sphere.center;
     const normal = normal_direction * @as(Vec3f32, @splat(1 / math.mag(normal_direction)));
 
-    const light_intensity = compute_lighting(lights, point, normal, -direction, sphere.specular);
+    const light_intensity = compute_lighting(lights, spheres, point, normal, -direction, max_t, sphere.specular);
 
     const computed_color = .{
         @as(f32, @floatFromInt(sphere.color.r)) * light_intensity,
@@ -151,9 +169,11 @@ pub fn trace_ray(
 
 pub fn compute_lighting(
     lights: []const Light,
+    spheres: []const Sphere,
     point: Position,
     normal: Direction,
     view: Direction,
+    max_t: f32,
     specular: f32,
 ) f32 {
     var intensity: f32 = 0;
@@ -169,6 +189,10 @@ pub fn compute_lighting(
                 light.position - point
             else
                 light.direction;
+
+             // Shadow check
+            const shadow_sphere, _ = closest_intersection(point, l_vec, spheres, 0.001, max_t);
+            if (shadow_sphere != null) continue;
 
             // diffuse
             const n_dot_l = math.dot(normal, l_vec);
