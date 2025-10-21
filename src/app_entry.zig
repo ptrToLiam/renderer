@@ -168,12 +168,6 @@ pub fn app_main_entry() !void {
             .barrier = barrier,
         };
         app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
-        app_log.debug("Launched app thread#{d} with LaneContext :: {{ .lane_idx={d}, .lane_count={d}, .barrier=0x{d} }}", .{
-            idx,
-            app_thread_lctxs[idx].lane_idx,
-            app_thread_lctxs[idx].lane_count,
-            @intFromPtr(app_thread_lctxs[idx].barrier),
-        });
     }
 
     for (app_threads) |app_thread| {
@@ -201,10 +195,10 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
         .{ .kind = .directional, .intensity = 0.2, .position = undefined, .direction = .{ 1, 4, 4 } },
     };
     const spheres: [4]Sphere = .{
-        .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red, .specular = 500 },
-        .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green, .specular = 10 },
-        .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue, .specular = 500 },
-        .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow, .specular = 1000 },
+        .{ .center = .{ 0, -1, 4 }, .radius = 1, .color = .red, .specular = 500, .reflective = 0.2 },
+        .{ .center = .{ 2, 0, 4 }, .radius = 1, .color = .blue, .specular = 500, .reflective = 0.3 },
+        .{ .center = .{ -2, 0, 4 }, .radius = 1, .color = .green, .specular = 10, .reflective = 0.4 },
+        .{ .center = .{ 0, -5001, 0 }, .radius = 5000, .color = .yellow, .specular = 1000, .reflective = 0.5 },
     };
 
     while (true) {
@@ -260,6 +254,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
         if (cur_img) |img| {
             const rng = Thread.lane_range(img.len);
 
+            @memset(img[rng.min..rng.max], @bitCast(bg_color));
             for (rng.min..rng.max) |idx| {
                 if (idx > img.len) break;
                 const idxi32: i32 = @intCast(idx);
@@ -288,6 +283,7 @@ fn app_thread_entry(lctx: *Thread.LaneContext) void {
                     &lights,
                     1,
                     1000,
+                    1,
                 );
 
                 const color = col_opt orelse bg_color;

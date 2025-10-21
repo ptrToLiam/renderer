@@ -61,6 +61,7 @@ pub const Sphere = struct {
     center: Position,
     radius: f32,
     specular: f32,
+    reflective: f32,
     color: Color,
 };
 
@@ -105,6 +106,12 @@ pub fn intersect_ray_sphere(origin: Position, direction: Vec3f32, sphere: Sphere
     return .{ t1, t2 };
 }
 
+fn reflect_ray(direction: Direction, normal: Direction) Direction {
+    const twos: Vec3f32 = @splat(2);
+    const dots: Vec3f32 = @splat(math.dot(normal, direction));
+    return twos * normal * dots - direction;
+}
+
 pub fn closest_intersection(
     origin: Vec3f32,
     direction: Direction,
@@ -137,6 +144,7 @@ pub fn trace_ray(
     lights: []const Light,
     min_t: f32,
     max_t: f32,
+    max_recurse: u32,
 ) ?Color {
     const closest_sphere, const closest_t = closest_intersection(
         origin,
@@ -153,11 +161,38 @@ pub fn trace_ray(
 
     const light_intensity = compute_lighting(lights, spheres, point, normal, -direction, max_t, sphere.specular);
 
-    const computed_color = .{
+    const computed_local_color = .{
         @as(f32, @floatFromInt(sphere.color.r)) * light_intensity,
         @as(f32, @floatFromInt(sphere.color.g)) * light_intensity,
         @as(f32, @floatFromInt(sphere.color.b)) * light_intensity,
     };
+    const computed_color = if (max_recurse == 0 or sphere.reflective <= 0)
+        computed_local_color
+        else color: {
+            const reflected_ray = reflect_ray(-direction, normal);
+            const reflected_color = trace_ray(
+                point,
+                reflected_ray,
+                spheres,
+                lights,
+                0.001,
+                max_t,
+                (max_recurse - 1),
+            ) orelse break :color computed_local_color;
+
+            const computed_reflected_color = .{
+                @as(f32, @floatFromInt(reflected_color.r)) * (sphere.reflective),
+                @as(f32, @floatFromInt(reflected_color.g)) * (sphere.reflective),
+                @as(f32, @floatFromInt(reflected_color.b)) * (sphere.reflective),
+            };
+
+            const computed_combined_color = .{
+                computed_local_color[0] * (1 - sphere.reflective) + computed_reflected_color[0],
+                computed_local_color[1] * (1 - sphere.reflective) + computed_reflected_color[1],
+                computed_local_color[2] * (1 - sphere.reflective) + computed_reflected_color[2],
+            };
+            break :color computed_combined_color;
+        };
 
     return .{
         .r = @intFromFloat(@min(@max(0, computed_color[0]), 255)),
