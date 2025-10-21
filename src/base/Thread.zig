@@ -65,6 +65,15 @@ pub inline fn lane_sync() void {
     tctx.lane_ctx.barrier.wait();
 }
 
+// micro-second precision timed lane sync
+pub inline fn lane_sync_us_timed() void {
+    const ts_start = std.time.microTimestamp();
+    tctx.lane_ctx.barrier.wait();
+    const ts_end = std.time.microTimestamp();
+    const ts_elapsed = ts_end - ts_start;
+    log.debug("lane#{d} waited {d}us for lane sync", .{lane_idx(), ts_elapsed});
+}
+
 pub const sleep = Impl.sleep;
 
 pub const Context = struct {

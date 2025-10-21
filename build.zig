@@ -68,22 +68,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/gfx.zig"),
         .target = target,
         .imports = &.{
+            .{ .name = "os", .module = os_mod },
             .{ .name = "base", .module = base_mod },
             .{ .name = "vulkan", .module = vulkan_mod },
         },
     });
-
-    const wayland_mod = b.addModule("wayland", .{
-        .root_source_file = b.path("src/wayland.zig"),
-        .target = target,
-        .imports = &.{
-            .{ .name = "base", .module = base_mod },
-            .{ .name = "os", .module = os_mod },
-            .{ .name = "gfx", .module = gfx_mod },
-        },
-    });
-
-    // const codegen_output_path = b.pathJoin(&.{ codegen_output_dir, codegen_output_name });
 
     const codegen_exe = b.addExecutable(.{
         .name = "codegen",
@@ -109,7 +98,6 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "base", .module = base_mod },
                 .{ .name = "os", .module = os_mod },
                 .{ .name = "gfx", .module = gfx_mod },
-                .{ .name = "wayland", .module = wayland_mod },
             },
         }),
         .use_llvm = use_llvm,

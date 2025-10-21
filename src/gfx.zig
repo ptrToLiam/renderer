@@ -1,5 +1,68 @@
 pub const Image = []Pixel;
 
+pub const ImageView = struct {
+    image: Image,
+    width: u32,
+    height: u32,
+};
+
+pub const Window = struct {
+    handle: Impl.Handle,
+    flags: Flags,
+
+    pub inline fn create(
+        arena: *Arena,
+        params: struct {
+            title: [:0]const u8,
+            class: [:0]const u8,
+            width: i32,
+            height: i32,
+        },
+    ) !Window {
+        return .{
+            .handle = try .create(
+                arena, .{
+                    .title = params.title,
+                    .class = params.class,
+                    .width = params.width,
+                    .height = params.height,
+                },
+            ),
+            .flags = .default,
+        };
+    }
+
+    pub inline fn destroy(window: *Window) void {
+        window.handle.destroy();
+    }
+    pub const Flags = packed struct (u32) {
+        should_close: bool = false,
+        minimized: bool = false,
+        maximized: bool = false,
+        __reserved_bits: u29 = 0,
+         
+        pub const default: Flags = .{};
+    };
+};
+
+pub const SoftwareSwapchain = struct {
+    // TODO: Implement (lol)
+};
+
+pub const Impl = struct {
+    const Handle = switch (TargetOs.tag) {
+        .linux => *Wayland.WindowHandle,
+        else => @compileError("Unsupported graphical target platform :: " ++
+            @tagName(TargetOs.tag)),
+    };
+    const SoftwareSwapchain = switch (TargetOs.tag) {
+        .linux => Wayland.ShmImageQueue,
+        else => @compileError("Unsupported graphical target platform :: " ++
+            @tagName(TargetOs.tag)),
+    };
+    const GpuSwapchain = u64;
+};
+
 pub const Pixel = u32;
 pub const Color = packed struct(u32) {
     b: u8 = 0,
@@ -168,31 +231,31 @@ pub fn trace_ray(
     };
     const computed_color = if (max_recurse == 0 or sphere.reflective <= 0)
         computed_local_color
-        else color: {
-            const reflected_ray = reflect_ray(-direction, normal);
-            const reflected_color = trace_ray(
-                point,
-                reflected_ray,
-                spheres,
-                lights,
-                0.001,
-                max_t,
-                (max_recurse - 1),
-            ) orelse break :color computed_local_color;
+    else color: {
+        const reflected_ray = reflect_ray(-direction, normal);
+        const reflected_color = trace_ray(
+            point,
+            reflected_ray,
+            spheres,
+            lights,
+            0.001,
+            max_t,
+            (max_recurse - 1),
+        ) orelse break :color computed_local_color;
 
-            const computed_reflected_color = .{
-                @as(f32, @floatFromInt(reflected_color.r)) * (sphere.reflective),
-                @as(f32, @floatFromInt(reflected_color.g)) * (sphere.reflective),
-                @as(f32, @floatFromInt(reflected_color.b)) * (sphere.reflective),
-            };
-
-            const computed_combined_color = .{
-                computed_local_color[0] * (1 - sphere.reflective) + computed_reflected_color[0],
-                computed_local_color[1] * (1 - sphere.reflective) + computed_reflected_color[1],
-                computed_local_color[2] * (1 - sphere.reflective) + computed_reflected_color[2],
-            };
-            break :color computed_combined_color;
+        const computed_reflected_color = .{
+            @as(f32, @floatFromInt(reflected_color.r)) * (sphere.reflective),
+            @as(f32, @floatFromInt(reflected_color.g)) * (sphere.reflective),
+            @as(f32, @floatFromInt(reflected_color.b)) * (sphere.reflective),
         };
+
+        const computed_combined_color = .{
+            computed_local_color[0] * (1 - sphere.reflective) + computed_reflected_color[0],
+            computed_local_color[1] * (1 - sphere.reflective) + computed_reflected_color[1],
+            computed_local_color[2] * (1 - sphere.reflective) + computed_reflected_color[2],
+        };
+        break :color computed_combined_color;
+    };
 
     return .{
         .r = @intFromFloat(@min(@max(0, computed_color[0]), 255)),
@@ -225,7 +288,7 @@ pub fn compute_lighting(
             else
                 light.direction;
 
-             // Shadow check
+            // Shadow check
             const shadow_sphere, _ = closest_intersection(point, l_vec, spheres, 0.001, max_t);
             if (shadow_sphere != null) continue;
 
@@ -417,6 +480,11 @@ pub const Vec3f32 = math.Vec3f32;
 
 const math = base.math;
 const Arena = base.Arena;
+
+const TargetOs = builtin.target.os;
+
+// File Imports
+pub const Wayland = @import("wayland.zig");
 
 // Internal Modules Imports
 const base = @import("base");
