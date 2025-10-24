@@ -26,31 +26,28 @@ pub fn init(params: InitParams) *Arena {
     const base = if (params.backing_buffer) |buf|
         buf
     else if (params.flags.large_pages) base: {
-        const ptr = mem_reserve_large(reserve_size) orelse ptr: {
+        const ptr = os.mem_reserve_large(reserve_size) orelse ptr: {
             // Fallback to standard page sizes if large pages not working
             flags.large_pages = false;
             reserve_size = align_pow2(reserve_size, std.heap.page_size_min);
             commit_size = align_pow2(commit_size, std.heap.page_size_min);
 
             log.warn("Arena :: Mem_Reserve :: Large pages not supported, falling back to standard page sizes", .{});
-            break :ptr mem_reserve(reserve_size);
+            break :ptr os.mem_reserve(reserve_size);
         };
 
-        if (ptr) |p| {
-            if (flags.large_pages) {
-                if (!mem_commit_large(p[0..commit_size]))
-                    std.debug.print("Failed Large ({d} Bytes) Page Commit\n", .{commit_size});
-            } else {
-                if (!mem_commit(p[0..commit_size]))
-                    std.debug.print("Failed {d}KB Page(s) Commit\n", .{std.heap.page_size_min});
-            }
+        if (flags.large_pages) {
+            if (!os.mem_commit_large(ptr[0..commit_size]))
+                std.debug.print("Failed Large ({d} Bytes) Page Commit\n", .{commit_size});
+        } else {
+            if (!os.mem_commit(ptr[0..commit_size]))
+                std.debug.print("Failed {d}KB Page(s) Commit\n", .{std.heap.page_size_min});
         }
 
         break :base ptr;
     } else base: {
-        const ptr = mem_reserve(reserve_size);
-        if (ptr) |p|
-            if (!mem_commit(p[0..commit_size]))
+        const ptr = os.mem_reserve(reserve_size);
+        if (!os.mem_commit(ptr[0..commit_size]))
                 std.debug.print("Failed {d}KB Page(s) Commit\n", .{std.heap.page_size_min});
 
         break :base ptr;
@@ -100,7 +97,7 @@ pub fn release(arena: *Arena) void {
     while (next) |n| : (next = prev) {
         prev = n.prev;
         const ptr: [*]align(std.heap.page_size_min) u8 = @ptrCast(@alignCast(n));
-        mem_release(ptr[0..n.res]);
+        os.mem_release(ptr[0..n.res]);
     }
 }
 
@@ -119,7 +116,7 @@ pub fn pop_to(arena: *Arena, _pos: usize) void {
     while (cur.base_pos >= big_pos) {
         prev_opt = cur.prev;
         const ptr: [*]align(std.heap.page_size_min) const u8 = @ptrCast(@alignCast(cur));
-        mem_release(ptr[0..cur.res]);
+        os.mem_release(ptr[0..cur.res]);
 
         if (prev_opt) |prev| {
             cur = prev;
@@ -190,13 +187,13 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
         const ptr: [*]align(std.heap.page_size_min) u8 = @ptrCast(@alignCast(cur));
         const cmt_range = ptr[cur.cmt .. cur.cmt + cmt_size];
         if (cur.flags.large_pages) {
-            if (!mem_commit_large(@alignCast(cmt_range)))
+            if (!os.mem_commit_large(@alignCast(cmt_range)))
                 std.debug.print("Failed to commit large page of mem: [{d}..{d}]\n", .{
                     cur.cmt,
                     cur.cmt + cmt_size,
                 });
         } else {
-            if (!mem_commit(@alignCast(cmt_range)))
+            if (!os.mem_commit(@alignCast(cmt_range)))
                 std.debug.print("Failed to commit page of mem: [{d}..{d}]\n", .{
                     cur.cmt,
                     cur.cmt + cmt_size,
@@ -213,122 +210,6 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
     } else unreachable;
 
     return result;
-}
-
-fn mem_reserve(size: usize) ?[]align(std.heap.page_size_min) u8 {
-    return os.mem_reserve(size);
-}
-
-fn mem_commit(ptr: []align(std.heap.page_size_min) u8) bool {
-    const windows = std.os.windows;
-    switch (TargetOs.tag) {
-        .linux, .macos => {
-            posix.mprotect(ptr, posix.PROT.READ | posix.PROT.WRITE) catch |err| {
-                log.err("Memory commit error :: {s}", .{@errorName(err)});
-                return false;
-            };
-        },
-        .windows => {
-            _ = windows.VirtualAlloc(
-                @ptrCast(ptr),
-                ptr.len,
-                windows.MEM_COMMIT,
-                windows.PAGE_READWRITE,
-            ) catch return false;
-        },
-        else => @compileError("Unsupported platform"),
-    }
-
-    return true;
-}
-
-fn mem_decommit(ptr: []align(std.heap.page_size_min) const u8) void {
-    const windows = std.os.windows;
-    switch (TargetOs.tag) {
-        .linux, .macos => {
-            posix.madvise(ptr, ptr.len, posix.MADV.DONTNEED);
-            posix.mprotect(ptr, posix.PROT.NONE);
-        },
-        .windows => {
-            windows.VirtualFree(@ptrCast(ptr), ptr.len, windows.MEM_DECOMMIT);
-        },
-        else => @compileError("Unsupported platform"),
-    }
-}
-
-fn mem_release(ptr: []align(std.heap.page_size_min) const u8) void {
-    const windows = std.os.windows;
-    switch (TargetOs.tag) {
-        .linux, .macos => {
-            posix.munmap(ptr);
-        },
-        .windows => windows.VirtualFree(@ptrCast(@constCast(ptr)), 0, windows.MEM_FREE),
-        else => @compileError("Unsupported platform"),
-    }
-}
-
-fn mem_reserve_large(size: usize) ?[]align(std.heap.page_size_min) u8 {
-    const windows = std.os.windows;
-    const ptr = switch (TargetOs.tag) {
-        .linux => posix.mmap(
-            null,
-            size,
-            posix.PROT.NONE,
-            .{
-                .TYPE = .PRIVATE,
-                .ANONYMOUS = true,
-                .HUGETLB = true,
-            },
-            -1,
-            0,
-        ),
-        .macos => posix.mmap(
-            null,
-            size,
-            posix.PROT.NONE,
-            .{
-                .TYPE = .PRIVATE,
-                .ANONYMOUS = true,
-            },
-            -1,
-            0,
-        ),
-        .windows => windows.VirtualAlloc(
-            null,
-            size,
-            windows.MEM_RESERVE | windows.MEM_COMMIT | windows.MEM_LARGE_PAGES,
-            windows.PAGE_READWRITE,
-        ),
-        else => @compileError("Unusupported platform"),
-    } catch |err| ptr: {
-        log.err("Failed to reserve memory with err :: {s}", .{@errorName(err)});
-        break :ptr null;
-    };
-
-    return @as([*]align(std.heap.page_size_min) u8, @ptrCast(@alignCast(ptr)))[0..size];
-}
-
-fn mem_commit_large(ptr: []align(std.heap.page_size_min) u8) bool {
-    const windows = std.os.windows;
-    switch (TargetOs.tag) {
-        .linux, .macos => {
-            posix.mprotect(ptr, posix.PROT.READ | posix.PROT.WRITE) catch |err| {
-                log.err("Memory commit error :: {s}", .{@errorName(err)});
-                return false;
-            };
-        },
-        .windows => {
-            _ = windows.VirtualAlloc(
-                @ptrCast(ptr),
-                ptr.len,
-                windows.MEM_COMMIT,
-                windows.PAGE_READWRITE,
-            ) catch return false;
-        },
-        else => @compileError("Unsupported platform"),
-    }
-
-    return true;
 }
 
 pub const Temp = packed struct {

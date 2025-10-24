@@ -1,5 +1,6 @@
-// Memory Allocation API Surface
-
+//------------------------------------------------------------------------------
+//                         Memory Management API Surface
+//------------------------------------------------------------------------------
 pub inline fn mem_reserve(size: usize) []align(page_size_min) u8 {
     const rc = mmap(
         null,
@@ -11,31 +12,57 @@ pub inline fn mem_reserve(size: usize) []align(page_size_min) u8 {
     );
 
     // intentional crash on failed alloc
-    if (builtin.link_libc) {
-        if (rc == std.c.MAP_FAILED) unreachable;
-    } else {
-        if (errno(rc) != .SUCCESS) unreachable;
-    }
+    if (errno(rc) != .SUCCESS) unreachable;
 
     const ptr: [*]align(page_size_min) u8 = @ptrFromInt(rc);
     return ptr[0..size];
 
 }
 
-pub inline fn mem_commit() bool {
-    return false;
+pub inline fn mem_commit(bytes: []align(page_size_min) u8) bool {
+    const rc = mprotect(bytes.ptr, bytes.len, PROT.READ | PROT.WRITE);
+
+    if (errno(rc) != .SUCCESS) return false;
+
+    return true;
 }
-pub inline fn mem_decommit() void {
-}
-pub inline fn mem_release() void {
+pub inline fn mem_decommit(bytes: []align(page_size_min) const u8) void {
+    _ = madvise(bytes.ptr, bytes.len, MADV.DONTNEED);
+    _ = mprotect(bytes.ptr, bytes.len, PROT.NONE);
 }
 
-pub inline fn mem_reserve_large() []align(page_size_min) u8 {
-    return &.{};
+pub inline fn mem_release(bytes: []align(page_size_min) const u8) void {
+    _ = munmap(bytes.ptr, bytes.len);
 }
-pub inline fn mem_commit_large() bool {
-    return false;
+
+pub inline fn mem_reserve_large(size: usize) ?[]align(page_size_min) u8 {
+    const rc = mmap(
+        null,
+        size,
+        PROT.NONE,
+        .{
+            .TYPE = .PRIVATE,
+            .ANONYMOUS = true,
+            .HUGETLB = true,
+        },
+        -1,
+        0,
+    );
+
+    if (errno(rc) != .SUCCESS) return null;
+
+    const ptr: [*]align(page_size_min) u8 = @ptrFromInt(rc);
+    return ptr[0..size];
 }
+
+pub inline fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
+    const rc = mprotect(bytes.ptr, bytes.len, PROT.READ | PROT.WRITE);
+
+    if (errno(rc) != .SUCCESS) return false;
+
+    return true;
+}
+//------------------------------------------------------------------------------
 
 /// Create container type for control messages
 pub fn cmsg(comptime T: type) type {
@@ -115,6 +142,7 @@ pub const cmsghdr = packed struct {
     /// Protocol-specific type
     type: i32,
 
+    // TODO: Revise. This is prolly a rather unsafe API
     pub fn iter(buf: []const u8) CmsgIterator {
         return .{
             .buf = buf,
@@ -122,6 +150,7 @@ pub const cmsghdr = packed struct {
         };
     }
 
+    // TODO: Revise. This is prolly a rather unsafe API
     pub fn data(ptr: *const cmsghdr, comptime T: type) *const T {
         const buf: [*]const u8 = @ptrCast(@alignCast(ptr));
 
@@ -168,18 +197,23 @@ pub const mmap = std.os.linux.mmap;
 pub const munmap = std.os.linux.munmap;
 pub const madvise = std.os.linux.madvise;
 pub const mprotect = std.os.linux.mprotect;
+
 pub const errno = std.posix.errno;
 
 // Constant/Namespace aliases
-pub const MSG = std.os.linux.MSG;
 pub const PR = std.os.linux.PR;
-pub const PROT = std.os.linux.PROT;
+pub const MSG = std.os.linux.MSG;
 pub const MAP = std.os.linux.MAP;
+pub const PROT = std.os.linux.PROT;
+pub const MADV = std.os.linux.MADV;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
 
 const page_size_min = std.heap.page_size_min;
+
+const log = std.log.scoped(.Linux);
+
 // 3rd-Party Module Imports
 const builtin = @import("builtin");
 const std = @import("std");

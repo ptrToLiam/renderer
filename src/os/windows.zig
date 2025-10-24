@@ -1,3 +1,6 @@
+//------------------------------------------------------------------------------
+//                         Memory Management API Surface
+//------------------------------------------------------------------------------
 pub fn mem_reserve(size: usize) []align(page_size_min) u8 {
     const ptr = VirtualAlloc(
             null,
@@ -14,10 +17,10 @@ pub fn mem_reserve(size: usize) []align(page_size_min) u8 {
     return ptr_u8[0..size];
 }
 
-pub fn mem_commit(ptr: []align(page_size_min) u8) bool {
+pub fn mem_commit(bytes: []align(page_size_min) u8) bool {
     _ = VirtualAlloc(
-        @ptrCast(ptr),
-        ptr.len,
+        @ptrCast(bytes),
+        bytes.len,
         MEM_COMMIT,
         PAGE_READWRITE,
     ) catch return false;
@@ -25,17 +28,17 @@ pub fn mem_commit(ptr: []align(page_size_min) u8) bool {
     return true;
 }
 
-pub fn mem_decommit(ptr: []align(page_size_min) u8) void {
+pub fn mem_decommit(bytes: []align(page_size_min) u8) void {
     VirtualFree(
-        @ptrCast(ptr),
-        ptr.len, 
+        @ptrCast(bytes),
+        bytes.len, 
         MEM_DECOMMIT,
     );
 }
 
-pub fn mem_release(ptr: []align(page_size_min) u8) void {
+pub fn mem_release(bytes: []align(page_size_min) u8) void {
     VirtualFree(
-        @ptrCast(ptr),
+        @ptrCast(bytes),
         0, 
         MEM_FREE,
     );
@@ -51,22 +54,23 @@ pub fn mem_reserve_large(size: usize) ?[]align(page_size_min) u8 {
         log.err("VirtualAlloc large page of size {d} failed :: {s}", .{
             @errorName(err),
         });
-        unreachable; // intentional crash
+        return null;
     };
     const ptr_u8 = @as([*]align(page_size_min) u8, @ptrCast(@alignCast(ptr)));
     return ptr_u8[0..size];
 }
 
-pub fn mem_commit_large(ptr: []align(page_size_min) u8) bool {
+pub fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
     _ = VirtualAlloc(
-        @ptrCast(ptr),
-        ptr.len,
+        @ptrCast(bytes),
+        bytes.len,
         MEM_COMMIT,
         PAGE_READWRITE,
     ) catch return false;
 
     return true;
 }
+//------------------------------------------------------------------------------
 
 const page_size_min = std.heap.page_size_min;
 
