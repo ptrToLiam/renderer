@@ -24,7 +24,7 @@
             vulkan-loader
             vulkan-tools
             vulkan-validation-layers
-            zig.packages.${system}."0.15.1"
+            zig.packages.${system}."0.15.2"
           ];
           shellHook = ''
             LD_LIBRARY_PATH="${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH"
