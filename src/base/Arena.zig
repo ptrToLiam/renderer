@@ -173,7 +173,7 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
 
         cur = new_block;
         pos_pre = align_pow2(cur._pos, @"align");
-        pos_pst = pos_pst + size;
+        pos_pst = pos_pre + size;
     }
 
     // commit new pages if needed
