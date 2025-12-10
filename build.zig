@@ -74,10 +74,10 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const codegen_exe = b.addExecutable(.{
-        .name = "codegen",
+    const wayland_codegen_exe = b.addExecutable(.{
+        .name = "wayland_codegen",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/codegen.zig"),
+            .root_source_file = b.path("src/wayland-codegen/codegen.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    b.installArtifact(codegen_exe);
+    b.installArtifact(wayland_codegen_exe);
 
     const exe = b.addExecutable(.{
         .name = "renderer",
@@ -106,7 +106,8 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     const codegen_step = b.step("codegen", "Run codegen");
-    const codegen_cmd = b.addRunArtifact(codegen_exe);
+    const codegen_cmd = b.addRunArtifact(wayland_codegen_exe);
+
     codegen_step.dependOn(&codegen_cmd.step);
     codegen_cmd.addArgs(&.{
         "--prefix",

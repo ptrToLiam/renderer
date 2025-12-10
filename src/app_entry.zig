@@ -56,29 +56,56 @@ pub fn app_main_entry() !void {
 
     var app_threads = arena.push(Thread, thread_count);
     var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
-    const barrier: *Thread.Barrier = arena.create(Thread.Barrier);
-    barrier.* = .init(@intCast(thread_count));
+    const app_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
+    app_threads_barrier.* = .init(@intCast(thread_count));
 
     for (0..thread_count) |idx| {
         app_thread_lctxs[idx] = .{
             .lane_idx = idx,
             .lane_count = thread_count,
-            .barrier = barrier,
+            .barrier = app_threads_barrier,
         };
-        app_threads[idx] = try .launch(raytracer.thread_entry, &app_thread_lctxs[idx]);
+        app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
+    }
+
+    var draw_threads = arena.push(Thread, thread_count);
+    var draw_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
+    const draw_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
+    draw_threads_barrier.* = .init(@intCast(thread_count));
+
+    for (0..thread_count) |idx| {
+        draw_thread_lctxs[idx] = .{
+            .lane_idx = idx,
+            .lane_count = thread_count,
+            .barrier = draw_threads_barrier,
+        };
+        draw_threads[idx] = try .launch(draw_thread_entry, &draw_thread_lctxs[idx]);
     }
 
     for (app_threads) |app_thread| {
         app_thread.join();
+    }
+
+    for (draw_threads) |draw_thread| {
+        draw_thread.join();
     }
 }
 
 fn app_thread_entry(lctx: *Thread.LaneContext) void {
     Thread.ctx_init();
     defer Thread.ctx_release();
+    
 
     Thread.lane_ctx(lctx.*);
     Thread.set_namef("app_lane_{d}", .{Thread.lane_idx()});
+}
+
+fn draw_thread_entry(lctx: *Thread.LaneContext) void {
+    Thread.ctx_init();
+    defer Thread.ctx_release();
+
+    Thread.lane_ctx(lctx.*);
+    Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
 }
 
 fn wl_event_loop(noalias wayland_state: *WaylandState) void {
