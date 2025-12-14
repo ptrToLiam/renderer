@@ -47,7 +47,6 @@ pub inline fn lane_idx() u64 {
 pub inline fn lane_count() u64 {
     return tctx.lane_ctx.lane_count;
 }
-
 pub inline fn get_cpu_count() u64 {
 }
 
@@ -62,13 +61,15 @@ pub fn lane_range(count: u64) struct { min: u64, max: u64 } {
 }
 
 pub inline fn lane_sync() void {
-    tctx.lane_ctx.barrier.wait();
+  Context.lane_barrier_wait(0, 0, 0);
 }
-
+pub inline fn lane_sync_u64(comptime T: type, broadcast_ptr: *T, src_lane_idx: u64) void {
+  Context.lane_barrier_wait(@intFromPtr(broadcast_ptr), @sizeOf(T), src_lane_idx);
+}
 // micro-second precision timed lane sync
 pub inline fn lane_sync_us_timed() void {
     const ts_start = std.time.microTimestamp();
-    tctx.lane_ctx.barrier.wait();
+    Context.lane_barrier_wait(0, 0, 0);
     const ts_end = std.time.microTimestamp();
     const ts_elapsed = ts_end - ts_start;
     log.debug("lane#{d} waited {d}us for lane sync", .{lane_idx(), ts_elapsed});
@@ -77,62 +78,83 @@ pub inline fn lane_sync_us_timed() void {
 pub const sleep = Impl.sleep;
 
 pub const Context = struct {
-    arenas: [2]*Arena,
+  arenas: [2]*Arena,
 
-    name: [32]u8 = @splat(0),
-    name_len: u64 = 0,
+  name: [32]u8 = @splat(0),
+  name_len: u64 = 0,
 
-    lane_ctx: LaneContext,
+  lane_ctx: LaneContext,
 
-    pub fn init() *Context {
-        const arena: *Arena = .init(.default);
-        const ctx: *Context = arena.create(Context);
-        ctx.* = .{
-            .arenas = .{
-                arena,
-                .init(.default),
-            },
-            .name = undefined,
-            .name_len = undefined,
-            .lane_ctx = .{
-                .lane_idx = undefined,
-                .lane_count = 1,
-                .barrier = undefined,
-            },
-        };
+  pub fn init() *Context {
+    const arena: *Arena = .init(.default);
+    const ctx: *Context = arena.create(Context);
+    ctx.* = .{
+      .arenas = .{
+        arena,
+        .init(.default),
+      },
+      .name = undefined,
+      .name_len = undefined,
+      .lane_ctx = .{
+        .lane_idx = undefined,
+        .lane_count = 1,
+        .barrier = undefined,
+        .broadcast_memory = undefined,
+      },
+    };
 
-        return ctx;
+    return ctx;
+  }
+
+  pub fn release(ctx: *Context) void {
+    ctx.arenas[1].release();
+    ctx.arenas[0].release();
+  }
+
+  pub fn get_lane_ctx() LaneContext {
+    return tctx.lane_ctx;
+  }
+
+  pub fn lane_barrier_wait(broadcast_ptr: usize, broadcast_size: u64, broadcast_src_lane_idx: u64) void {
+    const broadcast_size_clamped = @min(broadcast_size, @sizeOf(@TypeOf(tctx.lane_ctx.broadcast_memory.*)));
+    if (broadcast_ptr != 0 and lane_idx() == broadcast_src_lane_idx) {
+      const ptr: [*]u8 = @ptrFromInt(broadcast_ptr);
+      const broadcast_memory_ptr: [*]u8 = @alignCast(@ptrCast(tctx.lane_ctx.broadcast_memory));
+      @memcpy(broadcast_memory_ptr[0..broadcast_size_clamped], ptr[0..broadcast_size_clamped]);
     }
 
-    pub fn release(ctx: *Context) void {
-        ctx.arenas[1].release();
-        ctx.arenas[0].release();
+    tctx.lane_ctx.barrier.wait();
+
+    if (broadcast_ptr != 0 and lane_idx() != broadcast_src_lane_idx) {
+      const ptr: [*]u8 = @ptrFromInt(broadcast_ptr);
+      const broadcast_memory_ptr: [*]u8 = @alignCast(@ptrCast(tctx.lane_ctx.broadcast_memory));
+      @memcpy(ptr[0..broadcast_size_clamped], broadcast_memory_ptr[0..broadcast_size_clamped]);
     }
 
-    pub fn get_lane_ctx() LaneContext {
-        return tctx.lane_ctx;
-    }
+    if (broadcast_ptr != 0)
+      tctx.lane_ctx.barrier.wait();
+  }
 
-    pub fn get_scratch(comptime N: comptime_int, conflicts: [N]*Arena) ?Arena.Temp {
-        var result: ?Arena.Temp = null;
-        outer: for (tctx.arenas) |arena| {
-            result = arena.temp();
-            for (conflicts) |conflict| {
-                if (arena == conflict) {
-                    result = null;
-                    continue :outer;
-                }
+  pub fn get_scratch(comptime N: comptime_int, conflicts: [N]*Arena) ?Arena.Temp {
+    var result: ?Arena.Temp = null;
+    outer: for (tctx.arenas) |arena| {
+        result = arena.temp();
+        for (conflicts) |conflict| {
+            if (arena == conflict) {
+                result = null;
+                continue :outer;
             }
         }
-
-        return result;
     }
+    return result;
+  }
 };
 
 pub const LaneContext = struct {
     lane_idx: u64,
     lane_count: u64,
     barrier: *Barrier,
+    broadcast_memory: *u64,
 };
 
 pub const Barrier = Impl.Barrier;

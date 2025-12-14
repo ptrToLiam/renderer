@@ -28,14 +28,14 @@ pub const WindowHandle = struct {
         conn.* = try .open(arena);
         const proxy = arena.create(Protocols.Proxy);
         proxy.* = conn.proxy();
-    
+
         log.debug("connection handle :: {d}", .{conn.handle});
         log.debug("wl_display  :: id :: {d}", .{conn.display.toInt()});
-    
+
         const wl_registry = try conn.display.get_registry(proxy);
         log.debug("wl_registry :: id :: {d}", .{wl_registry.toInt()});
         try conn.flush();
-    
+
         // Bind interfaces
         const wl_seat, const wl_compositor, const xdg_wm_base, const wl_shm = bind: {
             var read_success = false;
@@ -55,7 +55,7 @@ pub const WindowHandle = struct {
                 };
                 read_success = true;
             }
-    
+
             var seat: Protocols.Wayland.Seat = undefined;
             var compositor: Protocols.Wayland.Compositor = undefined;
             var wm_base: Protocols.XdgShell.WmBase = undefined;
@@ -124,37 +124,37 @@ pub const WindowHandle = struct {
                 }
             }
             try conn.flush();
-    
+
             break :bind .{ seat, compositor, wm_base, shm };
         };
-    
+
         const wl_surface = try wl_compositor.create_surface(proxy);
-    
+
         const xdg_surface = try xdg_wm_base.get_xdg_surface(proxy, .{ .surface = wl_surface });
         const xdg_toplevel = try xdg_surface.get_toplevel(proxy);
-    
+
         try xdg_toplevel.set_title(proxy, .{ .title = params.title });
         try xdg_toplevel.set_app_id(proxy, .{ .app_id = params.class });
-    
+
         try wl_surface.commit(proxy);
         try conn.flush();
         handle.* = .{
             .conn = conn,
             .proxy = proxy,
-    
+
             // globals
             .display = conn.display,
             .registry = wl_registry,
             .seat = wl_seat,
             .shm = wl_shm,
             .wm_base = xdg_wm_base,
-    
+
             // objects
             .wl_surface = wl_surface,
             .xdg_surface = xdg_surface,
             .xdg_toplevel = xdg_toplevel,
         };
-    
+
         return handle;
     }
 
@@ -653,6 +653,7 @@ pub const ShmImageQueue = struct {
     images: [3]gfx.Image,
     active: [3]bool,
     buffers: [3]Protocols.Wayland.Buffer,
+    present_idx: ?u32 = null,
     shm_pool: Protocols.Wayland.ShmPool,
     write: usize,
     size: usize,
@@ -933,7 +934,7 @@ const log = std.log.scoped(.WaylandConnection);
 pub const Protocols = @import("generated/wayland_protocols.zig");
 const gfx = @import("gfx.zig");
 
-// 
+//
 const os = @import("os");
 const base = @import("base");
 

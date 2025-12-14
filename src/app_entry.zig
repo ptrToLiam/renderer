@@ -58,60 +58,155 @@ pub fn app_main_entry() !void {
     var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
     const app_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
     app_threads_barrier.* = .init(@intCast(thread_count));
-
-    for (0..thread_count) |idx| {
-        app_thread_lctxs[idx] = .{
-            .lane_idx = idx,
-            .lane_count = thread_count,
-            .barrier = app_threads_barrier,
-        };
-        app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
-    }
+    var app_lane_broadcast_val: usize = 0;
 
     var draw_threads = arena.push(Thread, thread_count);
     var draw_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
     const draw_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
     draw_threads_barrier.* = .init(@intCast(thread_count));
+    var render_lane_broadcast_val: usize = 0;
 
     for (0..thread_count) |idx| {
-        draw_thread_lctxs[idx] = .{
-            .lane_idx = idx,
-            .lane_count = thread_count,
-            .barrier = draw_threads_barrier,
+        app_thread_lctxs[idx] = .{
+          .lane_idx = idx,
+          .lane_count = thread_count,
+          .barrier = app_threads_barrier,
+          .broadcast_memory = &app_lane_broadcast_val,
         };
-        draw_threads[idx] = try .launch(draw_thread_entry, &draw_thread_lctxs[idx]);
-    }
+        draw_thread_lctxs[idx] = .{
+          .lane_idx = idx,
+          .lane_count = thread_count,
+          .barrier = draw_threads_barrier,
+          .broadcast_memory = &render_lane_broadcast_val,
+        };
 
-    for (app_threads) |app_thread| {
-        app_thread.join();
+        app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
+        draw_threads[idx] = try .launch(draw_thread_entry, &draw_thread_lctxs[idx]);
     }
 
     for (draw_threads) |draw_thread| {
         draw_thread.join();
     }
+    std.log.info("all render threads joined", .{});
+    for (app_threads) |app_thread| {
+        app_thread.join();
+    }
+    app_log.info("all app threads joined", .{});
+
+
 }
 
 fn app_thread_entry(lctx: *Thread.LaneContext) void {
-    Thread.ctx_init();
-    defer Thread.ctx_release();
-    
+  Thread.ctx_init();
+  defer Thread.ctx_release();
 
-    Thread.lane_ctx(lctx.*);
-    Thread.set_namef("app_lane_{d}", .{Thread.lane_idx()});
+  Thread.lane_ctx(lctx.*);
+  Thread.set_namef("app_lane_{d}", .{Thread.lane_idx()});
+  const connection = app_state.wayland_state.connection;
+
+  while (true) {
+    if (Thread.lane_idx() == 0) {
+      var attempts: u16 = 0;
+      while (attempts < 5) : (attempts += 1) {
+        connection.load_events() catch |err| {
+          switch (err) {
+            error.NoData => {},
+            error.SocketReadFailed => {},
+            else => {
+              std.log.err("Failed to load wayland events :: {s}", .{@errorName(err)});
+              break;
+            },
+          }
+        };
+        while (connection.event()) |event| {
+          handle_wl_event(app_state.wayland_state, &event) catch |err| {
+            std.log.err("Failed to handle wayland event :: {s}", .{@errorName(err)});
+          };
+        }
+        app_state.wayland_state.connection.flush() catch |err| {
+          std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
+          app_state.signal_exit();
+        };
+      }
+    }
+
+    Thread.lane_sync();
+
+    if (Thread.lane_idx() == 0) {
+      if (app_state.swapchain.present_idx) |active_frame_idx| {
+        const wl_surface = app_state.wayland_state.wl_surface;
+        const proxy = app_state.wayland_state.proxy;
+        const width = app_state.swapchain.width;
+        const height = app_state.swapchain.height;
+        wl_surface.attach(proxy, .{
+          .buffer = app_state.swapchain.buffers[active_frame_idx],
+          .x = 0,
+          .y = 0,
+        }) catch unreachable;
+        wl_surface.damage_buffer(proxy, .{
+          .x = 0,
+          .y = 0,
+          .width = @intCast(width),
+          .height = @intCast(height),
+        }) catch unreachable;
+        wl_surface.commit(proxy) catch unreachable;
+        app_state.wayland_state.connection.flush() catch |err| {
+          app_log.err("App quitting due to error :: {s}", .{
+            @errorName(err),
+          });
+          app_state.signal_exit();
+        };
+      }
+    }
+
+    Thread.lane_sync();
+    var need_exit: bool = false;
+    if (Thread.lane_idx() == 0) {
+      need_exit = app_state.should_exit();
+    }
+    Thread.lane_sync_u64(bool, &need_exit, 0);
+    if (need_exit) {
+      break;
+    }
+  }
 }
 
 fn draw_thread_entry(lctx: *Thread.LaneContext) void {
-    Thread.ctx_init();
-    defer Thread.ctx_release();
+  Thread.ctx_init();
+  defer Thread.ctx_release();
 
-    Thread.lane_ctx(lctx.*);
-    Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
+  Thread.lane_ctx(lctx.*);
+  Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
+
+  var img: []gfx.Pixel = undefined;
+  var frame_idx: u64 = 0;
+  while (true) : (frame_idx += 1) {
+    img = app_state.swapchain.images[frame_idx % app_state.swapchain.images.len];
+    const rng = Thread.lane_range(img.len);
+    for (rng.min..rng.max) |idx| {
+      img[idx] = @bitCast(gfx.Color.black);
+    }
+    if (Thread.lane_idx() == 0) {
+      app_state.swapchain.active[frame_idx % 3] = true;
+      app_state.swapchain.present_idx = @intCast(frame_idx % 3);
+    }
+
+    Thread.lane_sync();
+    var need_exit: bool = false;
+    if (Thread.lane_idx() == 0) {
+      need_exit = app_state.should_exit();
+    }
+    Thread.lane_sync_u64(bool, &need_exit, 0);
+    if (need_exit) {
+      break;
+    }
+  }
 }
 
 fn wl_event_loop(noalias wayland_state: *WaylandState) void {
     const connection = wayland_state.connection;
     const us_delay = 100;
-    while (!app_state.should_close) loop: {
+    while (!app_state.should_exit()) loop: {
         const us_start = std.time.microTimestamp();
         var attempts: u16 = 0;
         while (attempts < 5) : (attempts += 1) {
@@ -209,7 +304,7 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
             },
             .close => {
                 event_log.debug("xdg_toplevel :: received close event", .{});
-                app_state.should_close = true;
+                app_state.signal_exit();
             },
             else => {
                 event_log.debug("xdg_toplevel :: unhandled event :: {any}", .{event});
@@ -222,11 +317,19 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
 }
 
 pub var new_swapchain: ?struct { width: i32, height: i32 } = null;
+
 const AppState = struct {
     wayland_state: *WaylandState,
     swapchain: Wayland.ShmImageQueue,
-    should_close: bool = false,
     frame_idx: u64 = 0,
+    exit_flag: u32 = 0,
+
+    pub fn should_exit(state: *AppState) bool {
+      return (@atomicLoad(u32, &state.exit_flag, .seq_cst) == 1);
+    }
+    pub fn signal_exit(state: *AppState) void {
+      @atomicStore(u32, &state.exit_flag, 1, .seq_cst);
+    }
 };
 
 const WaylandState = struct {
