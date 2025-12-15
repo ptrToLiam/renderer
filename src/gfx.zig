@@ -40,7 +40,7 @@ pub const Window = struct {
         minimized: bool = false,
         maximized: bool = false,
         __reserved_bits: u29 = 0,
-         
+
         pub const default: Flags = .{};
     };
 };
@@ -486,7 +486,7 @@ const TargetOs = builtin.target.os;
 // File Imports
 pub const Wayland = @import("wayland.zig");
 
-// Internal Modules Imports
+// Internal Module Imports
 const base = @import("base");
 
 // 3rd-Party Module Imports
