@@ -133,6 +133,61 @@ pub const Vertex = packed struct {
     col: Color,
 };
 
+pub const DescriptorSet = struct {
+    lights: []const Light,
+    spheres: []const Sphere,
+    cam_pos: Vec3f32,
+};
+pub const DescriptorSetBinding = struct {
+    set: *DescriptorSet,
+    index: u32,
+};
+pub const Framebuffer = struct {
+    image: Image,
+    width: i32,
+    height: i32
+};
+
+pub const Pipeline = struct {
+    proj_plane_z: f32,
+    vp_size: i32,
+};
+
+pub const Command = union (enum) {
+    bind_pipeline: *Pipeline,
+    bind_descriptor_set: DescriptorSetBinding,
+    draw_scene: void,
+    begin_render_pass: struct { clear_color: Color },
+    end_render_pass: void,
+};
+
+pub const CommandBuffer = struct {
+    commands: []Command,
+    cur: u32,
+
+    pub fn init(arena: *Arena, size: u32) CommandBuffer {
+        return .{
+            .commands = arena.push(Command, @intCast(size)),
+            .cur = 0,
+        };
+    }
+
+    pub fn push(noalias cmdbuf: *CommandBuffer, noalias cmd: *Command) void {
+        defer cmdbuf.cuf += 1;
+        cmdbuf.commands[cmdbuf.cur] = cmd.*;
+    }
+
+    pub fn clear(cmdbuf: *CommandBuffer) void {
+        cmdbuf.cur = 0;
+        cmdbuf.commands = @splat(undefined);
+    }
+};
+
+pub const RenderState = struct {
+    pipeline: ?*Pipeline = null,
+    descriptor_sets: [4]?*DescriptorSet = @splat(null),
+};
+
 pub fn canvas_to_viewport(noalias vp: *const Viewport, noalias canvas: *const Canvas, x: i32, y: i32, proj_z: f32) Position {
     const fx: f32 = @floatFromInt(x);
     const fy: f32 = @floatFromInt(y);
