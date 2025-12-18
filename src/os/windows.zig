@@ -1,74 +1,74 @@
 //------------------------------------------------------------------------------
-//                         Memory Management API Surface
+//             Memory Management API Surface
 //------------------------------------------------------------------------------
 pub fn mem_reserve(size: usize) []align(page_size_min) u8 {
-    const ptr = VirtualAlloc(
-            null,
-            size,
-            MEM_RESERVE,
-            PAGE_READWRITE,
-    ) catch |err| {
-        log.err("VirtualAlloc of size {d} failed :: {s}", .{
-            @errorName(err),
-        });
-        unreachable; // intentional crash
-    };
-    const ptr_u8 = @as([*]align(page_size_min) u8, @ptrCast(@alignCast(ptr)));
-    return ptr_u8[0..size];
+  const ptr = VirtualAlloc(
+      null,
+      size,
+      MEM_RESERVE,
+      PAGE_READWRITE,
+  ) catch |err| {
+    log.err("VirtualAlloc of size {d} failed :: {s}", .{
+      @errorName(err),
+    });
+    unreachable; // intentional crash
+  };
+  const ptr_u8 = @as([*]align(page_size_min) u8, @ptrCast(@alignCast(ptr)));
+  return ptr_u8[0..size];
 }
 
 pub fn mem_commit(bytes: []align(page_size_min) u8) bool {
-    _ = VirtualAlloc(
-        @ptrCast(bytes),
-        bytes.len,
-        MEM_COMMIT,
-        PAGE_READWRITE,
-    ) catch return false;
+  _ = VirtualAlloc(
+    @ptrCast(bytes),
+    bytes.len,
+    MEM_COMMIT,
+    PAGE_READWRITE,
+  ) catch return false;
 
-    return true;
+  return true;
 }
 
 pub fn mem_decommit(bytes: []align(page_size_min) u8) void {
-    VirtualFree(
-        @ptrCast(bytes),
-        bytes.len, 
-        MEM_DECOMMIT,
-    );
+  VirtualFree(
+    @ptrCast(bytes),
+    bytes.len, 
+    MEM_DECOMMIT,
+  );
 }
 
 pub fn mem_release(bytes: []align(page_size_min) u8) void {
-    VirtualFree(
-        @ptrCast(bytes),
-        0, 
-        MEM_FREE,
-    );
+  VirtualFree(
+    @ptrCast(bytes),
+    0, 
+    MEM_FREE,
+  );
 }
 
 pub fn mem_reserve_large(size: usize) ?[]align(page_size_min) u8 {
-    const ptr = VirtualAlloc(
-            null,
-            size,
-            MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES,
-            PAGE_READWRITE,
-    ) catch |err| {
-        log.err("VirtualAlloc large page of size {d} failed :: {s}", .{
-            @errorName(err),
-        });
-        return null;
-    };
-    const ptr_u8 = @as([*]align(page_size_min) u8, @ptrCast(@alignCast(ptr)));
-    return ptr_u8[0..size];
+  const ptr = VirtualAlloc(
+      null,
+      size,
+      MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES,
+      PAGE_READWRITE,
+  ) catch |err| {
+    log.err("VirtualAlloc large page of size {d} failed :: {s}", .{
+      @errorName(err),
+    });
+    return null;
+  };
+  const ptr_u8 = @as([*]align(page_size_min) u8, @ptrCast(@alignCast(ptr)));
+  return ptr_u8[0..size];
 }
 
 pub fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
-    _ = VirtualAlloc(
-        @ptrCast(bytes),
-        bytes.len,
-        MEM_COMMIT,
-        PAGE_READWRITE,
-    ) catch return false;
+  _ = VirtualAlloc(
+    @ptrCast(bytes),
+    bytes.len,
+    MEM_COMMIT,
+    PAGE_READWRITE,
+  ) catch return false;
 
-    return true;
+  return true;
 }
 //------------------------------------------------------------------------------
 
