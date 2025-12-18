@@ -2,13 +2,13 @@ pub fn main() !void {
     Thread.ctx_init();
     Thread.set_name("LmRenderer");
 
-    try entry.app_main_entry();
+    try app.main_entry();
 
     defer Thread.ctx_release();
 }
 
 const Thread = base.Thread;
 
-const entry = @import("app_entry.zig");
+const app = @import("app.zig");
 
 const base = @import("base");

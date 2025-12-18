@@ -152,8 +152,8 @@ pub fn thread_entry(lctx: *Thread.LaneContext) void {
   app_log.info("{s} exiting", .{Thread.get_name()});
 }
 
-const app_state = &main_app_entry.app_state;
-const handle_event = main_app_entry.handle_wl_event;
+const app_state = &main_app_file.app_state;
+const handle_event = main_app_file.handle_wl_event;
 
 const Light = gfx.Light;
 const Sphere = gfx.Sphere;
@@ -168,7 +168,7 @@ const app_log = std.log.scoped(.App);
 const event_log = std.log.scoped(.Event);
 
 // File Imports
-const main_app_entry = @import("app_entry.zig");
+const main_app_file = @import("app.zig");
 
 // Internal Module Imports
 const gfx = @import("gfx");

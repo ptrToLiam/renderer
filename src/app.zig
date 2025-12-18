@@ -2,7 +2,7 @@ const AppName = "Renderer";
 
 pub var app_state: AppState = undefined;
 
-pub fn app_main_entry() !void {
+pub fn main_entry() !void {
   const app_name = "LmDev-" ++ AppName;
   const arena: *Arena = .init(.default);
   defer arena.release();
@@ -54,123 +54,75 @@ pub fn app_main_entry() !void {
   const thread_count = std.Thread.getCpuCount() catch 1;
   app_log.info("available thread count :: {d}", .{thread_count});
 
-  var app_threads = arena.push(Thread, thread_count);
-  var app_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
-  const app_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
-  app_threads_barrier.* = .init(@intCast(thread_count));
-  var app_lane_broadcast_val: usize = 0;
-
-  var draw_threads = arena.push(Thread, thread_count);
-  var draw_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
-  const draw_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
-  draw_threads_barrier.* = .init(@intCast(thread_count));
-  var render_lane_broadcast_val: usize = 0;
+  var sw_render_threads = arena.push(Thread, thread_count);
+  var sw_render_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
+  const sw_render_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
+  sw_render_threads_barrier.* = .init(@intCast(thread_count));
+  var sw_render_lane_broadcast_val: usize = 0;
 
   for (0..thread_count) |idx| {
-    app_thread_lctxs[idx] = .{
+    sw_render_thread_lctxs[idx] = .{
       .lane_idx = idx,
       .lane_count = thread_count,
-      .barrier = app_threads_barrier,
-      .broadcast_memory = &app_lane_broadcast_val,
-    };
-    draw_thread_lctxs[idx] = .{
-      .lane_idx = idx,
-      .lane_count = thread_count,
-      .barrier = draw_threads_barrier,
-      .broadcast_memory = &render_lane_broadcast_val,
+      .barrier = sw_render_threads_barrier,
+      .broadcast_memory = &sw_render_lane_broadcast_val,
     };
 
-    app_threads[idx] = try .launch(app_thread_entry, &app_thread_lctxs[idx]);
-    draw_threads[idx] = try .launch(draw_thread_entry, &draw_thread_lctxs[idx]);
+    sw_render_threads[idx] = try .launch(sw_render_thread_entry, &sw_render_thread_lctxs[idx]);
   }
 
-  for (app_threads) |app_thread| {
-    app_thread.join();
+  while (!app_state.should_exit()) {
+    update();
   }
-  app_log.info("all app threads joined", .{});
 
-  for (draw_threads) |draw_thread| {
-    draw_thread.join();
+  for (sw_render_threads) |sw_render_thread| {
+    sw_render_thread.join();
   }
-  std.log.info("all render threads joined", .{});
+  app_log.info("Software render threads joined", .{});
 }
 
-fn app_thread_entry(lctx: *Thread.LaneContext) void {
-  Thread.ctx_init();
-  defer Thread.ctx_release();
-
-  Thread.lane_ctx(lctx.*);
-  Thread.set_namef("app_lane_{d}", .{Thread.lane_idx()});
+fn update() void {
   const connection = app_state.wayland_state.connection;
 
-  while (true) {
-    if (Thread.lane_idx() == 0) {
-      var attempts: u16 = 0;
-      while (attempts < 5) : (attempts += 1) {
-        connection.load_events() catch |err| {
-          switch (err) {
-            error.NoData => {},
-            error.SocketReadFailed => {},
-            else => {
-              std.log.err("Failed to load wayland events :: {s}", .{@errorName(err)});
-              break;
-            },
-          }
-        };
-        while (connection.event()) |event| {
-          handle_wl_event(app_state.wayland_state, &event) catch |err| {
-            std.log.err("Failed to handle wayland event :: {s}", .{@errorName(err)});
-          };
-        }
-        app_state.wayland_state.connection.flush() catch |err| {
-          std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
-          app_state.signal_exit();
-        };
-      }
-    }
-
-    Thread.lane_sync();
-
-    if (Thread.lane_idx() == 0) {
-      if (app_state.swapchain.present_idx) |active_frame_idx| {
-        const wl_surface = app_state.wayland_state.wl_surface;
-        const proxy = app_state.wayland_state.proxy;
-        const width = app_state.swapchain.width;
-        const height = app_state.swapchain.height;
-        wl_surface.attach(proxy, .{
-          .buffer = app_state.swapchain.buffers[active_frame_idx],
-          .x = 0,
-          .y = 0,
-        }) catch unreachable;
-        wl_surface.damage_buffer(proxy, .{
-          .x = 0,
-          .y = 0,
-          .width = @intCast(width),
-          .height = @intCast(height),
-        }) catch unreachable;
-        wl_surface.commit(proxy) catch unreachable;
-        app_state.wayland_state.connection.flush() catch |err| {
-          app_log.err("App quitting due to error :: {s}", .{
-            @errorName(err),
-          });
-          app_state.signal_exit();
-        };
-      }
-    }
-
-    Thread.lane_sync();
-    var need_exit: bool = false;
-    if (Thread.lane_idx() == 0) {
-      need_exit = app_state.should_exit();
-    }
-    Thread.lane_sync_u64(bool, &need_exit, 0);
-    if (need_exit) {
-      break;
-    }
+  while (connection.event()) |event| {
+    handle_wl_event(app_state.wayland_state, &event) catch |err| {
+      std.log.err("Failed to handle wayland event :: {s}", .{@errorName(err)});
+    };
   }
+
+  app_state.wayland_state.connection.flush() catch |err| {
+    std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
+    app_state.signal_exit();
+  };
+
+  if (app_state.swapchain.present_idx) |active_frame_idx| {
+    const wl_surface = app_state.wayland_state.wl_surface;
+    const proxy = app_state.wayland_state.proxy;
+    const width = app_state.swapchain.width;
+    const height = app_state.swapchain.height;
+    wl_surface.attach(proxy, .{
+      .buffer = app_state.swapchain.buffers[active_frame_idx],
+      .x = 0,
+      .y = 0,
+    }) catch unreachable;
+    wl_surface.damage_buffer(proxy, .{
+      .x = 0,
+      .y = 0,
+      .width = @intCast(width),
+      .height = @intCast(height),
+    }) catch unreachable;
+    wl_surface.commit(proxy) catch unreachable;
+    app_state.wayland_state.connection.flush() catch |err| {
+      app_log.err("App quitting due to error :: {s}", .{
+        @errorName(err),
+      });
+      app_state.signal_exit();
+    };
+  }
+  connection.load_events() catch {};
 }
 
-fn draw_thread_entry(lctx: *Thread.LaneContext) void {
+fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
   Thread.ctx_init();
   defer Thread.ctx_release();
 
