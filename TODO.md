@@ -1,18 +1,27 @@
+# Project TODOs
+
+- [-] Platfom Layer
+- [-] Software Rendering
+
+# Platform Layer
+
+- [ ] Platform-independent event queue
+- [ ] Platform-independent software render swapchain API
+- [ ] Remove need for explicit wayland-state tracking in application code
+
 # Software Rendering
 
-- Separate Wayland-specifics from main application code
-- Basic Lighting
-- Rasterizing
-- 3D models
+- [ ] Receive commands from logic thread(s?)
+- [ ] Computer Graphics From Scratch - Rasterizing
 
-# Project Structure
 
-- Wayland protocol codegen tool should depend on platform for thread context
-- Platform support for Win32 so I can work on the rendering side of things regardless of booted system.
-- Unified events system (using comptime for Win32 vs Wayland)
+## Computer Graphics From Scratch - Rasterizing
 
-# Application Logic
-
-- App build on from platform
-- Separate start logic per-platform
-- Support IPC ?
+- [ ] Line Drawing
+- [ ] Triangles
+- [ ] Perspective Projection
+- [ ] Rendering a Scene
+- [ ] Clipping
+- [ ] Hidden Surface Removal
+- [ ] Shading
+- [ ] Textures
