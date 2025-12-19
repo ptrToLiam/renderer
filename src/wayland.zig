@@ -14,6 +14,8 @@ pub const WindowHandle = struct {
   xdg_surface: Protocols.XdgShell.Surface,
   xdg_toplevel: Protocols.XdgShell.Toplevel,
 
+  // TODO: Make window handle come later?
+  // -- maybe make 
   pub fn create(
     arena: *Arena,
     params: struct {
@@ -37,6 +39,10 @@ pub const WindowHandle = struct {
     try conn.flush();
 
     // Bind interfaces
+    // TODO: Re-think bind stage?
+    // - possibly just async window handle return?
+    // - return window handle that *should* be valid at first use?
+    // - quietly handle binding in regular event handling?
     const wl_seat, const wl_compositor, const xdg_wm_base, const wl_shm = bind: {
       var read_success = false;
       while (!read_success) load_loop: {
@@ -161,7 +167,6 @@ pub const WindowHandle = struct {
   pub fn destroy(window: *WindowHandle) void {
     defer window.conn.close();
   }
-
 };
 
 pub const WireEvent = struct {
@@ -184,14 +189,14 @@ pub const Connection = struct {
   idx_free_queue: IndexFreeQueue = .{},
   cur_idx: u32 = 2,
   objects: []Protocols.Object,
-  in_buf: [2048]u8 = @splat(0),
-  in_buf_idx: u32 = 0,
+  
+  buf_in: ShiftBuffer,
+  buf_fd_in: ShiftBuffer,
+  
   out_buf: [2048]u8 = @splat(0),
   out_buf_idx: usize = 0,
   fd_out_buf: [256]u8 = @splat(0),
   fd_out_buf_idx: usize = 0,
-  fd_in_buf: [256]u8 = @splat(0),
-  fd_in_buf_idx: usize = 0,
 
   pub fn open(arena: *Arena) !Connection {
     const temp = Thread.Context.get_scratch(1, .{arena}).?;
@@ -233,12 +238,17 @@ pub const Connection = struct {
 
     const objects = arena.push(Protocols.Object, 256);
     objects[display.toInt()] = display.object();
+    
+    const shift_in_backing_buf = arena.push(u8, 2048);
+    const shift_fd_in_backing_buf = arena.push(u8, 2048);
 
     return .{
       .handle = sockfd,
       .addr = addr,
       .display = .fromInt(1),
       .objects = objects,
+      .buf_in = .{ .buf = shift_in_backing_buf },
+      .buf_fd_in = .{ .buf = shift_fd_in_backing_buf },
     };
   }
 
@@ -277,6 +287,7 @@ pub const Connection = struct {
         @memset(connection.fd_out_buf[0..], 0);
         connection.fd_out_buf_idx = 0;
       }
+      
       const iov = [_]posix.iovec_const{
         .{
             .base = connection.out_buf[0..].ptr,
@@ -298,12 +309,18 @@ pub const Connection = struct {
     }
   }
 
-  // TODO: rewrite to actually use shiftbuf indices
+  // TODO: rewrite to actually use indices and shift back data from partial reads
   pub fn load_events(conn: *Connection) !void {
+    conn.buf_in.shift_back();
+    conn.buf_fd_in.shift_back();
+
+    const write_in_buf = conn.buf_in.buf[conn.buf_in.write..];
+    const write_in_fd_buf = conn.buf_fd_in.buf[conn.buf_fd_in.write..];
+    
     var iov = [_]posix.iovec{
       .{
-        .base = conn.in_buf[0..].ptr,
-        .len = conn.in_buf[0..].len,
+        .base = write_in_buf.ptr,
+        .len = write_in_buf.len,
       },
     };
 
@@ -312,8 +329,8 @@ pub const Connection = struct {
       .namelen = 0,
       .iov = &iov,
       .iovlen = @intCast(iov.len),
-      .control = conn.fd_in_buf[0..].ptr,
-      .controllen = conn.fd_in_buf[conn.fd_in_buf_idx..].len,
+      .control = write_in_fd_buf.ptr,
+      .controllen = write_in_fd_buf.len,
       .flags = 0,
     };
 
@@ -338,33 +355,39 @@ pub const Connection = struct {
     // Control messages
     {
       var cmsg_iter = linux.cmsghdr.iter(
-        conn.fd_in_buf[conn.fd_in_buf_idx..][0..message.controllen],
+        write_in_fd_buf[conn.buf_fd_in.read..][0..message.controllen],
       );
 
       while (cmsg_iter.next()) |cmsg_header| {
         if (cmsg_header.type == posix.SOL.SOCKET and
           cmsg_header.level == linux.SCM_RIGHTS)
         {
-          log.debug("Found file descriptor of value :: {d}", .{cmsg_header.data(posix.fd_t).*});
           conn.fd_queue_in.push(cmsg_header.data(posix.fd_t).*);
         }
       }
     }
+    log.debug("load_events :: bytes_read={d}", .{bytes_read});
 
     // Standard wire events
     {
       var idx: u32 = 0;
-      const event_buf = conn.in_buf[0..bytes_read];
-      while (idx < bytes_read) {
+      
+      conn.buf_in.write += bytes_read;
+      const event_buf = conn.buf_in.buf[0..conn.buf_in.write];
+            
+      defer conn.buf_in.read = idx;
+      while (idx < conn.buf_in.write) {
         const event_bytes = event_buf[idx..];
 
         if (event_bytes.len < @sizeOf(WireEvent.Header)) {
-          log.debug("Not enough space for header", .{});
+          log.debug(
+            "Not enough space for header (have {d} bytes, need {d} @ read_idx={d})",
+            .{ event_bytes.len, @sizeOf(WireEvent.Header), idx }
+          );
           break;
         }
 
         const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
-        defer idx += header.len;
 
         if (header.len > event_bytes.len) {
           log.debug("Not enough space for data", .{});
@@ -373,9 +396,23 @@ pub const Connection = struct {
             header.op,
             header.len,
           });
-          log.debug("Bytes Read :: {d}", .{bytes_read});
+          log.debug(
+            "event_bytes len :: {d}",
+            .{ event_bytes.len }
+          );
+          log.debug(
+            "connection buf_in :: {{ .read={d}, .write={d} }}",
+            .{ conn.buf_in.read, conn.buf_in.write}
+          );
           break;
         } else {
+          defer idx += header.len;
+          log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
+            header.id,
+            header.op,
+            header.len,
+          });
+            
           const parsed_event = try conn.objects[header.id].parse_msg(
             &conn.proxy(),
             header.op,
@@ -927,6 +964,7 @@ test "Proxied Event Parse" {
 const linux = os.linux;
 const Arena = base.Arena;
 const Thread = base.Thread;
+const ShiftBuffer = base.ShiftBuffer;
 
 const testing = std.testing;
 const log = std.log.scoped(.WaylandConnection);

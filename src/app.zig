@@ -82,11 +82,28 @@ pub fn main_entry() !void {
 }
 
 fn update() void {
+  const fixed_time_target = std.time.ns_per_us * 100;
   const connection = app_state.wayland_state.connection;
-
+  
+  const update_tick_begin_time = std.time.microTimestamp();
+  
+  defer {
+    const update_tick_end_time = std.time.microTimestamp();
+    const elapsed_us = update_tick_end_time - update_tick_begin_time;
+    app_log.info("update step duration :: {d}us", .{elapsed_us});
+    const elapsed_ns = elapsed_us * std.time.ns_per_us;
+    const elapsed_to_target_diff = fixed_time_target - elapsed_ns;
+    if (elapsed_to_target_diff > 0) {
+      Thread.sleep(@intCast(elapsed_to_target_diff));
+    }
+  }
+  
+  connection.load_events() catch {};
+  
   while (connection.event()) |event| {
+    std.log.debug("received event :: {any}", .{event});
     handle_wl_event(app_state.wayland_state, &event) catch |err| {
-      std.log.err("Failed to handle wayland event :: {s}", .{@errorName(err)});
+      std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
     };
   }
 
@@ -119,7 +136,6 @@ fn update() void {
       app_state.signal_exit();
     };
   }
-  connection.load_events() catch {};
 }
 
 fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
@@ -132,14 +148,18 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
   var img: []gfx.Pixel = undefined;
   var frame_idx: u64 = 0;
   while (true) : (frame_idx += 1) {
-    img = app_state.swapchain.images[frame_idx % app_state.swapchain.images.len];
+    const sc_len = app_state.swapchain.images.len;
+    const mod_frame_idx = frame_idx % sc_len;
+    
+    img = app_state.swapchain.images[mod_frame_idx];
+  
     const rng = Thread.lane_range(img.len);
     for (rng.min..rng.max) |idx| {
       img[idx] = @bitCast(gfx.Color.black);
     }
     if (Thread.lane_idx() == 0) {
-      app_state.swapchain.active[frame_idx % 3] = true;
-      app_state.swapchain.present_idx = @intCast(frame_idx % 3);
+      app_state.swapchain.active[mod_frame_idx] = true;
+      app_state.swapchain.present_idx = @intCast(mod_frame_idx);
     }
 
     Thread.lane_sync();

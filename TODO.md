@@ -1,7 +1,8 @@
 # Project TODOs
 
-- [-] Platfom Layer
-- [-] Software Rendering
+- [ ] Fix Wayland Event Loading
+- [ ] Platfom Layer
+- [ ] Software Rendering
 
 # Platform Layer
 
