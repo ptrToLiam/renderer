@@ -1,14 +1,15 @@
 const AppName = "Renderer";
 
 pub var app_state: AppState = undefined;
+pub var allow_resize: bool = false;
 
 pub fn main_entry() !void {
   const app_name = "LmDev-" ++ AppName;
   const arena: *Arena = .init(.default);
   defer arena.release();
 
-  const initial_width = 400;
-  const initial_height = 400;
+  const initial_width = 540;
+  const initial_height = 360;
 
   var window: gfx.Window = try .create(
     arena,
@@ -143,19 +144,21 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
 
   Thread.lane_ctx(lctx.*);
   Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
-
+  
+  const target_frame_time = 8 * std.time.ns_per_ms;
   var img: []gfx.Pixel = undefined;
   var frame_idx: u64 = 0;
   while (true) : (frame_idx += 1) {
+    const frame_time_begin = std.time.nanoTimestamp();
     const sc_len = app_state.swapchain.images.len;
     const mod_frame_idx = frame_idx % sc_len;
     
     img = app_state.swapchain.images[mod_frame_idx];
   
     const rng = Thread.lane_range(img.len);
-    for (rng.min..rng.max) |idx| {
-      img[idx] = @bitCast(gfx.Color.black);
-    }
+    
+    @memset(img[rng.min..rng.max], @bitCast(gfx.Color.black));
+    
     if (Thread.lane_idx() == 0) {
       app_state.swapchain.active[mod_frame_idx] = true;
       app_state.swapchain.present_idx = @intCast(mod_frame_idx);
@@ -169,6 +172,12 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
     Thread.lane_sync_u64(bool, &need_exit, 0);
     if (need_exit) {
       break;
+    } else {
+      const frame_time_elapsed = std.time.nanoTimestamp() - frame_time_begin;
+      const elapsed_to_target = target_frame_time - frame_time_elapsed;
+      if (elapsed_to_target > 0) {
+        Thread.sleep(@intCast(elapsed_to_target));
+      }
     }
   }
 }
@@ -227,7 +236,7 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
     },
     .xdg_toplevel => |xdg_toplevel_event| switch (xdg_toplevel_event) {
       .configure => |configure| {
-        if (configure.width > 0) {
+        if (configure.width > 0 and allow_resize) {
           try app_state.swapchain.resize(configure.width, configure.height);
         }
       },
