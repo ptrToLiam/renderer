@@ -447,7 +447,7 @@ pub fn main() !void {
                     if (returns_new_id_comptime) {
                       try out_contents.writer.print(
                         \\ .{{ .string = InterfaceT.InterfaceName }},
-                        \\ .{{ .uint = params.interface_version }},
+                        \\ .{{ .uint = @min(params.interface_version, InterfaceT.InterfaceVersion) }},
                         \\
                       , .{});
                     }

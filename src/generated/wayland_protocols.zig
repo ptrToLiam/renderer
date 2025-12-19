@@ -255,7 +255,7 @@ pub const Wayland = struct {
                 &.{
                     .{ .uint = params.name },
                     .{ .string = InterfaceT.InterfaceName },
-                    .{ .uint = params.interface_version },
+                    .{ .uint = @min(params.interface_version, InterfaceT.InterfaceVersion) },
                     .{ .new_id = result.toInt() },
                 },
             );
@@ -883,6 +883,26 @@ pub const Wayland = struct {
                 avuy8888 = 0x59555641,
                 xvuy8888 = 0x59555658,
                 p030 = 0x30333050,
+                rgb161616 = 0x38344752,
+                bgr161616 = 0x38344742,
+                r16f = 0x48202052,
+                gr1616f = 0x48205247,
+                bgr161616f = 0x48524742,
+                r32f = 0x46202052,
+                gr3232f = 0x46205247,
+                bgr323232f = 0x46524742,
+                abgr32323232f = 0x46384241,
+                nv20 = 0x3032564e,
+                nv30 = 0x3033564e,
+                s010 = 0x30313053,
+                s210 = 0x30313253,
+                s410 = 0x30313453,
+                s012 = 0x32313053,
+                s212 = 0x32313253,
+                s412 = 0x32313453,
+                s016 = 0x36313053,
+                s216 = 0x36313253,
+                s416 = 0x36313453,
 
                 pub inline fn fromInt(int: u32) Format {
                     return @enumFromInt(int);
@@ -5485,7 +5505,7 @@ pub const XdgShell = struct {
         pub const Event = WmBaseEvent;
         pub const Enum = WmBaseEnum;
         pub const InterfaceName = "xdg_wm_base";
-        pub const InterfaceVersion = 6;
+        pub const InterfaceVersion = 7;
     };
 
     /// The xdg_positioner provides a collection of rules for the placement of a
@@ -5785,7 +5805,7 @@ pub const XdgShell = struct {
 
         pub const Enum = PositionerEnum;
         pub const InterfaceName = "xdg_positioner";
-        pub const InterfaceVersion = 6;
+        pub const InterfaceVersion = 7;
     };
 
     /// An interface that may be implemented by a wl_surface, for
@@ -6026,7 +6046,7 @@ pub const XdgShell = struct {
         pub const Event = SurfaceEvent;
         pub const Enum = SurfaceEnum;
         pub const InterfaceName = "xdg_surface";
-        pub const InterfaceVersion = 6;
+        pub const InterfaceVersion = 7;
     };
 
     /// This interface defines an xdg_surface role which allows a surface to,
@@ -6501,6 +6521,10 @@ pub const XdgShell = struct {
                 tiled_top = 7,
                 tiled_bottom = 8,
                 suspended = 9,
+                constrained_left = 10,
+                constrained_right = 11,
+                constrained_top = 12,
+                constrained_bottom = 13,
 
                 pub inline fn fromInt(int: u32) State {
                     return @enumFromInt(int);
@@ -6522,7 +6546,7 @@ pub const XdgShell = struct {
         pub const Event = ToplevelEvent;
         pub const Enum = ToplevelEnum;
         pub const InterfaceName = "xdg_toplevel";
-        pub const InterfaceVersion = 6;
+        pub const InterfaceVersion = 7;
     };
 
     /// A popup surface is a short-lived, temporary surface. It can be used to
@@ -6754,7 +6778,7 @@ pub const XdgShell = struct {
         pub const Event = PopupEvent;
         pub const Enum = PopupEnum;
         pub const InterfaceName = "xdg_popup";
-        pub const InterfaceVersion = 6;
+        pub const InterfaceVersion = 7;
     };
 };
 
