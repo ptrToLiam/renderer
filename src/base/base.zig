@@ -2,7 +2,6 @@ pub const Arena = @import("Arena.zig");
 pub const math = @import("math.zig");
 pub const Thread = @import("Thread.zig");
 
-
 /// Requires backing buffer to be of a power of 2 length.
 pub const RingBuffer = struct {
   buf: []u8,
@@ -35,7 +34,8 @@ pub const ShiftBuffer = struct {
     DebugAssert(!(sb.read > sb.write), "ShiftBuffer illegal indices on shift");
     
     const new_write_idx = sb.write - sb.read;
-    @memmove(sb.buf[sb.read..sb.write], sb.buf[0..new_write_idx]);
+    @memmove(sb.buf[0..new_write_idx], sb.buf[sb.read..sb.write]);
+    @memset(sb.buf[new_write_idx..], 0);
     sb.write = new_write_idx;
   }
 };

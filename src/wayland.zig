@@ -169,15 +169,10 @@ pub const WindowHandle = struct {
   }
 };
 
-pub const WireEvent = struct {
-  header: Header,
-  data: []const u8,
-
-  const Header = packed struct(u64) {
-    id: u32,
-    op: u16,
-    len: u16,
-  };
+pub const WireEventHeader = packed struct(u64) {
+  id: u32,
+  op: u16,
+  len: u16,
 };
 
 pub const Connection = struct {
@@ -339,6 +334,7 @@ pub const Connection = struct {
       &message,
       linux.MSG.DONTWAIT,
     );
+    
     if (rc > iov[0].len) {
       const err = posix.errno(rc);
       switch (err) {
@@ -349,6 +345,9 @@ pub const Connection = struct {
           return error.SocketReadFailed;
         },
       }
+    } else if (rc == 0) {
+      log.warn("rc==0!", .{});
+      return error.SocketClosed;
     }
 
     const bytes_read: u32 = @intCast(rc);
@@ -370,53 +369,42 @@ pub const Connection = struct {
 
     // Standard wire events
     {
-      var idx: u32 = 0;
-      
       conn.buf_in.write += bytes_read;
-      const event_buf = conn.buf_in.buf[0..conn.buf_in.write];
-            
-      defer conn.buf_in.read = idx;
-      while (idx < conn.buf_in.write) {
-        const event_bytes = event_buf[idx..];
-
-        if (event_bytes.len < @sizeOf(WireEvent.Header)) {
+      while (conn.buf_in.read < conn.buf_in.write) {
+        const space_available = conn.buf_in.write - conn.buf_in.read;
+        if (space_available < @sizeOf(WireEventHeader)) {
           log.debug(
             "Not enough space for header (have {d} bytes, need {d} @ read_idx={d})",
-            .{ event_bytes.len, @sizeOf(WireEvent.Header), idx }
+            .{ space_available, @sizeOf(WireEventHeader), conn.buf_in.read }
           );
           break;
         }
 
-        const header: WireEvent.Header = std.mem.bytesToValue(WireEvent.Header, event_bytes[0..@sizeOf(WireEvent.Header)]);
+        const header: WireEventHeader = std.mem.bytesToValue(
+          WireEventHeader,
+          conn.buf_in.buf[conn.buf_in.read..][0..@sizeOf(WireEventHeader)]
+        );
 
-        if (header.len > event_bytes.len) {
+        if (header.len > space_available) {
           log.debug("Not enough space for data", .{});
           log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
             header.id,
             header.op,
             header.len,
           });
-          log.debug(
-            "event_bytes len :: {d}",
-            .{ event_bytes.len }
-          );
-          log.debug(
-            "connection buf_in :: {{ .read={d}, .write={d} }}",
-            .{ conn.buf_in.read, conn.buf_in.write}
-          );
           break;
-        } else {
-          defer idx += header.len;
+        } else {       
+          defer conn.buf_in.read += header.len;   
           log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
             header.id,
             header.op,
             header.len,
           });
-            
+
           const parsed_event = try conn.objects[header.id].parse_msg(
             &conn.proxy(),
             header.op,
-            event_bytes[@sizeOf(WireEvent.Header)..header.len],
+            conn.buf_in.buf[conn.buf_in.read..][@sizeOf(WireEventHeader)..header.len],
           );
           conn.ev_queue_in.push(parsed_event);
         }
@@ -451,6 +439,7 @@ pub const Connection = struct {
   fn msg_parse(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) !void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
     var offset: u32 = 0;
+
     for (args_out) |*arg| {
       switch (arg.*) {
         .fd => |*arg_fd| {
@@ -478,8 +467,9 @@ pub const Connection = struct {
           const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
           offset += 4;
           const rounded_len = round_up(str_len, 4);
-          string_arg.* = @ptrCast(data[offset..][0 .. str_len - 1 :0]);
-          offset += rounded_len;
+          
+          string_arg.* = @ptrCast(data[offset..][0..(str_len - 1):0]);
+          defer offset += rounded_len;
         },
         .array => |*array_arg| {
           const arr_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
@@ -494,7 +484,7 @@ pub const Connection = struct {
 
   fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) Protocols.WriteError!void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
-    var msg_len: u16 = @sizeOf(WireEvent.Header);
+    var msg_len: u16 = @sizeOf(WireEventHeader);
     for (args) |arg_opt| {
       if (arg_opt) |arg| switch (arg) {
         .int, .uint, .fixed, .object, .new_id, .@"enum" => msg_len += @sizeOf(u32),
@@ -513,14 +503,14 @@ pub const Connection = struct {
       };
     }
 
-    const header: WireEvent.Header = .{
+    const header: WireEventHeader = .{
       .id = id,
       .op = op,
       .len = msg_len,
     };
 
-    @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(WireEvent.Header)], std.mem.asBytes(&header));
-    connection.out_buf_idx += @sizeOf(WireEvent.Header);
+    @memcpy(connection.out_buf[connection.out_buf_idx..][0..@sizeOf(WireEventHeader)], std.mem.asBytes(&header));
+    connection.out_buf_idx += @sizeOf(WireEventHeader);
     for (args) |arg_opt| {
       if (arg_opt) |arg| arg: switch (arg) {
         .uint, .new_id, .object => |uint_arg| {

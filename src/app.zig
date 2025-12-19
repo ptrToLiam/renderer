@@ -101,7 +101,6 @@ fn update() void {
   connection.load_events() catch {};
   
   while (connection.event()) |event| {
-    std.log.debug("received event :: {any}", .{event});
     handle_wl_event(app_state.wayland_state, &event) catch |err| {
       std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
     };
@@ -183,6 +182,20 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
         });
       },
       .delete_id => {},
+    },
+    .wl_registry => |registry_event| switch (registry_event) {
+      .global => |registry_global| {
+        event_log.debug(
+          "Registry Global :: {{ .interface={s}, .name={d}, .version = {d} }}",
+          .{ registry_global.interface, registry_global.name, registry_global.version, }
+        );
+      },
+      .global_remove => |global_remove| {
+        event_log.debug(
+          "Registry Global Remove :: {{ .name={d} }}",
+          .{ global_remove.name }
+        );
+      },
     },
     .wl_seat => |seat_event| switch (seat_event) {
       .capabilities => |seat_capabilities| {
