@@ -83,24 +83,23 @@ pub fn main_entry() !void {
 }
 
 fn update() void {
-  const fixed_time_target = std.time.ns_per_us * 100;
+  const fixed_time_target = std.time.us_per_ms;
   const connection = app_state.wayland_state.connection;
-  
+
   const update_tick_begin_time = std.time.microTimestamp();
-  
+
   defer {
     const update_tick_end_time = std.time.microTimestamp();
     const elapsed_us = update_tick_end_time - update_tick_begin_time;
-    app_log.info("update step duration :: {d}us", .{elapsed_us});
-    const elapsed_ns = elapsed_us * std.time.ns_per_us;
-    const elapsed_to_target_diff = fixed_time_target - elapsed_ns;
+    const elapsed_to_target_diff = fixed_time_target - elapsed_us;
     if (elapsed_to_target_diff > 0) {
-      Thread.sleep(@intCast(elapsed_to_target_diff));
+      const sleep_target_ns = elapsed_to_target_diff * std.time.ns_per_us;
+      Thread.sleep(@intCast(sleep_target_ns));
     }
   }
-  
+
   connection.load_events() catch {};
-  
+
   while (connection.event()) |event| {
     handle_wl_event(app_state.wayland_state, &event) catch |err| {
       std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
@@ -144,21 +143,29 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
 
   Thread.lane_ctx(lctx.*);
   Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
-  
-  const target_frame_time = 8 * std.time.ns_per_ms;
+
   var img: []gfx.Pixel = undefined;
-  var frame_idx: u64 = 0;
-  while (true) : (frame_idx += 1) {
-    const frame_time_begin = std.time.nanoTimestamp();
+  var frame_number: u32 = 0;
+  const target_frame_time_us: i64 = std.time.us_per_ms * 16;
+
+  while (true) : (frame_number +%= 1) {
+    const frame_time_begin_us: i64 = std.time.microTimestamp();
+    defer {
+      const frame_time_end_us: i64 = std.time.microTimestamp();
+      const frame_time_diff_us = frame_time_end_us - frame_time_begin_us;
+
+      const sleep_time: i64 = @max(target_frame_time_us - frame_time_diff_us, 0);
+      Thread.sleep(@intCast(sleep_time));
+    }
     const sc_len = app_state.swapchain.images.len;
-    const mod_frame_idx = frame_idx % sc_len;
-    
+    const mod_frame_idx = frame_number % sc_len;
+
     img = app_state.swapchain.images[mod_frame_idx];
-  
+
     const rng = Thread.lane_range(img.len);
-    
+
     @memset(img[rng.min..rng.max], @bitCast(gfx.Color.black));
-    
+
     if (Thread.lane_idx() == 0) {
       app_state.swapchain.active[mod_frame_idx] = true;
       app_state.swapchain.present_idx = @intCast(mod_frame_idx);
@@ -172,12 +179,6 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
     Thread.lane_sync_u64(bool, &need_exit, 0);
     if (need_exit) {
       break;
-    } else {
-      const frame_time_elapsed = std.time.nanoTimestamp() - frame_time_begin;
-      const elapsed_to_target = target_frame_time - frame_time_elapsed;
-      if (elapsed_to_target > 0) {
-        Thread.sleep(@intCast(elapsed_to_target));
-      }
     }
   }
 }

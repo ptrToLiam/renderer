@@ -15,7 +15,7 @@ pub const WindowHandle = struct {
   xdg_toplevel: Protocols.XdgShell.Toplevel,
 
   // TODO: Make window handle come later?
-  // -- maybe make 
+  // -- maybe make
   pub fn create(
     arena: *Arena,
     params: struct {
@@ -184,10 +184,10 @@ pub const Connection = struct {
   idx_free_queue: IndexFreeQueue = .{},
   cur_idx: u32 = 2,
   objects: []Protocols.Object,
-  
+
   buf_in: ShiftBuffer,
   buf_fd_in: ShiftBuffer,
-  
+
   out_buf: [2048]u8 = @splat(0),
   out_buf_idx: usize = 0,
   fd_out_buf: [256]u8 = @splat(0),
@@ -233,7 +233,7 @@ pub const Connection = struct {
 
     const objects = arena.push(Protocols.Object, 256);
     objects[display.toInt()] = display.object();
-    
+
     const shift_in_backing_buf = arena.push(u8, 2048);
     const shift_fd_in_backing_buf = arena.push(u8, 2048);
 
@@ -282,7 +282,7 @@ pub const Connection = struct {
         @memset(connection.fd_out_buf[0..], 0);
         connection.fd_out_buf_idx = 0;
       }
-      
+
       const iov = [_]posix.iovec_const{
         .{
             .base = connection.out_buf[0..].ptr,
@@ -311,7 +311,7 @@ pub const Connection = struct {
 
     const write_in_buf = conn.buf_in.buf[conn.buf_in.write..];
     const write_in_fd_buf = conn.buf_fd_in.buf[conn.buf_fd_in.write..];
-    
+
     var iov = [_]posix.iovec{
       .{
         .base = write_in_buf.ptr,
@@ -334,7 +334,7 @@ pub const Connection = struct {
       &message,
       linux.MSG.DONTWAIT,
     );
-    
+
     if (rc > iov[0].len) {
       const err = posix.errno(rc);
       switch (err) {
@@ -365,7 +365,6 @@ pub const Connection = struct {
         }
       }
     }
-    log.debug("load_events :: bytes_read={d}", .{bytes_read});
 
     // Standard wire events
     {
@@ -393,14 +392,8 @@ pub const Connection = struct {
             header.len,
           });
           break;
-        } else {       
-          defer conn.buf_in.read += header.len;   
-          log.debug("Header :: {{ .id={d}, .op={d}, .len={d} }}", .{
-            header.id,
-            header.op,
-            header.len,
-          });
-
+        } else {
+          defer conn.buf_in.read += header.len;
           const parsed_event = try conn.objects[header.id].parse_msg(
             &conn.proxy(),
             header.op,
@@ -467,7 +460,7 @@ pub const Connection = struct {
           const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
           offset += 4;
           const rounded_len = round_up(str_len, 4);
-          
+
           string_arg.* = @ptrCast(data[offset..][0..(str_len - 1):0]);
           defer offset += rounded_len;
         },

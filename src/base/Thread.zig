@@ -76,6 +76,7 @@ pub inline fn lane_sync_us_timed() void {
 }
 
 pub const sleep = Impl.sleep;
+pub const yield = Impl.yield;
 
 pub const Context = struct {
   arenas: [2]*Arena,
@@ -86,33 +87,33 @@ pub const Context = struct {
   lane_ctx: LaneContext,
 
   pub fn init() *Context {
-  const arena: *Arena = .init(.default);
-  const ctx: *Context = arena.create(Context);
-  ctx.* = .{
-    .arenas = .{
-    arena,
-    .init(.default),
-    },
-    .name = undefined,
-    .name_len = undefined,
-    .lane_ctx = .{
-    .lane_idx = undefined,
-    .lane_count = 1,
-    .barrier = undefined,
-    .broadcast_memory = undefined,
-    },
-  };
+    const arena: *Arena = .init(.default);
+    const ctx: *Context = arena.create(Context);
+    ctx.* = .{
+      .arenas = .{
+      arena,
+      .init(.default),
+      },
+      .name = undefined,
+      .name_len = undefined,
+      .lane_ctx = .{
+      .lane_idx = undefined,
+      .lane_count = 1,
+      .barrier = undefined,
+      .broadcast_memory = undefined,
+      },
+    };
 
-  return ctx;
+    return ctx;
   }
 
   pub fn release(ctx: *Context) void {
-  ctx.arenas[1].release();
-  ctx.arenas[0].release();
+    ctx.arenas[1].release();
+    ctx.arenas[0].release();
   }
 
   pub fn get_lane_ctx() LaneContext {
-  return tctx.lane_ctx;
+    return tctx.lane_ctx;
   }
 
   pub fn lane_barrier_wait(broadcast_ptr: usize, broadcast_size: u64, broadcast_src_lane_idx: u64) void {
@@ -136,17 +137,17 @@ pub const Context = struct {
   }
 
   pub fn get_scratch(comptime N: comptime_int, conflicts: [N]*Arena) ?Arena.Temp {
-  var result: ?Arena.Temp = null;
-  outer: for (tctx.arenas) |arena| {
-    result = arena.temp();
-    for (conflicts) |conflict| {
-      if (arena == conflict) {
-        result = null;
-        continue :outer;
+    var result: ?Arena.Temp = null;
+    outer: for (tctx.arenas) |arena| {
+      result = arena.temp();
+      for (conflicts) |conflict| {
+        if (arena == conflict) {
+          result = null;
+          continue :outer;
+        }
       }
     }
-  }
-  return result;
+    return result;
   }
 };
 
@@ -169,6 +170,9 @@ const Impl = struct {
 
   pub fn sleep(ns: u64) void {
     std.Thread.sleep(ns);
+  }
+  pub fn yield() !void {
+    try std.Thread.yield();
   }
 
   pub fn set_name(name: []const u8) void {
@@ -206,7 +210,7 @@ const Impl = struct {
         while (generation_current == gen) {
           generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
           Futex.wait(&barrier.counter, barrier.expected);
-          std.Thread.yield() catch unreachable;
+          Impl.yield() catch unreachable;
         }
       }
     }
