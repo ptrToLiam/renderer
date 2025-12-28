@@ -1,7 +1,7 @@
 const AppName = "Renderer";
 
 pub var app_state: AppState = undefined;
-pub var allow_resize: bool = false;
+pub var allow_resize: bool = true;
 
 pub fn main_entry() !void {
   const app_name = "LmDev-" ++ AppName;
@@ -83,7 +83,7 @@ pub fn main_entry() !void {
 }
 
 fn update() void {
-  const fixed_time_target = std.time.us_per_ms;
+  const fixed_time_target = std.time.us_per_ms * 10;
   const connection = app_state.wayland_state.connection;
 
   const update_tick_begin_time = std.time.microTimestamp();
@@ -116,26 +116,38 @@ fn update() void {
     const proxy = app_state.wayland_state.proxy;
     const width = app_state.swapchain.width;
     const height = app_state.swapchain.height;
-    wl_surface.attach(proxy, .{
-      .buffer = app_state.swapchain.buffers[active_frame_idx],
-      .x = 0,
-      .y = 0,
-    }) catch unreachable;
-    wl_surface.damage_buffer(proxy, .{
-      .x = 0,
-      .y = 0,
-      .width = @intCast(width),
-      .height = @intCast(height),
-    }) catch unreachable;
-    wl_surface.commit(proxy) catch unreachable;
-    app_state.wayland_state.connection.flush() catch |err| {
-      app_log.err("App quitting due to error :: {s}", .{
-        @errorName(err),
-      });
-      app_state.signal_exit();
-    };
+
+    // commit new frame for present
+    {
+      wl_surface.attach(proxy, .{
+        .buffer = app_state.swapchain.buffers[active_frame_idx],
+        .x = 0,
+        .y = 0,
+      }) catch unreachable;
+
+      wl_surface.damage_buffer(proxy, .{
+        .x = 0,
+        .y = 0,
+        .width = @intCast(width),
+        .height = @intCast(height),
+      }) catch unreachable;
+      wl_surface.commit(proxy) catch unreachable;
+
+      app_state.wayland_state.connection.flush() catch |err| {
+        app_log.err("App quitting due to error :: {s}", .{
+          @errorName(err),
+        });
+        app_state.signal_exit();
+      };
+    }
   }
 }
+
+const Point = struct { x: i32, y: i32 };
+
+pub var point0: Point = .{ .x = 200, .y = 100 };
+pub var point1: Point = .{ .x = 100, .y = 400 };
+pub var point2: Point = .{ .x = 300, .y = 400 };
 
 fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
   Thread.ctx_init();
@@ -157,21 +169,44 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
       const sleep_time: i64 = @max(target_frame_time_us - frame_time_diff_us, 0);
       Thread.sleep(@intCast(sleep_time));
     }
+
     const sc_len = app_state.swapchain.images.len;
     const mod_frame_idx = frame_number % sc_len;
 
     img = app_state.swapchain.images[mod_frame_idx];
 
+    const img_width = app_state.swapchain.width;
+    const img_height = app_state.swapchain.height;
+
     const rng = Thread.lane_range(img.len);
 
+    // Clear screen
     @memset(img[rng.min..rng.max], @bitCast(gfx.Color.black));
+    Thread.lane_sync();
 
-    if (Thread.lane_idx() == 0) {
-      app_state.swapchain.active[mod_frame_idx] = true;
-      app_state.swapchain.present_idx = @intCast(mod_frame_idx);
-    }
+    tri_wireframe(
+      point0,
+      point1,
+      point2,
+      img,
+      img_width,
+      img_height,
+      @intCast(rng.min),
+      @intCast(rng.max),
+      .white,
+    );
+    tri_fill(
+      point0,
+      point1,
+      point2,
+      img,
+      img_width,
+      .green,
+    );
+
 
     Thread.lane_sync();
+
     var need_exit: bool = false;
     if (Thread.lane_idx() == 0) {
       need_exit = app_state.should_exit();
@@ -179,6 +214,158 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
     Thread.lane_sync_u64(bool, &need_exit, 0);
     if (need_exit) {
       break;
+    }
+
+    if (Thread.lane_idx() == 0) {
+      app_state.swapchain.active[mod_frame_idx] = true;
+      app_state.swapchain.present_idx = @intCast(mod_frame_idx);
+    }
+  }
+}
+
+fn draw_line(
+  p0: Point,
+  p1: Point,
+  img: []u32,
+  img_width: i32,
+  img_height: i32,
+  min_idx: u32,
+  max_idx: u32,
+  color: gfx.Color,
+  ) void
+{
+  const x0: i32 = @intCast(p0.x);
+  const y0: i32 = @intCast(p0.y);
+  const x1: i32 = @intCast(p1.x);
+  const y1: i32 = @intCast(p1.y);
+
+  const dx: i32 = @intCast(@abs(x1 - x0));
+  const dy: i32 = @intCast(@abs(y1 - y0));
+  var err: i64 = @as(i64, dx) - @as(i64, dy);
+
+  const sx: i32 = if (x0 < x1) 1 else -1;
+  const sy: i32 = if (y0 < y1) 1 else -1;
+
+  var pix_x: i32 = x0;
+  var pix_y: i32 = y0;
+
+  while (true) {
+    if (pix_x >= 0 and pix_x < @as(i32, img_width) and pix_y >= 0 and pix_y < @as(i32, img_height)) {
+      const idx_calc: i64 = @as(i64, pix_y) * @as(i64, img_width) + @as(i64, pix_x);
+      const img_idx: usize = @intCast(idx_calc);
+      if (img_idx >= min_idx and img_idx < max_idx) {
+        img[img_idx] = @bitCast(color);
+      }
+    }
+
+    if (pix_x == x1 and pix_y == y1) break;
+
+    const e2: i64 = 2 * err;
+    if (e2 > -@as(i64, dy)) { err -= @as(i64, dy); pix_x += sx; }
+    if (e2 < @as(i64, dx)) { err += @as(i64, dx); pix_y += sy; }
+  }
+}
+
+fn tri_wireframe(
+  p0: Point,
+  p1: Point,
+  p2: Point,
+  img: []u32,
+  img_width: i32,
+  img_height: i32,
+  min_idx: u32,
+  max_idx: u32,
+  color: gfx.Color,
+) void
+{
+  draw_line(
+    p0,
+    p1,
+    img,
+    img_width,
+    img_height,
+    min_idx,
+    max_idx,
+    color,
+  );
+
+  draw_line(
+    p1,
+    p2,
+    img,
+    img_width,
+    img_height,
+    min_idx,
+    max_idx,
+    color,
+  );
+
+  draw_line(
+    p2,
+    p0,
+    img,
+    img_width,
+    img_height,
+    min_idx,
+    max_idx,
+    color,
+  );
+}
+
+fn signed_tri_area(p0: Point, p1: Point, p2: Point) f64 {
+  return f64_(0.5) * f64_(
+    (p1.y - p0.y) * (p1.x + p0.x) +
+    (p2.y - p1.y) * (p2.x + p1.x) +
+    (p0.y - p2.y) * (p0.x + p2.x)
+  );
+}
+
+pub fn tri_fill(
+  p0: Point,
+  p1: Point,
+  p2: Point,
+  img: []u32,
+  img_width: i32,
+  color: gfx.Color,
+) void
+{
+  const bb_min_x = @min(@min(p0.x, p1.x), p2.x);
+  const bb_min_y = @min(@min(p0.y, p1.y), p2.y);
+  const bb_max_x = @max(@max(p0.x, p1.x), p2.x);
+  const bb_max_y = @max(@max(p0.y, p1.y), p2.y);
+
+  const total_area = signed_tri_area(p0, p1, p2);
+  const x_rng = Thread.lane_range(@intCast(bb_max_x - bb_min_x + 1));
+
+  for (x_rng.min..x_rng.max) |x| {
+    const pix_x = @as(i32, @intCast(x)) + bb_min_x;
+    for (@intCast(bb_min_y)..@intCast(bb_max_y)) |pix_y| {
+      const p_cur: Point = .{ .x = @intCast(pix_x), .y = @intCast(pix_y) };
+      const alpha = signed_tri_area(
+        p_cur,
+        p1,
+        p2
+      ) / total_area;
+      const beta = signed_tri_area(
+        p_cur,
+        p2,
+        p0,
+      ) / total_area;
+      const gamma = signed_tri_area(
+        p_cur,
+        p0,
+        p1,
+      ) / total_area;
+
+      if (alpha < 0 or beta < 0 or gamma < 0) continue;
+      const idx_calc: i64 = (@as(i64, @intCast(pix_y)) * @as(i64, img_width)) + (@as(i64, @intCast(pix_x)));
+      const img_idx: usize = @intCast(idx_calc);
+      if (img_idx > img.len) {
+        @branchHint(.cold);
+        std.log.debug("[lane#{d}] exceeded buffer bounds with idx: {d}", .{ Thread.lane_idx(), img_idx });
+        continue;
+      }
+      img[img_idx] = @bitCast(color);
     }
   }
 }
@@ -269,6 +456,15 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
       event_log.debug("event :: {any}", .{event});
     },
   }
+}
+
+fn f64_(v: anytype) f64 {
+   return switch (@typeInfo(@TypeOf(v))) {
+    .int, .comptime_int => @floatFromInt(v),
+    .float => @floatCast(v),
+    .comptime_float => @as(f64, v),
+    else => @compileError("Invalid type for f64"),
+  };
 }
 
 pub var new_swapchain: ?struct { width: i32, height: i32 } = null;

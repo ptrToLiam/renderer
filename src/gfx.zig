@@ -73,6 +73,12 @@ pub const Color = packed struct(u32) {
   pub const black: Color = .{
     .a = 255,
   };
+  pub const white: Color = .{
+    .r = 255,
+    .g = 255,
+    .b = 255,
+    .a = 255,
+  };
   pub const red: Color = .{
     .r = 255,
     .a = 255,
