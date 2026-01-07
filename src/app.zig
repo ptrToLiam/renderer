@@ -55,6 +55,11 @@ pub fn main_entry() !void {
   const thread_count = std.Thread.getCpuCount() catch 1;
   app_log.info("available thread count :: {d}", .{thread_count});
 
+  sw_render_cmd_queue = .{
+    .buf = arena.push(gfx.Command, 512),
+    .write = 0,
+  };
+
   var sw_render_threads = arena.push(Thread, thread_count);
   var sw_render_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
   const sw_render_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
@@ -82,7 +87,12 @@ pub fn main_entry() !void {
   app_log.info("Software render threads joined", .{});
 }
 
+var cur_draw_img_idx: u16 = 0;
 fn update() void {
+  const frame_scratch = Thread.Context.get_scratch(0, .{}) orelse
+    @panic("update() failed to acquire scratch arena");
+  const frame_arena = frame_scratch.arena;
+  defer frame_arena.clear();
   const fixed_time_target = std.time.us_per_ms * 10;
   const connection = app_state.wayland_state.connection;
 
@@ -98,19 +108,46 @@ fn update() void {
     }
   }
 
-  connection.load_events() catch {};
+  // poll and handle events
+  {
+    connection.load_events() catch {};
 
-  while (connection.event()) |event| {
-    handle_wl_event(app_state.wayland_state, &event) catch |err| {
-      std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
+    while (connection.event()) |event| {
+      handle_wl_event(app_state.wayland_state, &event) catch |err| {
+        std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
+      };
+    }
+
+    app_state.wayland_state.connection.flush() catch |err| {
+      std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
+      app_state.signal_exit();
     };
   }
 
-  app_state.wayland_state.connection.flush() catch |err| {
-    std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
-    app_state.signal_exit();
-  };
+  // issue draw cmds
+  {
+    defer cur_draw_img_idx =
+      @intCast((cur_draw_img_idx+1) % app_state.swapchain.images.len);
 
+    sw_render_cmd_queue.push(.{
+      .renderpass_begin = .{
+        .image_view = .{
+          .image = app_state.swapchain.images[cur_draw_img_idx],
+          .width = app_state.swapchain.width,
+          .height = app_state.swapchain.height,
+        },
+        .image_format = .abgr8888,
+      }
+    });
+
+    sw_render_cmd_queue.push(.{ .temp_draw_tri = {} });
+
+    sw_render_cmd_queue.push(.{
+      .renderpass_end = {}
+    });
+  }
+
+  // frame present
   if (app_state.swapchain.present_idx) |active_frame_idx| {
     const wl_surface = app_state.wayland_state.wl_surface;
     const proxy = app_state.wayland_state.proxy;
@@ -143,13 +180,101 @@ fn update() void {
   }
 }
 
-const Point = struct { x: i32, y: i32 };
+var sw_render_cmd_queue: gfx.CommandQueue = undefined;
 
-pub var point0: Point = .{ .x = 200, .y = 100 };
-pub var point1: Point = .{ .x = 100, .y = 400 };
-pub var point2: Point = .{ .x = 300, .y = 400 };
-
+/// 3D software render entry thread
 fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
+  Thread.ctx_init();
+  defer Thread.ctx_release();
+
+  Thread.lane_ctx(lctx.*);
+  Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
+
+  const target_frame_time_us: i64 = std.time.us_per_ms * 16;
+
+  const scratch = Thread.Context.get_scratch(0, .{}) orelse
+    @panic("Thread failed to access scratch arena");
+
+  var frame_idx: u32 = 0;
+  var cmd_queue_idx: u32 = 0;
+  var img: []gfx.Pixel = undefined;
+  var img_rng: math.Rng2u64 = .{ .min = 0, .max = 0 };
+  var img_width: i32 = 0;
+
+  while (true) : (frame_idx +%= 1) {
+    const frame_time_begin_us: i64 = std.time.microTimestamp();
+    defer {
+      scratch.arena.clear();
+      const frame_time_end_us: i64 = std.time.microTimestamp();
+      const frame_time_diff_us = frame_time_end_us - frame_time_begin_us;
+
+      const sleep_time: i64 = @max(target_frame_time_us - frame_time_diff_us, 0);
+      Thread.sleep(@intCast(sleep_time));
+    }
+    const mod_frame_idx = frame_idx % 3;
+
+    // render cmd handling
+    {
+      while (sw_render_cmd_queue.get_cmd(cmd_queue_idx)) |command| {
+        defer cmd_queue_idx +%= 1;
+
+        // Handle cmds
+        switch (command) {
+          .renderpass_begin => |renderpass| {
+            img = renderpass.image_view.image;
+            img_rng = Thread.lane_range(img.len);
+            img_width = app_state.swapchain.width;
+            @memset(img[img_rng.min..img_rng.max], @bitCast(gfx.Color.red));
+            Thread.lane_sync();
+          },
+          .renderpass_end => |renderpass| {
+            _ = &renderpass;
+          },
+          .temp_draw_tri => {
+            tri_fill_2d(
+              point0_2d,
+              point1_2d,
+              point2_2d,
+              img,
+              img_width,
+              .blue,
+            );
+          },
+          else => @panic("unsupported render cmd..."),
+        }
+      }
+    }
+    // Exit condition check
+    {
+      Thread.lane_sync();
+
+      var need_exit: bool = false;
+      if (Thread.lane_idx() == 0) {
+        need_exit = app_state.should_exit();
+      }
+
+      Thread.lane_sync_u64(bool, &need_exit, 0);
+      if (need_exit) {
+        break;
+      }
+
+      if (Thread.lane_idx() == 0) {
+        app_state.swapchain.active[mod_frame_idx] = true;
+        app_state.swapchain.present_idx = @intCast(mod_frame_idx);
+      }
+    }
+  }
+}
+
+pub var point0_2d: Vec2i32 = .{ .xy = .{ .x = 100, .y = 400 } };
+pub var point1_2d: Vec2i32 = .{ .xy = .{ .x = 200, .y = 100 } };
+pub var point2_2d: Vec2i32 = .{ .xy = .{ .x = 300, .y = 400 } };
+
+pub var Point0: Vec3f32 = .{ .xyz = .{ .x = -0.5, .y = -0.5, .z = 1.0 } };
+pub var Point1: Vec3f32 = .{ .xyz = .{ .x =  0.5, .y = -0.5, .z = 1.0 } };
+pub var Point2: Vec3f32 = .{ .xyz = .{ .x =  0.0, .y =  0.5, .z = 1.0 } };
+
+fn sw_render_thread_entry_2d(lctx: *Thread.LaneContext) void {
   Thread.ctx_init();
   defer Thread.ctx_release();
 
@@ -163,6 +288,7 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
   while (true) : (frame_number +%= 1) {
     const frame_time_begin_us: i64 = std.time.microTimestamp();
     defer {
+      img = undefined;
       const frame_time_end_us: i64 = std.time.microTimestamp();
       const frame_time_diff_us = frame_time_end_us - frame_time_begin_us;
 
@@ -184,10 +310,10 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
     @memset(img[rng.min..rng.max], @bitCast(gfx.Color.black));
     Thread.lane_sync();
 
-    tri_wireframe(
-      point0,
-      point1,
-      point2,
+    tri_wireframe_2d(
+      point0_2d,
+      point1_2d,
+      point2_2d,
       img,
       img_width,
       img_height,
@@ -195,15 +321,15 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
       @intCast(rng.max),
       .white,
     );
-    tri_fill(
-      point0,
-      point1,
-      point2,
+
+    tri_fill_2d(
+      point0_2d,
+      point1_2d,
+      point2_2d,
       img,
       img_width,
       .green,
     );
-
 
     Thread.lane_sync();
 
@@ -223,9 +349,10 @@ fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
   }
 }
 
-fn draw_line(
-  p0: Point,
-  p1: Point,
+// 2D gfx section
+fn draw_line_2d(
+  p0: Vec2i32,
+  p1: Vec2i32,
   img: []u32,
   img_width: i32,
   img_height: i32,
@@ -234,10 +361,10 @@ fn draw_line(
   color: gfx.Color,
   ) void
 {
-  const x0: i32 = @intCast(p0.x);
-  const y0: i32 = @intCast(p0.y);
-  const x1: i32 = @intCast(p1.x);
-  const y1: i32 = @intCast(p1.y);
+  const x0: i32 = @intCast(p0.xy.x);
+  const y0: i32 = @intCast(p0.xy.y);
+  const x1: i32 = @intCast(p1.xy.x);
+  const y1: i32 = @intCast(p1.xy.y);
 
   const dx: i32 = @intCast(@abs(x1 - x0));
   const dy: i32 = @intCast(@abs(y1 - y0));
@@ -266,10 +393,10 @@ fn draw_line(
   }
 }
 
-fn tri_wireframe(
-  p0: Point,
-  p1: Point,
-  p2: Point,
+fn tri_wireframe_2d(
+  p0: Vec2i32,
+  p1: Vec2i32,
+  p2: Vec2i32,
   img: []u32,
   img_width: i32,
   img_height: i32,
@@ -278,7 +405,7 @@ fn tri_wireframe(
   color: gfx.Color,
 ) void
 {
-  draw_line(
+  draw_line_2d(
     p0,
     p1,
     img,
@@ -289,7 +416,7 @@ fn tri_wireframe(
     color,
   );
 
-  draw_line(
+  draw_line_2d(
     p1,
     p2,
     img,
@@ -300,7 +427,7 @@ fn tri_wireframe(
     color,
   );
 
-  draw_line(
+  draw_line_2d(
     p2,
     p0,
     img,
@@ -312,46 +439,46 @@ fn tri_wireframe(
   );
 }
 
-fn signed_tri_area(p0: Point, p1: Point, p2: Point) f64 {
+fn signed_tri_area_2d(p0: Vec2i32, p1: Vec2i32, p2: Vec2i32) f64 {
   return f64_(0.5) * f64_(
-    (p1.y - p0.y) * (p1.x + p0.x) +
-    (p2.y - p1.y) * (p2.x + p1.x) +
-    (p0.y - p2.y) * (p0.x + p2.x)
+    (p1.xy.y - p0.xy.y) * (p1.xy.x + p0.xy.x) +
+    (p2.xy.y - p1.xy.y) * (p2.xy.x + p1.xy.x) +
+    (p0.xy.y - p2.xy.y) * (p0.xy.x + p2.xy.x)
   );
 }
 
-pub fn tri_fill(
-  p0: Point,
-  p1: Point,
-  p2: Point,
+pub fn tri_fill_2d(
+  p0: Vec2i32,
+  p1: Vec2i32,
+  p2: Vec2i32,
   img: []u32,
   img_width: i32,
   color: gfx.Color,
 ) void
 {
-  const bb_min_x = @min(@min(p0.x, p1.x), p2.x);
-  const bb_min_y = @min(@min(p0.y, p1.y), p2.y);
-  const bb_max_x = @max(@max(p0.x, p1.x), p2.x);
-  const bb_max_y = @max(@max(p0.y, p1.y), p2.y);
+  const bb_min_x = @min(@min(p0.xy.x, p1.xy.x), p2.xy.x);
+  const bb_min_y = @min(@min(p0.xy.y, p1.xy.y), p2.xy.y);
+  const bb_max_x = @max(@max(p0.xy.x, p1.xy.x), p2.xy.x);
+  const bb_max_y = @max(@max(p0.xy.y, p1.xy.y), p2.xy.y);
 
-  const total_area = signed_tri_area(p0, p1, p2);
+  const total_area = signed_tri_area_2d(p0, p1, p2);
   const x_rng = Thread.lane_range(@intCast(bb_max_x - bb_min_x + 1));
 
   for (x_rng.min..x_rng.max) |x| {
     const pix_x = @as(i32, @intCast(x)) + bb_min_x;
     for (@intCast(bb_min_y)..@intCast(bb_max_y)) |pix_y| {
-      const p_cur: Point = .{ .x = @intCast(pix_x), .y = @intCast(pix_y) };
-      const alpha = signed_tri_area(
+      const p_cur: Vec2i32 = .{ .xy = .{ .x = @intCast(pix_x), .y = @intCast(pix_y) } };
+      const alpha = signed_tri_area_2d(
         p_cur,
         p1,
         p2
       ) / total_area;
-      const beta = signed_tri_area(
+      const beta = signed_tri_area_2d(
         p_cur,
         p2,
         p0,
       ) / total_area;
-      const gamma = signed_tri_area(
+      const gamma = signed_tri_area_2d(
         p_cur,
         p0,
         p1,
@@ -369,6 +496,29 @@ pub fn tri_fill(
     }
   }
 }
+
+// 3D gfx section
+fn coord_to_screen(
+  point: Vec3f32,
+  screen_dims: Vec2f32,
+) Vec2f32
+{
+  return .{
+    .x = (point.xyz.x + 1) / 2 * (screen_dims.xy.x),
+    .y = (point.xyz.y + 1) / 2 * (screen_dims.xy.y),
+  };
+}
+
+fn tri_fill(
+  p0: Vec3f32,
+  p1: Vec3f32,
+  p2: Vec3f32,
+) void
+{
+  _ = p0; _ = p1; _ = p2;
+}
+
+// wayland event handling section
 
 pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayland.Protocols.Event) !void {
   switch (event.*) {
@@ -458,6 +608,8 @@ pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayla
   }
 }
 
+// cast helpers
+
 fn f64_(v: anytype) f64 {
    return switch (@typeInfo(@TypeOf(v))) {
     .int, .comptime_int => @floatFromInt(v),
@@ -467,7 +619,7 @@ fn f64_(v: anytype) f64 {
   };
 }
 
-pub var new_swapchain: ?struct { width: i32, height: i32 } = null;
+// State tracking
 
 const AppState = struct {
   wayland_state: *WaylandState,
@@ -499,13 +651,36 @@ const WaylandState = struct {
   xdg_toplevel: Wayland.Protocols.XdgShell.Toplevel,
 };
 
+// Vector types
+const Vec2i32 = packed union {
+  vec: @Vector(2, i32),
+  arr: [*]i32,
+  xy: packed struct (u64) { x: i32, y: i32 },
+};
+const Vec2f32 = packed union {
+  vec: @Vector(2, f32),
+  arr: [*]f32,
+  xy: packed struct (u64) { x: f32, y: f32 },
+};
+const Vec3i32 = packed union {
+  vec: @Vector(3, i32),
+  arr: [*]i32,
+  xyz: struct { x: i32, y: i32, z: i32 },
+};
+const Vec3f32 = packed union {
+  vec: @Vector(3, f32),
+  arr: [*]f32,
+  xyz: struct { x: f32, y: f32, z: f32 },
+};
+
+// Type constants
+
 const Light = gfx.Light;
 const Sphere = gfx.Sphere;
 const Wayland = gfx.Wayland;
 
 const Arena = base.Arena;
 const Thread = base.Thread;
-const Vec3f32 = math.Vec3f32;
 
 const math = base.math;
 

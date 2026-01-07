@@ -50,7 +50,7 @@ pub inline fn lane_count() u64 {
 pub inline fn get_cpu_count() u64 {
 }
 
-pub fn lane_range(count: u64) struct { min: u64, max: u64 } {
+pub fn lane_range(count: u64) math.Rng2u64 {
   const per_lane = count / lane_count();
   const leftovers = count % lane_count();
   const has_leftover = lane_idx() < leftovers;
@@ -230,6 +230,7 @@ const log = std.log.scoped(.Thread);
 
 // File Imports
 const Arena = @import("Arena.zig");
+const math = @import("math.zig");
 
 // Internal Module Imports
 const os = @import("os");

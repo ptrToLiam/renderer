@@ -283,6 +283,12 @@ pub const Matrix = struct {
 
 pub const Rng2f32 = rng_2_t(f32);
 pub const Rng2i32 = rng_2_t(i32);
+
+pub const Rng2u64 = struct {
+  min: u64,
+  max: u64,
+};
+
 pub const Rng3f32 = rng_3_t(f32);
 pub const Rng3i32 = rng_3_t(i32);
 

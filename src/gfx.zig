@@ -1,9 +1,74 @@
+// ----------------------------------------------------------------------------
+// NEW
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+//  Command Issuing Interface
+// ----------------------------------------------------------------------------
+
+pub const CommandQueue = struct {
+  buf: []Command,
+  write: u32,
+
+  pub fn push(cmd_queue: *CommandQueue, cmd: Command) void {
+    defer @atomicStore(u32, &cmd_queue.write, (cmd_queue.write +% 1), .release);
+    const write_idx = @atomicLoad(u32, &cmd_queue.write, .acquire) % cmd_queue.buf.len;
+    cmd_queue.buf[write_idx] = cmd;
+  }
+  pub fn get_cmd(cmd_queue: *CommandQueue, read: u32) ?Command {
+    const write_idx = @atomicLoad(u32, &cmd_queue.write, .acquire) % cmd_queue.buf.len;
+    const read_idx = read % cmd_queue.buf.len;
+    if (read_idx == write_idx) return null;
+    return cmd_queue.buf[read_idx];
+  }
+};
+
+pub const Command = union (enum) {
+  bind_vertex_buf: VertexBuffer,
+  bind_index_buf: IndexBuffer,
+  draw_indexed: void,
+  temp_draw_tri: void,
+  renderpass_begin: Renderpass,
+  renderpass_end: void,
+};
+
+pub const Renderpass = struct {
+  image_view: ImageView,
+  image_format: ImageFormat,
+};
+
+const Vertex = packed union {
+  raw: [*]f32, // len 4
+  xyzw: packed struct (u128) { x: f32, y: f32, z: f32, w: f32 },
+  vec: @Vector(4, f32)
+};
+
+const VertexBuffer = struct {
+  vertices: [*]Vertex,
+  count: u32,
+};
+
+const IndexBuffer = struct {
+  indices: [*]u32,
+  count: u32,
+};
+
+const ImageFormat = enum {
+  abgr8888,
+  argb8888,
+  rgba8888,
+};
+
+// ----------------------------------------------------------------------------
+// OLD
+// ----------------------------------------------------------------------------
+
 pub const Image = []Pixel;
 
 pub const ImageView = struct {
   image: Image,
-  width: u32,
-  height: u32,
+  width: i32,
+  height: i32,
 };
 
 pub const Window = struct {
@@ -134,64 +199,9 @@ pub const Sphere = struct {
   color: Color,
 };
 
-pub const Vertex = packed struct {
+pub const VertexOld = packed struct {
   pos: Position,
   col: Color,
-};
-
-pub const DescriptorSet = struct {
-  lights: []const Light,
-  spheres: []const Sphere,
-  cam_pos: Vec3f32,
-};
-pub const DescriptorSetBinding = struct {
-  set: *DescriptorSet,
-  index: u32,
-};
-pub const Framebuffer = struct {
-  image: Image,
-  width: i32,
-  height: i32
-};
-
-pub const Pipeline = struct {
-  proj_plane_z: f32,
-  vp_size: i32,
-};
-
-pub const Command = union (enum) {
-  bind_pipeline: *Pipeline,
-  bind_descriptor_set: DescriptorSetBinding,
-  draw_scene: void,
-  begin_render_pass: struct { clear_color: Color },
-  end_render_pass: void,
-};
-
-pub const CommandBuffer = struct {
-  commands: []Command,
-  cur: u32,
-
-  pub fn init(arena: *Arena, size: u32) CommandBuffer {
-    return .{
-      .commands = arena.push(Command, @intCast(size)),
-      .cur = 0,
-    };
-  }
-
-  pub fn push(noalias cmdbuf: *CommandBuffer, noalias cmd: *Command) void {
-    defer cmdbuf.cuf += 1;
-    cmdbuf.commands[cmdbuf.cur] = cmd.*;
-  }
-
-  pub fn clear(cmdbuf: *CommandBuffer) void {
-    cmdbuf.cur = 0;
-    cmdbuf.commands = @splat(undefined);
-  }
-};
-
-pub const RenderState = struct {
-  pipeline: ?*Pipeline = null,
-  descriptor_sets: [4]?*DescriptorSet = @splat(null),
 };
 
 pub fn canvas_to_viewport(noalias vp: *const Viewport, noalias canvas: *const Canvas, x: i32, y: i32, proj_z: f32) Position {
