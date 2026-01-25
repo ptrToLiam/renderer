@@ -47,6 +47,55 @@ pub fn app(env: std.process.Environ) void {
     "wayland state init complete in {d}us! (conn_id={d})",
     .{ wayland_init_us, wayland_state.connection.handle },
   );
+
+  const vk_state_init_start_us = time.us();
+
+  // TODO: Minimal Vulkan Init
+  // -- tried dlopen cos std.DynLib wasn't working... no difference though
+  // const vk_handle = std.c.dlopen("libvulkan.so.1", .{ .NOW = true }) orelse {
+  //   if (std.c.dlerror()) |dl_err| { std.debug.print("dl_err :: {s}\n", .{dl_err}); }
+  //   @panic("Failed to load libvulkan.so.1");
+  // };
+  // defer _ = std.c.dlclose(vk_handle);
+  // const vk_get_instance_proc_addr: Vk.PfnGetInstanceProcAddr = @ptrCast(std.c.dlsym(
+  //   vk_handle,
+  //   "VkGetInstanceProcAddr",
+  // ) orelse @panic("Failed to locate VkGetInstanceProcAddr!"));
+
+  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
+  defer vk_handle.close();
+  const vk_get_instance_proc_addr = vk_handle.lookup(
+    Vk.PfnGetInstanceProcAddr,
+    "vkGetInstanceProcAddr",
+  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
+  const vkb = Vk.BaseWrapper.load(vk_get_instance_proc_addr);
+  var instance: Vk.Instance = undefined;
+  var instance_wrapper: Vk.InstanceWrapper = undefined;
+  {
+
+    const app_info = Vk.ApplicationInfo{
+      .p_application_name = app_name,
+      .application_version = @bitCast(Vk.makeApiVersion(0, 1, 0, 0)),
+      .p_engine_name = "custom",
+      .engine_version = @bitCast(Vk.makeApiVersion(0, 1, 0, 0)),
+      .api_version = @bitCast(Vk.API_VERSION_1_3),
+    };
+
+    const instance_info = Vk.InstanceCreateInfo{
+      .p_application_info = &app_info,
+    };
+    instance = vkb.createInstance(&instance_info, null) catch @panic("uh oh!");
+    instance_wrapper = .load(instance, vk_get_instance_proc_addr);
+  }
+
+  defer instance_wrapper.destroyInstance(instance, null);
+
+  const vk_state_init_end_us = time.us();
+  const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
+  std.log.debug(
+    "vulkan state init complete in {d}us ({d}ms)!",
+    .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
+  );
 }
 
 fn update() void {
@@ -102,6 +151,7 @@ const time = base.time;
 const base = @import("base");
 const os = @import("os");
 const gfx = @import("gfx");
+const Vk = @import("vulkan");
 
 const std = @import("std");
 const builtin = @import("builtin");

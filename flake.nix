@@ -23,7 +23,10 @@
             valgrind
             vulkan-loader
             vulkan-tools
+            vulkan-headers
+            vulkan-tools-lunarg
             vulkan-validation-layers
+            vulkan-extension-layer
             zig.packages.${system}."master-2026-01-18"
           ];
           shellHook = ''

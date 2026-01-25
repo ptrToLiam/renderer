@@ -81,7 +81,7 @@ pub fn sleep(ns: u64) void {
   var res: usize = @bitCast(@as(isize, -1));
   while (res != 0) : (res = nanosleep(&req, &rem)) {
     req = rem;
-    if (errno(@bitCast(res)) != .INTR) break;
+    if (errno(res) != .INTR) break;
   }
 }
 //------------------------------------------------------------------------------
