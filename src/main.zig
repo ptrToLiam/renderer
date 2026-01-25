@@ -1,8 +1,8 @@
 pub fn main() !void {
     Thread.ctx_init();
-    Thread.set_name("LmRenderer");
+    Thread.set_name("LmAppMain");
 
-    try app.main_entry();
+    try VkApp.app();
 
     defer Thread.ctx_release();
 }
@@ -10,5 +10,6 @@ pub fn main() !void {
 const Thread = base.Thread;
 
 const app = @import("app.zig");
+const VkApp = @import("vk-app.zig");
 
 const base = @import("base");

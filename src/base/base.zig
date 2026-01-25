@@ -7,13 +7,13 @@ pub const RingBuffer = struct {
   buf: []u8,
   read: u32 = 0,
   write: u32 = 0,
-  
+
   pub fn read_idx(rb: *RingBuffer) u32 {
-    return (rb.read & rb.buf.len);
+    return rb.read & (rb.buf.len - 1);
   }
-  
+
   pub fn write_idx(rb: *RingBuffer) u32 {
-    return (rb.write & rb.buf.len);
+    return rb.write & (rb.buf.len - 1);
   }
   pub fn inc_read(rb: *RingBuffer) void {
     rb.read +%= 1;
@@ -27,12 +27,12 @@ pub const ShiftBuffer = struct {
   buf: []u8,
   read: u32 = 0,
   write: u32 = 0,
-  
+
   pub fn shift_back(sb: *ShiftBuffer) void {
     defer sb.read = 0;
-    
+
     DebugAssert(!(sb.read > sb.write), "ShiftBuffer illegal indices on shift");
-    
+
     const new_write_idx = sb.write - sb.read;
     @memmove(sb.buf[0..new_write_idx], sb.buf[sb.read..sb.write]);
     @memset(sb.buf[new_write_idx..], 0);
