@@ -70,7 +70,6 @@ pub fn build(b: *std.Build) void {
     .imports = &.{
       .{ .name = "os", .module = os_mod },
       .{ .name = "base", .module = base_mod },
-      // .{ .name = "vulkan", .module = vulkan_mod },
     },
   });
 
@@ -91,9 +90,7 @@ pub fn build(b: *std.Build) void {
     .registry = b.path("protocols/vulkan/vk.xml"),
   }).module("vulkan-zig");
 
-  const exe = b.addExecutable(.{
-    .name = "renderer",
-    .root_module = b.createModule(.{
+  const root = b.createModule(.{
       .root_source_file = b.path("src/main.zig"),
       .target = target,
       .optimize = optimize,
@@ -104,7 +101,13 @@ pub fn build(b: *std.Build) void {
         .{ .name = "gfx", .module = gfx_mod },
         .{ .name = "vulkan", .module = vulkan },
       },
-    }),
+  });
+  root.linkSystemLibrary("dl", .{ .use_pkg_config = .force, .needed = true });
+  root.linkSystemLibrary("c", .{ .use_pkg_config = .force, .needed = true });
+
+  const exe = b.addExecutable(.{
+    .name = "renderer",
+    .root_module = root,
     .use_llvm = use_llvm,
     .use_lld = use_lld,
   });

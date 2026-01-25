@@ -52,22 +52,22 @@ pub fn app(env: std.process.Environ) void {
 
   // TODO: Minimal Vulkan Init
   // -- tried dlopen cos std.DynLib wasn't working... no difference though
-  // const vk_handle = std.c.dlopen("libvulkan.so.1", .{ .NOW = true }) orelse {
-  //   if (std.c.dlerror()) |dl_err| { std.debug.print("dl_err :: {s}\n", .{dl_err}); }
-  //   @panic("Failed to load libvulkan.so.1");
-  // };
-  // defer _ = std.c.dlclose(vk_handle);
-  // const vk_get_instance_proc_addr: Vk.PfnGetInstanceProcAddr = @ptrCast(std.c.dlsym(
-  //   vk_handle,
-  //   "VkGetInstanceProcAddr",
-  // ) orelse @panic("Failed to locate VkGetInstanceProcAddr!"));
+  const vk_handle = std.c.dlopen("libvulkan.so.1", .{ .NOW = true }) orelse {
+    if (std.c.dlerror()) |dl_err| { std.debug.print("dl_err :: {s}\n", .{dl_err}); }
+    @panic("Failed to load libvulkan.so.1");
+  };
+  defer _ = std.c.dlclose(vk_handle);
+  const vk_get_instance_proc_addr: Vk.PfnGetInstanceProcAddr = @ptrCast(std.c.dlsym(
+    vk_handle,
+    "VkGetInstanceProcAddr",
+  ) orelse @panic("Failed to locate VkGetInstanceProcAddr!"));
 
-  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
-  defer vk_handle.close();
-  const vk_get_instance_proc_addr = vk_handle.lookup(
-    Vk.PfnGetInstanceProcAddr,
-    "vkGetInstanceProcAddr",
-  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
+  // var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
+  // defer vk_handle.close();
+  // const vk_get_instance_proc_addr = vk_handle.lookup(
+  //   Vk.PfnGetInstanceProcAddr,
+  //   "vkGetInstanceProcAddr",
+  // ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
   const vkb = Vk.BaseWrapper.load(vk_get_instance_proc_addr);
   var instance: Vk.Instance = undefined;
   var instance_wrapper: Vk.InstanceWrapper = undefined;

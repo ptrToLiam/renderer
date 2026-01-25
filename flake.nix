@@ -20,6 +20,7 @@
             man-pages
             mesa
             shaderc
+            pkg-config
             valgrind
             vulkan-loader
             vulkan-tools
