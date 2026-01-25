@@ -165,11 +165,11 @@ const ThreadHandle = Impl.Handle;
 
 const Impl = struct {
   pub fn launch(entrypoint: anytype, args: anytype) !Handle {
-    return try std.Thread.spawn(.{}, entrypoint, .{args});
+    return try std.Thread.spawn(.{}, entry.supplementary, .{entrypoint, args});
   }
 
   pub fn sleep(ns: u64) void {
-    std.Thread.sleep(ns);
+    os.sleep(ns);
   }
   pub fn yield() !void {
     try std.Thread.yield();
@@ -187,8 +187,8 @@ const Impl = struct {
   pub const Handle = std.Thread;
 
   pub const Barrier = struct {
-    counter: std.atomic.Value(u32) = .{ .raw = 0 },
-    generation: std.atomic.Value(u32) = .{ .raw = 0 },
+    counter: u32 = 0,
+    generation: u32 = 0,
     expected: u32,
 
     pub fn init(expected: u32) Impl.Barrier {
@@ -196,19 +196,19 @@ const Impl = struct {
     }
 
     pub fn wait(barrier: *Impl.Barrier) void {
-      const gen = @atomicLoad(u32, &barrier.generation.raw, .acquire);
-      const old_counter = @atomicRmw(u32, &barrier.counter.raw, .Add, 1, .acq_rel);
+      const gen = @atomicLoad(u32, &barrier.generation, .acquire);
+      const old_counter = @atomicRmw(u32, &barrier.counter, .Add, 1, .acq_rel);
 
       if (old_counter + 1 == barrier.expected) {
-        @atomicStore(u32, &barrier.generation.raw, gen+1, .release);
-        @atomicStore(u32, &barrier.counter.raw, 0, .release);
+        @atomicStore(u32, &barrier.generation, gen+1, .release);
+        @atomicStore(u32, &barrier.counter, 0, .release);
         Futex.wake(&barrier.counter, barrier.expected);
       } else {
         var generation_current: u32 = gen;
-        generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
+        generation_current = @atomicLoad(u32, &barrier.generation, .acquire);
 
         while (generation_current == gen) {
-          generation_current = @atomicLoad(u32, &barrier.generation.raw, .acquire);
+          generation_current = @atomicLoad(u32, &barrier.generation, .acquire);
           Futex.wait(&barrier.counter, barrier.expected);
           Impl.yield() catch unreachable;
         }
@@ -230,6 +230,7 @@ const log = std.log.scoped(.Thread);
 
 // File Imports
 const Arena = @import("Arena.zig");
+const entry = @import("entry.zig");
 const math = @import("math.zig");
 
 // Internal Module Imports

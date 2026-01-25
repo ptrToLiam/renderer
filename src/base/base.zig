@@ -1,6 +1,8 @@
 pub const Arena = @import("Arena.zig");
 pub const math = @import("math.zig");
 pub const Thread = @import("Thread.zig");
+pub const entry = @import("entry.zig");
+pub const time = @import("time.zig");
 
 /// Requires backing buffer to be of a power of 2 length.
 pub const RingBuffer = struct {
@@ -56,5 +58,7 @@ pub inline fn DebugAssert(cond: bool, msg: []const u8) void {
     else => {},
   }
 }
+/// Assumed to be initialized in base.entry.primary()
+pub var program_start_time: u64 = undefined;
 
 const builtin = @import("builtin");

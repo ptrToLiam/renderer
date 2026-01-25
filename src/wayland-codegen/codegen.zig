@@ -1,7 +1,10 @@
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
   Thread.ctx_init();
   const program_arena: *Arena = .init(.default);
   const xml_arena: *Arena = .init(.default);
+  var threaded_io = std.Io.Threaded.init(program_arena.allocator(), .{ .environ = init.environ });
+  defer threaded_io.deinit();
+  const io = threaded_io.io();
 
   defer {
     Thread.ctx_release();
@@ -15,7 +18,7 @@ pub fn main() !void {
   var write_to_cli: bool = false;
   var debug: bool = false;
 
-  var args = std.process.args();
+  var args = init.args.iterate();
   _ = args.next();
   while (args.next()) |arg| {
     if (std.mem.eql(u8, arg, "--name")) {
@@ -41,10 +44,11 @@ pub fn main() !void {
   const allocator = program_arena.allocator();
   while (protocol_files.top()) |spec_file| : (protocol_files.pop()) {
     if (debug) log.debug("parsing spec {s}", .{spec_file});
-    const spec_xml = try std.fs.cwd().readFileAlloc(
-      xml_arena.allocator(),
+    const spec_xml = try std.Io.Dir.cwd().readFileAlloc(
+      io,
       spec_file,
-      std.math.maxInt(usize),
+      xml_arena.allocator(),
+      .unlimited,
     );
     const spec = try Xml.parse(xml_arena.allocator(), spec_xml);
     defer xml_arena.clear();
@@ -177,21 +181,21 @@ pub fn main() !void {
     defer protocols.push(program_arena, protocol);
   }
 
-  const stdout = std.fs.File.stdout();
+  const stdout = std.Io.File.stdout();
 
   // Write protocol output
 
   if (debug) log.debug("Creating unified output", .{});
   var protocol_node_opt: ?*ProtocolList.Node = null;
-  var out_contents: std.io.Writer.Allocating = try .initCapacity(allocator, 2048);
+  var out_contents: std.Io.Writer.Allocating = try .initCapacity(allocator, 2048);
   try out_contents.writer.print(
     \\//                  :: WARNING ::
     \\// This file is auto-generated and should not be edited.
     \\// Any issues with this file should be addressed in the tool
     \\// that produced this file.
-    \\// 
+    \\//
     \\// - LM
-    \\ 
+    \\
     \\ const WaylandProtocols = @This();
     \\
     \\
@@ -270,7 +274,7 @@ pub fn main() !void {
             \\  data: []const u8,
             \\  ) ParseError!WaylandProtocols.Event {{
             \\
-            \\  _ = ctx;  
+            \\  _ = ctx;
             \\  return try {s}.Event.parse(proxy, op, data);
             \\  }}
             \\
@@ -522,16 +526,16 @@ pub fn main() !void {
             try out_contents.writer.print(
               \\) !{s} {{
               \\  const request_op = {d};
-              \\  
+              \\
               \\  const result: {s} = .fromInt(proxy.next_id());
-              \\ 
+              \\
               \\  try proxy.msg_write(self.toInt(), request_op, &.{{ .{{ .new_id = result.toInt() }} }},);
               \\
               \\  proxy.push_object(result.object());
               \\  return result;
               \\}}
-              \\  
-              \\  
+              \\
+              \\
             , .{ return_t, request_idx, return_t });
           } else {
             try out_contents.writer.print(
@@ -540,8 +544,8 @@ pub fn main() !void {
               \\  {s}
               \\  try proxy.msg_write(self.toInt(), request_op, &.{{}});
               \\}}
-              \\  
-              \\  
+              \\
+              \\
             , .{
               request_idx,
               if (request.destructor)
@@ -580,7 +584,7 @@ pub fn main() !void {
             \\ inline fn parse(proxy: *const Proxy, op: u16, data: []const u8,) ParseError!WaylandProtocols.Event {{
             \\   const event: WaylandProtocols.Event = blk: {{
             \\   switch (op) {{
-            \\    
+            \\
           , .{});
 
           var event_idx: u32 = 0;
@@ -652,7 +656,7 @@ pub fn main() !void {
                 \\   }},
                 \\ }};
                 \\ }},
-                \\ 
+                \\
               , .{
                 interface.name,
                 event.name,
@@ -666,7 +670,7 @@ pub fn main() !void {
                 \\   }},
                 \\ }};
                 \\ }},
-                \\ 
+                \\
               , .{
                 interface.name,
                 event.name,
@@ -1099,16 +1103,19 @@ pub fn main() !void {
 
   // check if prefix dir is present, if not, create
   if (filename.len > 0) {
-    const cwd = std.fs.cwd();
+    const cwd = std.Io.Dir.cwd();
+    var rpbuf: [512]u8 = @splat(0);
     const dir_out = if (pathname.len > 0)
-      cwd.openDir(pathname, .{}) catch dir: {
+      cwd.openDir(io, pathname, .{}) catch dir: {
+        _ = try cwd.realPath(io, &rpbuf);
         log.warn("Directory '{s}/{s}' does not exist. Attempting to create it now.", .{
-          try cwd.realpathAlloc(allocator, "."),
+          rpbuf,
           pathname,
         });
-        break :dir cwd.makeOpenPath(pathname, .{}) catch |err| {
+        break :dir cwd.createDirPathOpen(io, pathname, .{}) catch |err| {
+          _ = try cwd.realPath(io, &rpbuf);
           log.err("Failed to create path '{s}/{s}' with error :: {s}", .{
-            try cwd.realpathAlloc(allocator, "."),
+            rpbuf,
             pathname,
             @errorName(err),
           });
@@ -1118,16 +1125,18 @@ pub fn main() !void {
     else
       cwd;
 
-    const file_out = dir_out.createFile(filename, .{}) catch |err| {
+    const file_out = dir_out.createFile(io, filename, .{}) catch |err| {
+      _ = try cwd.realPath(io, &rpbuf);
       log.err("Failed to create file '{s}/{s}/{s}' with error :: {s}", .{
-        try cwd.realpathAlloc(allocator, "."),
+        rpbuf,
         pathname,
         filename,
         @errorName(err),
       });
       return error.FailedToCreateOutputFile;
     };
-    try file_out.writeAll(formatted);
+
+    try file_out.writePositionalAll(io, formatted, 0);
     if (debug) log.debug("Wrote output to file :: {s}/{s}", .{
       pathname,
       filename,
@@ -1135,7 +1144,7 @@ pub fn main() !void {
   }
 
   if (write_to_cli) {
-    try stdout.writeAll(formatted);
+    try stdout.writePositionalAll(io, formatted, 0);
   }
 }
 

@@ -1,4 +1,4 @@
-pub fn app() !void {
+pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
   const arena: *Arena = .init(.default);
   defer arena.release();
@@ -6,7 +6,9 @@ pub fn app() !void {
   const initial_width = 540;
   const initial_height = 360;
 
-  var window: gfx.Window = try .create(
+  const wayland_init_start_us = time.us();
+  var window = gfx.Window.create(
+    env,
     arena,
     .{
       .title = app_name,
@@ -14,8 +16,11 @@ pub fn app() !void {
       .width = initial_width,
       .height = initial_height,
     },
-  );
-  
+  ) catch |err| {
+    std.log.err("Failed to create window :: {s}", .{@errorName(err)});
+    return;
+  };
+
   defer window.destroy();
 
   var wayland_state: WaylandState = .{
@@ -35,11 +40,13 @@ pub fn app() !void {
   };
 
   _ = &wayland_state;
-  std.log.debug("wayland state init complete! (conn_id={d})", .{wayland_state.connection.handle});
-  // while (!app_state.should_exit()) {
-  //   update();
-  //   draw();
-  // }
+  const wayland_init_end_us = time.us();
+  const wayland_init_us = wayland_init_end_us - wayland_init_start_us;
+
+  std.log.debug(
+    "wayland state init complete in {d}us! (conn_id={d})",
+    .{ wayland_init_us, wayland_state.connection.handle },
+  );
 }
 
 fn update() void {
@@ -85,10 +92,12 @@ const WaylandState = struct {
 };
 const Wayland = gfx.Wayland;
 //----------------------------------------------------------------
+const program_start_time = @import("main.zig").start_time;
 
 const Arena = base.Arena;
 const Thread = base.Thread;
 const math = base.math;
+const time = base.time;
 
 const base = @import("base");
 const os = @import("os");

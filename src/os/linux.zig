@@ -5,7 +5,7 @@ pub inline fn mem_reserve(size: usize) []align(page_size_min) u8 {
   const rc = mmap(
     null,
     size,
-    PROT.NONE,
+    .{},
     .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
     -1,
     0,
@@ -20,7 +20,7 @@ pub inline fn mem_reserve(size: usize) []align(page_size_min) u8 {
 }
 
 pub inline fn mem_commit(bytes: []align(page_size_min) u8) bool {
-  const rc = mprotect(bytes.ptr, bytes.len, PROT.READ | PROT.WRITE);
+  const rc = mprotect(bytes.ptr, bytes.len, .{ .READ = true, .WRITE = true });
 
   if (errno(rc) != .SUCCESS) return false;
 
@@ -39,7 +39,7 @@ pub inline fn mem_reserve_large(size: usize) ?[]align(page_size_min) u8 {
   const rc = mmap(
     null,
     size,
-    PROT.NONE,
+    .{},
     .{
       .TYPE = .PRIVATE,
       .ANONYMOUS = true,
@@ -56,11 +56,33 @@ pub inline fn mem_reserve_large(size: usize) ?[]align(page_size_min) u8 {
 }
 
 pub inline fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
-  const rc = mprotect(bytes.ptr, bytes.len, PROT.READ | PROT.WRITE);
+  const rc = mprotect(bytes.ptr, bytes.len, .{ .READ = true, .WRITE = true });
 
   if (errno(rc) != .SUCCESS) return false;
 
   return true;
+}
+//------------------------------------------------------------------------------
+
+//------------------------------------------------------------------------------
+//             Sleep/Time API Surface
+//------------------------------------------------------------------------------
+pub fn sleep(ns: u64) void {
+  const ns_per_s = 1000000000;
+
+  const seconds = @divFloor(ns, ns_per_s);
+  const nanoseconds = ns % ns_per_s;
+
+  var req: timespec = .{
+    .sec = @intCast(seconds),
+    .nsec = @intCast(nanoseconds),
+  };
+  var rem: timespec = .{ .sec = 0, .nsec = 0 };
+  var res: usize = @bitCast(@as(isize, -1));
+  while (res != 0) : (res = nanosleep(&req, &rem)) {
+    req = rem;
+    if (errno(@bitCast(res)) != .INTR) break;
+  }
 }
 //------------------------------------------------------------------------------
 
@@ -76,12 +98,7 @@ pub fn cmsg(comptime T: type) type {
     data: T,
 
     /// padding to reach data alignment
-    __padding: @Type(.{
-      .int = .{
-        .bits = padded_bit_count,
-        .signedness = .unsigned,
-      },
-    }) = 0,
+    __padding: @Int(.unsigned, padded_bit_count) = 0,
 
     pub fn init(level: i32, @"type": i32, data: T) cmsg_t {
       return .{
@@ -191,24 +208,32 @@ pub const cmsghdr = packed struct {
 };
 
 // Syscall aliases
-pub const recvmsg = std.os.linux.recvmsg;
-pub const prctl = std.os.linux.prctl;
-pub const mmap = std.os.linux.mmap;
-pub const munmap = std.os.linux.munmap;
-pub const madvise = std.os.linux.madvise;
-pub const mprotect = std.os.linux.mprotect;
+pub const recvmsg = linux.recvmsg;
+pub const sendmsg = linux.sendmsg;
+pub const prctl = linux.prctl;
+pub const mmap = linux.mmap;
+pub const munmap = linux.munmap;
+pub const madvise = linux.madvise;
+pub const mprotect = linux.mprotect;
+pub const socket = linux.socket;
+pub const nanosleep = linux.nanosleep;
 
 pub const errno = std.posix.errno;
 
+// Type aliases
+pub const timespec = linux.timespec;
+
 // Constant/Namespace aliases
-pub const PR = std.os.linux.PR;
-pub const MSG = std.os.linux.MSG;
-pub const MAP = std.os.linux.MAP;
-pub const PROT = std.os.linux.PROT;
-pub const MADV = std.os.linux.MADV;
+pub const PR = linux.PR;
+pub const MSG = linux.MSG;
+pub const MAP = linux.MAP;
+pub const PROT = linux.PROT;
+pub const MADV = linux.MADV;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
+
+const linux = std.os.linux;
 
 const page_size_min = std.heap.page_size_min;
 

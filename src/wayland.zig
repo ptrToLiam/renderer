@@ -17,6 +17,7 @@ pub const WindowHandle = struct {
   // TODO: Make window handle come later?
   // -- maybe make
   pub fn create(
+    env: std.process.Environ,
     arena: *Arena,
     params: struct {
       title: [:0]const u8,
@@ -27,7 +28,7 @@ pub const WindowHandle = struct {
   ) !*WindowHandle {
     const handle = arena.create(WindowHandle);
     var conn  = arena.create(Connection);
-    conn.* = try .open(arena);
+    conn.* = try .open(env, arena);
     const proxy = arena.create(Protocols.Proxy);
     proxy.* = conn.proxy();
 
@@ -49,11 +50,11 @@ pub const WindowHandle = struct {
         conn.load_events() catch |err| {
           switch (err) {
             error.NoData => {
-              std.Thread.sleep(std.time.ns_per_us);
+              Thread.sleep(time.ns_per_us);
               break :load_loop;
             },
             error.SocketReadFailed => {
-              std.Thread.sleep(std.time.ns_per_us);
+              Thread.sleep(time.ns_per_us);
               break :load_loop;
             },
             else => return err,
@@ -193,20 +194,20 @@ pub const Connection = struct {
   fd_out_buf: [256]u8 = @splat(0),
   fd_out_buf_idx: usize = 0,
 
-  pub fn open(arena: *Arena) !Connection {
+  pub fn open(env: std.process.Environ, arena: *Arena) !Connection {
     const temp = Thread.Context.get_scratch(1, .{arena}).?;
     defer temp.end();
-    const xdg_runtime_dir = posix.getenv("XDG_RUNTIME_DIR").?;
-    const wayland_display = posix.getenv("WAYLAND_DISPLAY").?;
+    const xdg_runtime_dir = env.getPosix("XDG_RUNTIME_DIR").?;
+    const wayland_display = env.getPosix("WAYLAND_DISPLAY").?;
 
     const sock_path = try std.mem.join(temp.arena.allocator(), "/", &[_][]const u8{ xdg_runtime_dir, wayland_display });
 
     const opt_non_block = 0;
-    const sockfd = try posix.socket(
+    const sockfd: i32 = @intCast(linux.socket(
       posix.AF.UNIX,
       posix.SOCK.STREAM | posix.SOCK.CLOEXEC | opt_non_block,
       0,
-    );
+    ));
 
     var addr: posix.sockaddr.un = addr: {
       var sock_addr: posix.sockaddr.un = .{
@@ -300,7 +301,7 @@ pub const Connection = struct {
         .flags = 0,
       };
 
-      _ = try posix.sendmsg(connection.handle, &msg, 0);
+      _ = linux.sendmsg(connection.handle, &msg, 0);
     }
   }
 
@@ -945,6 +946,7 @@ test "Proxied Event Parse" {
 }
 
 const linux = os.linux;
+const time = base.time;
 const Arena = base.Arena;
 const Thread = base.Thread;
 const ShiftBuffer = base.ShiftBuffer;

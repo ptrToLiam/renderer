@@ -76,6 +76,7 @@ pub const Window = struct {
   flags: Flags,
 
   pub inline fn create(
+    env: std.process.Environ,
     arena: *Arena,
     params: struct {
       title: [:0]const u8,
@@ -86,7 +87,9 @@ pub const Window = struct {
   ) !Window {
     return .{
       .handle = try .create(
-        arena, .{
+        env,
+        arena,
+        .{
           .title = params.title,
           .class = params.class,
           .width = params.width,

@@ -50,6 +50,17 @@ pub inline fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
 }
 //------------------------------------------------------------------------------
 
+//------------------------------------------------------------------------------
+//             Sleep/Time API Surface
+//------------------------------------------------------------------------------
+pub inline fn sleep(ns: u64) void {
+  return switch (TargetOs.tag) {
+    .linux => linux.sleep(ns),
+    else => UnsupportedPlatformError(),
+  };
+}
+//------------------------------------------------------------------------------
+
 fn UnsupportedPlatformError() void {
   @compileError("Unsupported Platform :: " ++ @tagName(TargetOs.tag));
 }
