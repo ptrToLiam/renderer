@@ -31,7 +31,7 @@
             zig.packages.${system}."master-2026-01-18"
           ];
           shellHook = ''
-            LD_LIBRARY_PATH="${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH"
+            VULKAN_LOADER_LIB="${pkgs.vulkan-loader}/lib"
           '';
         };
       });

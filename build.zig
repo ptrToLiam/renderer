@@ -37,7 +37,13 @@ pub fn build(b: *std.Build) void {
     bool,
     "link-libc",
     "link program against libc",
-  ) orelse false;
+  ) orelse true; // true by default for vk
+
+  const vk_rpath_opt = b.option(
+    []const u8,
+    "vk-rpath",
+    "Add a custom rpath for loading libvulkan.so.1 on linux",
+  );
 
   const wayland_protocols = &.{
     b.pathFromRoot("protocols/wayland/wayland.xml"),
@@ -58,11 +64,6 @@ pub fn build(b: *std.Build) void {
       .{ .name = "os", .module = os_mod },
     },
   });
-
-  // const vulkan_mod = b.addModule("vulkan", .{
-  //   .root_source_file = b.path("src/generated/vulkan.zig"),
-  //   .target = target,
-  // });
 
   const gfx_mod = b.addModule("wayland", .{
     .root_source_file = b.path("src/gfx.zig"),
@@ -102,8 +103,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "vulkan", .module = vulkan },
       },
   });
-  root.linkSystemLibrary("dl", .{ .use_pkg_config = .force, .needed = true });
-  root.linkSystemLibrary("c", .{ .use_pkg_config = .force, .needed = true });
+  if (vk_rpath_opt) |vk_rpath| root.addRPathSpecial(vk_rpath);
 
   const exe = b.addExecutable(.{
     .name = "renderer",
