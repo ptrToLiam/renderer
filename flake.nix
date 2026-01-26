@@ -19,8 +19,9 @@
             libinput
             man-pages
             mesa
-            shaderc
             pkg-config
+            renderdoc
+            shaderc
             valgrind
             vulkan-loader
             vulkan-tools

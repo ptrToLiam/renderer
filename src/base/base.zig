@@ -58,6 +58,69 @@ pub inline fn DebugAssert(cond: bool, msg: []const u8) void {
     else => {},
   }
 }
+
+pub inline fn u32_(v: anytype) u32 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int => @intCast(v),
+    .comptime_int => @as(u32, v),
+    .float, .comptime_float => @intFromFloat(v),
+    .@"struct" => |struct_t| v: {
+      if (struct_t.layout == .@"packed" and struct_t.backing_integer == u32)
+        break :v @bitCast(v);
+    },
+    else => @compileError("Invalid type for u32"),
+  };
+}
+
+pub inline fn u64_(v: anytype) u64 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int => @intCast(v),
+    .comptime_int => @as(u64, v),
+    .float, .comptime_float => @intFromFloat(v),
+    .@"struct" => |struct_t| v: {
+      if (struct_t.layout == .@"packed" and struct_t.backing_integer == u64)
+        break :v @bitCast(v);
+    },
+    else => @compileError("Invalid type for u64"),
+  };
+}
+
+pub inline fn i32_(v: anytype) i32 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int => @intCast(v),
+    .comptime_int => @as(i32, v),
+    .float, .comptime_float => @intFromFloat(v),
+    else => @compileError("Invalid type for i32"),
+  };
+}
+
+pub inline fn i64_(v: anytype) i64 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int => @intCast(v),
+    .comptime_int => @as(i64, v),
+    .float, .comptime_float => @intFromFloat(v),
+    else => @compileError("Invalid type for i64"),
+  };
+}
+
+pub inline fn f32_(v: anytype) f32 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int, .comptime_int => @floatFromInt(v),
+    .float => @floatCast(v),
+    .comptime_float => @as(f32, v),
+    else => @compileError("Invalid type for f32"),
+  };
+}
+
+pub inline fn f64_(v: anytype) f64 {
+  return switch (@typeInfo(@TypeOf(v))) {
+    .int, .comptime_int => @floatFromInt(v),
+    .float => @floatCast(v),
+    .comptime_float => @as(f64, v),
+    else => @compileError("Invalid type for f64"),
+  };
+}
+
 /// Assumed to be initialized in base.entry.primary()
 pub var program_start_time: u64 = undefined;
 

@@ -1,7 +1,15 @@
 pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
+
   const arena: *Arena = .init(.default);
   defer arena.release();
+
+  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
+  defer vk_handle.close();
+  const vk_get_instance_proc_addr = vk_handle.lookup(
+    vk.PfnGetInstanceProcAddr,
+    "vkGetInstanceProcAddr",
+  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
 
   const initial_width = 540;
   const initial_height = 360;
@@ -44,47 +52,50 @@ pub fn app(env: std.process.Environ) void {
   const wayland_init_us = wayland_init_end_us - wayland_init_start_us;
 
   std.log.debug(
-    "wayland state init complete in {d}us! (conn_id={d})",
-    .{ wayland_init_us, wayland_state.connection.handle },
+    "wayland state init complete in {d}us ({d:.2}ms)! (conn_id={d})",
+    .{ wayland_init_us, base.f64_(wayland_init_us) / base.f64_(time.us_per_ms), wayland_state.connection.handle },
   );
 
   const vk_state_init_start_us = time.us();
 
   // TODO: Minimal Vulkan Init
-  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
-  defer vk_handle.close();
-  const vk_get_instance_proc_addr = vk_handle.lookup(
-    Vk.PfnGetInstanceProcAddr,
-    "vkGetInstanceProcAddr",
-  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
-  const vkb = Vk.BaseWrapper.load(vk_get_instance_proc_addr);
-  var instance: Vk.Instance = undefined;
-  var instance_wrapper: Vk.InstanceWrapper = undefined;
+  const vkb: vk.BaseWrapper = .load(vk_get_instance_proc_addr);
+  var instance: vk.Instance = undefined;
+  var vki: vk.InstanceWrapper = undefined;
   {
-
-    const app_info = Vk.ApplicationInfo{
+    const app_info: vk.ApplicationInfo = .{
       .p_application_name = app_name,
-      .application_version = @bitCast(Vk.makeApiVersion(0, 1, 0, 0)),
+      .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
       .p_engine_name = "custom",
-      .engine_version = @bitCast(Vk.makeApiVersion(0, 1, 0, 0)),
-      .api_version = @bitCast(Vk.API_VERSION_1_3),
+      .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
+      .api_version = u32_(vk.API_VERSION_1_3),
     };
 
-    const instance_info = Vk.InstanceCreateInfo{
+    const instance_info: vk.InstanceCreateInfo = .{
       .p_application_info = &app_info,
     };
     instance = vkb.createInstance(&instance_info, null) catch @panic("uh oh!");
-    instance_wrapper = .load(instance, vk_get_instance_proc_addr);
+    vki = .load(instance, vk_get_instance_proc_addr);
   }
-
-  defer instance_wrapper.destroyInstance(instance, null);
+  defer vki.destroyInstance(instance, null);
 
   const vk_state_init_end_us = time.us();
   const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
+
   std.log.debug(
     "vulkan state init complete in {d}us ({d}ms)!",
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
+
+  const mod: drm.Modifier = .invalid;
+  std.log.debug("drm mod invalid :: {{ .tag={s}, .uint={d} }}", .{ @tagName(mod), mod});
+
+  var want_exit = true;
+  _ = &want_exit;
+  while (!want_exit) {
+    update();
+    draw();
+  }
 }
 
 fn update() void {
@@ -93,7 +104,7 @@ fn update() void {
 fn draw() void {
 }
 
-const AppName = "VkRender";
+const AppName = "vkRender";
 const Swapchain = struct {
 };
 //----------------------------------------------------------------
@@ -130,17 +141,24 @@ const WaylandState = struct {
 };
 const Wayland = gfx.Wayland;
 //----------------------------------------------------------------
-const program_start_time = @import("main.zig").start_time;
+
+const u32_ = base.u32_;
+const u64_ = base.u64_;
+
+const f32_ = base.f32_;
+const f64_ = base.f64_;
 
 const Arena = base.Arena;
 const Thread = base.Thread;
 const math = base.math;
 const time = base.time;
 
+const drm = @import("drm.zig");
+
 const base = @import("base");
 const os = @import("os");
 const gfx = @import("gfx");
-const Vk = @import("vulkan");
+const vk = @import("vulkan");
 
 const std = @import("std");
 const builtin = @import("builtin");

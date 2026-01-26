@@ -39,10 +39,10 @@ pub fn build(b: *std.Build) void {
     "link program against libc",
   ) orelse true; // true by default for vk
 
-  const vk_rpath_opt = b.option(
+  const rpath_opt = b.option(
     []const u8,
-    "vk-rpath",
-    "Add a custom rpath for loading libvulkan.so.1 on linux",
+    "rpath",
+    "Add a custom rpath for loading dynamic libraries (i.e., libvulkan.so.1) on linux",
   );
 
   const wayland_protocols = &.{
@@ -103,7 +103,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "vulkan", .module = vulkan },
       },
   });
-  if (vk_rpath_opt) |vk_rpath| root.addRPathSpecial(vk_rpath);
+  if (rpath_opt) |rpath| root.addRPathSpecial(rpath);
 
   const exe = b.addExecutable(.{
     .name = "renderer",
