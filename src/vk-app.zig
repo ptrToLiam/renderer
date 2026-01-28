@@ -87,8 +87,9 @@ pub fn app(env: std.process.Environ) void {
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
 
-  const mod: drm.Modifier = .linear;
-  std.log.debug("drm mod invalid :: {{ .tag={s}, .uint={d} }}", .{ @tagName(mod), mod});
+  const mod: drm.Modifier = .i915_y_tiled;
+  const modval = mod.toModVal();
+  std.log.debug("drm mod invalid :: {{ .tag={s}, .uint={d}, .vendor={s} }}", .{ @tagName(mod), mod, @tagName(modval.vendor) });
 
   var want_exit = true;
   _ = &want_exit;

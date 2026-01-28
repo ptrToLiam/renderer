@@ -145,6 +145,9 @@ pub const ModifierValue = packed struct (u64) {
       .code = @truncate(num & 0x00ffffffffffffff),
     };
   }
+  pub fn fromInt(num: u64) ModifierValue {
+    return @bitCast(num);
+  }
 
   pub const Vendor = enum (u8) {
     none = 0,
@@ -191,7 +194,7 @@ pub const Modifier = enum (u64) {
   /// This format is highly platforms specific and not useful for cross-driver
   /// sharing. It exists since on a given platform it does uniquely identify the
   /// layout in a simple way for i915-specific userspace.
- i915_x_tile = fourcc_mod_code(.intel, 1),
+  i915_x_tile = fourcc_mod_code(.intel, 1),
 
   /// Intel Y-tiling layout
   ///
@@ -204,7 +207,7 @@ pub const Modifier = enum (u64) {
   /// This format is highly platforms specific and not useful for cross-driver
   /// sharing. It exists since on a given platform it does uniquely identify the
   /// layout in a simple way for i915-specific userspace.
- i915_y_tiled = fourcc_mod_code(.intel, 2),
+  i915_y_tiled = fourcc_mod_code(.intel, 2),
 
   /// Intel Yf-tiling layout
   ///
@@ -217,7 +220,7 @@ pub const Modifier = enum (u64) {
   /// either a square block or a 2:1 unit.
   /// 64 byte blocks of pixels contain four pixel rows of 16 bytes, where the width
   /// in pixel depends on the pixel depth.
- i915_yf_tiled = fourcc_mod_code(.intel, 3),
+  i915_yf_tiled = fourcc_mod_code(.intel, 3),
 
   /// Intel color control surface (CCS) for render compression
   ///
@@ -234,8 +237,8 @@ pub const Modifier = enum (u64) {
   /// of QWORD (8 bytes) chunks instead of OWORD (16 bytes) chunks.
   /// But that fact is not relevant unless the memory is accessed
   /// directly.
- i915_y_tiled_ccs = fourcc_mod_code(.intel, 4),
-i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
+  i915_y_tiled_ccs = fourcc_mod_code(.intel, 4),
+  i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
 
   /// Tiled, NV12MT, grouped in 64 (pixels) x 32 (lines) -sized macroblocks
   ///
@@ -248,7 +251,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// - multiple of  32 pixels for the height
   ///
   /// For more information: see https://linuxtv.org/downloads/v4l-dvb-apis/re32.html
- drm_samsung_64_32_tile = fourcc_mod_code(.samsung, 1),
+  drm_samsung_64_32_tile = fourcc_mod_code(.samsung, 1),
 
   /// Qualcomm Compressed Format
   ///
@@ -259,7 +262,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// Pixel data pitch/stride is aligned with macrotile width.
   /// Pixel data height is aligned with macrotile height.
   /// Entire pixel data buffer is aligned with 4k(bytes).
- drm_qcom_compressed = fourcc_mod_code(.qcom, 1),
+  drm_qcom_compressed = fourcc_mod_code(.qcom, 1),
 
   //------------------------------------------------------------------------------
   // Vivante framebuffer modifiers
@@ -269,7 +272,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   ///
   /// This is a simple tiled layout using tiles of 4x4 pixels in a row-major
   /// layout.
- drm_vivante_tiled  = fourcc_mod_code(.vivante, 1),
+  drm_vivante_tiled  = fourcc_mod_code(.vivante, 1),
 
   /// Vivante 64x64 super-tiling layout
   ///
@@ -279,7 +282,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   ///
   /// For more information: see
   /// https://github.com/etnaviv/etna_viv/blob/master/doc/hardware.md#texture-tiling
- drm_vivante_super_tiled = fourcc_mod_code(.vivante, 2),
+  drm_vivante_super_tiled = fourcc_mod_code(.vivante, 2),
 
   /// Vivante 4x4 tiling layout for dual-pipe
   ///
@@ -293,7 +296,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// Same as the 64x64 super-tiling layout, except every second 4x4 pixel tile
   /// starts at a different base address. Offsets from the base addresses are
   /// therefore halved compared to the non-split super-tiled layout.
- drm_vivante_split_super_tiled = fourcc_mod_code(.vivante, 4),
+  drm_vivante_split_super_tiled = fourcc_mod_code(.vivante, 4),
 
   //------------------------------------------------------------------------------
   // NVIDIA framebuffer modifiers
@@ -302,7 +305,7 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// Tegra Tiled Layout, used by Tegra 2, 3 and 4.
   ///
   /// Pixels are arranged in simple tiles of 16 x 16 bytes.
- drm_nvidia_tegra_tiled = fourcc_mod_code(.nvidia, 1),
+  drm_nvidia_tegra_tiled = fourcc_mod_code(.nvidia, 1),
 
   /// 16Bx2 Block Linear layout, used by desktop GPUs, and Tegra K1 and later
   ///
@@ -325,22 +328,13 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// in full detail.
   // #define DRM_NVIDIA_16BX2_BLOCK(v) fourcc_mod_code(NVIDIA, 0x10 | ((v) & 0xf))
 
-  NVIDIA_16BX2_BLOCK_ONE_GOB = fourcc_mod_code(.nvidia, 0x10),
-  NVIDIA_16BX2_BLOCK_TWO_GOB = fourcc_mod_code(.nvidia, 0x11),
-  NVIDIA_16BX2_BLOCK_FOUR_GOB = fourcc_mod_code(.nvidia, 0x12),
-  NVIDIA_16BX2_BLOCK_EIGHT_GOB = fourcc_mod_code(.nvidia, 0x13),
-  NVIDIA_16BX2_BLOCK_SIXTEEN_GOB = fourcc_mod_code(.nvidia, 0x14),
-  NVIDIA_16BX2_BLOCK_THIRTYTWO_GOB = fourcc_mod_code(.nvidia, 0x15),
+  nvidia_16bx2_block_one_gob = fourcc_mod_code(.nvidia, 0x10),
+  nvidia_16bx2_block_two_gob = fourcc_mod_code(.nvidia, 0x11),
+  nvidia_16bx2_block_four_gob = fourcc_mod_code(.nvidia, 0x12),
+  nvidia_16bx2_block_eight_gob = fourcc_mod_code(.nvidia, 0x13),
+  nvidia_16bx2_block_sixteen_gob = fourcc_mod_code(.nvidia, 0x14),
+  nvidia_16bx2_block_thirtytwo_gob = fourcc_mod_code(.nvidia, 0x15),
 
-  /// Some Broadcom modifiers take parameters, for example the number of
-  /// vertical lines in the image. Reserve the lower 32 bits for modifier
-  /// type, and the next 24 bits for parameters. Top 8 bits are the
-  /// vendor code.
- #define __fourcc_mod_broadcom_param_shift 8
-#define __fourcc_mod_broadcom_param_bits 48
-#define fourcc_mod_broadcom_code(val, params) fourcc_mod_code(BROADCOM, ((((__u64)params) << __fourcc_mod_broadcom_param_shift) | val))
-#define fourcc_mod_broadcom_param(m) ((int)(((m) >> __fourcc_mod_broadcom_param_shift) &        ((1ULL << __fourcc_mod_broadcom_param_bits) - 1)))
-#define fourcc_mod_broadcom_mod(m) ((m) & ~(((1ULL << __fourcc_mod_broadcom_param_bits) - 1) <<   __fourcc_mod_broadcom_param_shift))
 
   /// Broadcom VC4 "T" format
   ///
@@ -361,37 +355,37 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   ///   tiles) or right-to-left (odd rows of 4k tiles).
   drm_broadcom_vc4_t_tiled = fourcc_mod_code(.broadcom, 1),
 
-  /// Broadcom SAND format
-  ///
-  /// This is the native format that the H.264 codec block uses.  For VC4
-  /// HVS, it is only valid for H.264 (NV12/21) and RGBA modes.
-  ///
-  /// The image can be considered to be split into columns, and the
-  /// columns are placed consecutively into memory.  The width of those
-  /// columns can be either 32, 64, 128, or 256 pixels, but in practice
-  /// only 128 pixel columns are used.
-  ///
-  /// The pitch between the start of each column is set to optimally
-  /// switch between SDRAM banks. This is passed as the number of lines
-  /// of column width in the modifier (we can't use the stride value due
-  /// to various core checks that look at it , so you should set the
-  /// stride to width*cpp).
-  ///
-  /// Note that the column height for this format modifier is the same
-  /// for all of the planes, assuming that each column contains both Y
-  /// and UV.  Some SAND-using hardware stores UV in a separate tiled
-  /// image from Y to reduce the column height, which is not supported
-  /// with these modifiers.
+  // Broadcom SAND format
+  //
+  // This is the native format that the H.264 codec block uses.  For VC4
+  // HVS, it is only valid for H.264 (NV12/21) and RGBA modes.
+  //
+  // The image can be considered to be split into columns, and the
+  // columns are placed consecutively into memory.  The width of those
+  // columns can be either 32, 64, 128, or 256 pixels, but in practice
+  // only 128 pixel columns are used.
+  //
+  // The pitch between the start of each column is set to optimally
+  // switch between SDRAM banks. This is passed as the number of lines
+  // of column width in the modifier (we can't use the stride value due
+  // to various core checks that look at it , so you should set the
+  // stride to width*cpp).
+  //
+  // Note that the column height for this format modifier is the same
+  // for all of the planes, assuming that each column contains both Y
+  // and UV.  Some SAND-using hardware stores UV in a separate tiled
+  // image from Y to reduce the column height, which is not supported
+  // with these modifiers.
 
-#define DRM_BROADCOM_SAND32_COL_HEIGHT(v)  fourcc_mod_broadcom_code(2, v)
-#define DRM_BROADCOM_SAND64_COL_HEIGHT(v)  fourcc_mod_broadcom_code(3, v)
-#define DRM_BROADCOM_SAND128_COL_HEIGHT(v)  fourcc_mod_broadcom_code(4, v)
-#define DRM_BROADCOM_SAND256_COL_HEIGHT(v)  fourcc_mod_broadcom_code(5, v)
-
-#define DRM_BROADCOM_SAND32  DRM_BROADCOM_SAND32_COL_HEIGHT(0)
-#define DRM_BROADCOM_SAND64  DRM_BROADCOM_SAND64_COL_HEIGHT(0)
-#define DRM_BROADCOM_SAND128  DRM_BROADCOM_SAND128_COL_HEIGHT(0)
-#define DRM_BROADCOM_SAND256 DRM_BROADCOM_SAND256_COL_HEIGHT(0)
+// #define DRM_BROADCOM_SAND32_COL_HEIGHT(v)  fourcc_mod_broadcom_code(2, v)
+// #define DRM_BROADCOM_SAND64_COL_HEIGHT(v)  fourcc_mod_broadcom_code(3, v)
+// #define DRM_BROADCOM_SAND128_COL_HEIGHT(v)  fourcc_mod_broadcom_code(4, v)
+// #define DRM_BROADCOM_SAND256_COL_HEIGHT(v)  fourcc_mod_broadcom_code(5, v)
+//
+// #define DRM_BROADCOM_SAND32  DRM_BROADCOM_SAND32_COL_HEIGHT(0)
+// #define DRM_BROADCOM_SAND64  DRM_BROADCOM_SAND64_COL_HEIGHT(0)
+// #define DRM_BROADCOM_SAND128  DRM_BROADCOM_SAND128_COL_HEIGHT(0)
+// #define DRM_BROADCOM_SAND256 DRM_BROADCOM_SAND256_COL_HEIGHT(0)
 
   /// Broadcom UIF format
   ///
@@ -424,29 +418,19 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// AFBC has several features which may be supported and/or used, which are
   /// represented using bits in the modifier. Not all combinations are valid,
   /// and different devices or use-cases may support different combinations.
- #define DRM_ARM_AFBC(__afbc_mode) fourcc_mod_code(ARM, __afbc_mode)
-
-  /// AFBC superblock size
-  ///
-  /// Indicates the superblock size(s) used for the AFBC buffer. The buffer
-  /// size (in pixels) must be aligned to a multiple of the superblock size.
-  /// Four lowest significant bits(LSBs) are reserved for block size.
-  afbc_block_size_mask = 0xf,
-  afbc_block_size_16x16 = (1ULL),
-  afbc_block_size_32x8 = (2ULL),
 
   /// AFBC lossless colorspace transform
   ///
   /// Indicates that the buffer makes use of the AFBC lossless colorspace
   /// transform.
-  afbc_ytr = (1ULL <<  4),
+  afbc_ytr = (1 <<  4),
 
   /// AFBC block-split
   ///
   /// Indicates that the payload of each superblock is split. The second
   /// half of the payload is positioned at a predefined offset from the start
   /// of the superblock payload.
-  afbc_split = (1ULL <<  5),
+  afbc_split = (1 <<  5),
 
   /// AFBC sparse layout
   ///
@@ -456,14 +440,14 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// each superblock is given the same amount of space as an uncompressed
   /// superblock of the particular format would require, rounding up to the next
   /// multiple of 128 bytes in size.
-  afbc_sparse = (1ULL <<  6),
+  afbc_sparse = (1 <<  6),
 
   /// AFBC copy-block restrict
   ///
   /// Buffers with this flag must obey the copy-block restriction. The restriction
   /// is such that there are no copy-blocks referring across the border of 8x8
   /// blocks. For the subsampled data the 8x8 limitation is also subsampled.
-  afbc_cbr = (1ULL <<  7),
+  afbc_cbr = (1 <<  7),
 
   /// AFBC tiled layout
   ///
@@ -474,13 +458,13 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   /// When the tiled layout is used, the buffer size (in pixels) must be aligned
   /// to the tile size.
 
-  afbc_tile = (1ULL <<  8),
+  afbc_tile = @as(u64, 1) <<  8,
 
   /// AFBC solid color blocks
   ///
   /// Indicates that the buffer makes use of solid-color blocks, whereby bandwidth
   /// can be reduced if a whole superblock is a single color.
-  afbc_sc = (1ULL <<  9),
+  afbc_sc = (1 <<  9),
 
 
   pub fn fromInt(n: u64) Modifier {
@@ -493,6 +477,44 @@ i915_yf_tiled_ccs = fourcc_mod_code(.intel, 5),
   pub fn toModVal(mod: Modifier) ModifierValue {
     return .fromInt(mod.toInt());
   }
+
+  // pub fn drm_arm_afbc(mode: u64) ModifierValue {
+  // }
+
+  // #define DRM_ARM_AFBC(__afbc_mode) fourcc_mod_code(ARM, __afbc_mode)
+  inline fn fourcc_mod_code(vendor: ModifierValue.Vendor, code: u54) u64 {
+    return u64_(ModifierValue.create(vendor, code));
+  }
+
+  // Some Broadcom modifiers take parameters, for example the number of
+  // vertical lines in the image. Reserve the lower 32 bits for modifier
+  // type, and the next 24 bits for parameters. Top 8 bits are the
+  // vendor code.
+
+// #define __fourcc_mod_broadcom_param_shift 8
+// #define __fourcc_mod_broadcom_param_bits 48
+// #define fourcc_mod_broadcom_code(val, params) fourcc_mod_code(BROADCOM, ((((__u64)params) << __fourcc_mod_broadcom_param_shift) | val))
+
+// #define fourcc_mod_broadcom_param(m) ((int)(((m) >> __fourcc_mod_broadcom_param_shift) &        ((1ULL << __fourcc_mod_broadcom_param_bits) - 1)))
+// #define fourcc_mod_broadcom_mod(m) ((m) & ~(((1ULL << __fourcc_mod_broadcom_param_bits) - 1) <<   __fourcc_mod_broadcom_param_shift))
+
+  const __fourcc_mod_broadcom_param_shift = 8;
+  const __fourcc_mod_broadcom_param_bits = 48;
+
+  inline fn fourcc_mod_broadcom_code(val: u64, params: u64) u64 {
+    const code = (params << __fourcc_mod_broadcom_param_shift) | val;
+    return fourcc_mod_code(.broadcom, @intCast(code));
+  }
+
+  /// AFBC superblock size
+  ///
+  /// Indicates the superblock size(s) used for the AFBC buffer. The buffer
+  /// size (in pixels) must be aligned to a multiple of the superblock size.
+  /// Four lowest significant bits(LSBs) are reserved for block size.
+  const afbc_block_size_mask: u64 = 0xf;
+  const afbc_block_size_16x16: u64 = 1;
+  const afbc_block_size_32x8: u64 = 2;
+
 };
 
 const u64_ = base.u64_;

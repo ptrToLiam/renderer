@@ -81,7 +81,7 @@ pub inline fn u64_(v: anytype) u64 {
       if (struct_t.layout == .@"packed" and struct_t.backing_integer == u64)
         break :v @bitCast(v);
     },
-    .@"enum" => |enum_t| v: {
+    .@"enum" => v: {
       break :v @intFromEnum(v);
     },
     else => @compileError("Invalid type for u64"),
