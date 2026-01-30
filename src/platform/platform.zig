@@ -2,9 +2,9 @@
 pub const Connection = struct {
   handle: Handle,
 
-  pub fn open(env: os.Environ) Connection {
+  pub fn open(arena: *Arena, env: os.Environ) Connection {
     return .{
-      .handle = .open(env),
+      .handle = .open(arena, env),
     };
   }
 

@@ -1,6 +1,8 @@
 pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
-
+  const app_class = "LmDev-" ++ AppClass;
+  _ = app_class;
+  
   const arena: *Arena = .init(.default);
   defer arena.release();
 
@@ -20,14 +22,16 @@ pub fn app(env: std.process.Environ) void {
   //---------------------------------------------------------------------------
 
   const platform_init_start_us = time.us();
-  var platform_conn: platform.Connection = .open(env);
+  var platform_conn: platform.Connection = .open(arena, env);
+
   defer platform_conn.close();
 
+  // TODO: Implement, lol
   // var surface = platform.acquire_surface(
   //   arena,
   //   .{
   //     .title = app_name,
-  //     .class = "Liam.Games.Renderer",
+  //     .class = app_class,
   //     .width = initial_width,
   //     .height = initial_height,
   //   },
@@ -104,6 +108,7 @@ fn draw() void {
 }
 
 const AppName = "vkRender";
+const AppClass = "Liam.Games.vkRender";
 const Swapchain = struct {
 };
 //----------------------------------------------------------------

@@ -11,7 +11,9 @@ pub const Connection = struct {
   /// Outbound fd queue
   fd_out: RingBuffer,
 
-  pub fn open(env: os.Environ) Connection {
+  pub fn open(arena: *Arena, env: os.Environ) Connection {
+    _ = arena;
+
     //-------------------------------------------------------------------------
     // Allocate & Initialize Ring Buffers
     //-------------------------------------------------------------------------
