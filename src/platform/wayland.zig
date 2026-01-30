@@ -3,13 +3,13 @@ pub const Connection = struct {
   want_flush: u32 = 0,
 
   /// Inbound event queue
-  in: base.RingBuffer,
+  in: RingBuffer,
   /// Outbound event queue
-  out: base.RingBuffer,
+  out: RingBuffer,
   /// Inbound fd queue
-  fd_in: base.RingBuffer,
+  fd_in: RingBuffer,
   /// Outbound fd queue
-  fd_out: base.RingBuffer,
+  fd_out: RingBuffer,
 
   pub fn open(env: os.Environ) Connection {
     //-------------------------------------------------------------------------
@@ -18,7 +18,6 @@ pub const Connection = struct {
 
     // 4 * 2048 = 2 pages of 4KB Virtual Memory
     var ring_buffers: [4]RingBuffer = undefined;
-    const ring_buffer_size = default_ring_buffer_size;
     const ring_buffer_bytes = os.mem_reserve(4 * ring_buffer_size);
 
     if (!os.mem_commit(ring_buffer_bytes))
@@ -81,10 +80,10 @@ pub const Connection = struct {
 
     posix.connect(
       socket_fd,
-      &socket_addr,
+      @ptrCast(&socket_addr),
       @intCast(@sizeOf(@TypeOf(socket_addr))),
-    ) catch |err| {
-      @panic("Failed to connect to wayland socket :: " ++ @errorName(err));
+    ) catch {
+      @panic("Failed to connect to wayland socket :: ");
     };
 
     //-------------------------------------------------------------------------
@@ -105,8 +104,8 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
 
     const ring_buffer_bytes_len = 4 * ring_buffer_size;
-    var ring_buffer_bytes: []align(page_size_min) u8 =
-      @alignCast(@ptrCast(conn.in.ptr[0..ring_buffer_bytes_len]));
+    const ring_buffer_bytes: []align(os.page_size_min) u8 =
+      @alignCast(@ptrCast(conn.in.buf.ptr[0..ring_buffer_bytes_len]));
 
     os.mem_release(ring_buffer_bytes);
     posix.close(conn.fd);
@@ -123,7 +122,7 @@ pub const Connection = struct {
       Thread.yield();
     }
 
-    @atomicStore(u32, &conn.want_flush, 1);
+    @atomicStore(u32, &conn.want_flush, 1, .release);
   }
 
   pub fn signal_flush_complete(conn: *Connection) void {
@@ -135,17 +134,19 @@ pub const Connection = struct {
     @atomicStore(u32, &conn.want_flush, 0, .release);
   }
 
-  const default_ring_buffer_bytes = 2048;
+  const ring_buffer_size: usize = default_ring_buffer_size;
+  const default_ring_buffer_size = 2048;
 };
 
 const WlConnectionProxy = struct {
   conn: *Connection,
-  registry: []Object,
 
+  registry: []Object,
 };
 
 const Arena = base.Arena;
 const Thread = base.Thread;
+const RingBuffer = base.RingBuffer;
 
 const linux = os.linux;
 const posix = os.posix;
@@ -154,7 +155,7 @@ const Proxy = wl_protocols.Proxy;
 const Object = wl_protocols.Object;
 const MessageArg = wl_protocols.MessageArg;
 
-const wl_protocols = @import("../generated/wayland_protocols.zig");
+const wl_protocols = @import("wayland_protocols.zig");
 
 const os = @import("os");
 const base = @import("base");

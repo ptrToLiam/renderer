@@ -2,28 +2,69 @@
 pub const Connection = struct {
   handle: Handle,
 
-  pub const Handle =
+  pub fn open(env: os.Environ) Connection {
+    return .{
+      .handle = .open(env),
+    };
+  }
+
+  pub fn close(conn: *Connection) void {
+    conn.handle.close();
+  }
+
+  /// Poll/load in available events
+  pub fn poll_events(conn: *Connection) void {
+    _ = conn;
+  }
+
+  /// Fetch next available event
+  pub fn get_event(conn: *Connection) ?Event {
+    _ = conn;
+  }
+
+  const Handle = Impl.ConnectionHandle;
+};
+
+pub const Event = union (enum) {
+
 };
 
 pub const Surface = struct {
   handle: Handle,
-  dimensions:
+  dimensions: math.Vec2i32,
+
+  const Handle = Impl.SurfaceHandle;
 };
 
-pub const TargetPlatformOptions = enum {
+pub const TargetOptions = enum {
   wayland,
   win32, // Not Yet Implemented...
 };
 
-pub const TargetPlatform = switch (builtin.target.os) {
+pub const Target = switch (os.Target.tag) {
   .linux => .wayland,
   .windows => .win32,
   else => os.UnsupportedPlatformError(),
 };
 
-const linux = os.linux;
+const Impl = switch (Target) {
+  .wayland => struct {
+    pub const ConnectionHandle = wayland.Connection;
+    pub const SurfaceHandle = wayland.Surface;
+  },
+  .win32 => struct {
+    pub const ConnectionHandle = win32.Connection;
+    pub const SurfaceHandle = win32.Window;
+  },
+  else => os.UnsupportedPlatformError(),
+};
+
 const Arena = base.Arena;
 
+const linux = os.linux;
+const math = base.math;
+
+const win32 = @import("win32.zig");
 const wayland = @import("wayland.zig");
 
 const os = @import("os");

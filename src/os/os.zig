@@ -67,8 +67,8 @@ pub fn UnsupportedPlatformError() void {
 
 pub const page_size_min = std.heap.page_size_min;
 pub const page_size_max = std.heap.page_size_max;
-
 pub const posix = std.posix;
+
 pub const Environ = std.process.Environ;
 pub const Target = builtin.target.os;
 

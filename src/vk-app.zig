@@ -13,56 +13,37 @@ pub fn app(env: std.process.Environ) void {
 
   const initial_width = 540;
   const initial_height = 360;
+  _ = initial_width; _ = initial_height;
 
   //---------------------------------------------------------------------------
-  // BEGIN WAYLAND STATE INIT
+  // BEGIN PLATFORM STATE INIT
   //---------------------------------------------------------------------------
 
-  const wayland_init_start_us = time.us();
-  var window = gfx.Window.create(
-    env,
-    arena,
-    .{
-      .title = app_name,
-      .class = "Liam.Games.Renderer",
-      .width = initial_width,
-      .height = initial_height,
-    },
-  ) catch |err| {
-    std.log.err("Failed to create window :: {s}", .{@errorName(err)});
-    return;
-  };
+  const platform_init_start_us = time.us();
+  var platform_conn: platform.Connection = .open(env);
+  defer platform_conn.close();
 
-  defer window.destroy();
+  // var surface = platform.acquire_surface(
+  //   arena,
+  //   .{
+  //     .title = app_name,
+  //     .class = "Liam.Games.Renderer",
+  //     .width = initial_width,
+  //     .height = initial_height,
+  //   },
+  // );
+  // defer surface.release();
 
-  var wayland_state: WaylandState = .{
-    .connection = window.handle.conn,
-    .proxy = @constCast(&window.handle.conn.proxy()),
-
-    // globals
-    .display = window.handle.display,
-    .seat = window.handle.seat,
-    .shm = window.handle.shm,
-    .wm_base = window.handle.wm_base,
-
-    // objects
-    .wl_surface = window.handle.wl_surface,
-    .xdg_surface = window.handle.xdg_surface,
-    .xdg_toplevel = window.handle.xdg_toplevel,
-  };
-
-
-  _ = &wayland_state;
-  const wayland_init_end_us = time.us();
-  const wayland_init_us = wayland_init_end_us - wayland_init_start_us;
+  const platform_init_end_us = time.us();
+  const platform_init_us = platform_init_end_us - platform_init_start_us;
 
   //---------------------------------------------------------------------------
-  // END WAYLAND STATE INIT
+  // END PLATFORM STATE INIT
   //---------------------------------------------------------------------------
 
   std.log.debug(
-    "wayland state init complete in {d}us ({d:.2}ms)! (conn_id={d})",
-    .{ wayland_init_us, base.f64_(wayland_init_us) / base.f64_(time.us_per_ms), wayland_state.connection.handle },
+    "platform state init complete in {d}us ({d:.2}ms)!",
+    .{ platform_init_us, base.f64_(platform_init_us) / base.f64_(time.us_per_ms) },
   );
 
   //---------------------------------------------------------------------------
@@ -177,6 +158,7 @@ const base = @import("base");
 const os = @import("os");
 const gfx = @import("gfx");
 const vk = @import("vulkan");
+const platform = @import("platform");
 
 const std = @import("std");
 const builtin = @import("builtin");
