@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     b.pathFromRoot("protocols/wayland/linux-dmabuf-v1.xml"),
   };
 
-  const os_mod = b.addModule("wayland", .{
+  const os_mod = b.addModule("os", .{
     .root_source_file = b.path("src/os/os.zig"),
     .target = target,
   });
@@ -65,12 +65,29 @@ pub fn build(b: *std.Build) void {
     },
   });
 
-  const gfx_mod = b.addModule("wayland", .{
-    .root_source_file = b.path("src/gfx.zig"),
+  const wayland_protocols_mod = b.addModule("wayland-protocols", .{
+    .root_source_file = b.path("src/generated/wayland_protocols.zig"),
+    .target = target,
+  });
+
+  const platform_mod = b.addModule("platform", .{
+    .root_source_file = b.path("src/platform/platform.zig"),
     .target = target,
     .imports = &.{
       .{ .name = "os", .module = os_mod },
       .{ .name = "base", .module = base_mod },
+      .{ .name = "wayland-protocols", .module = wayland_protocols_mod },
+    },
+  });
+
+  const gfx_mod = b.addModule("gfx", .{
+    .root_source_file = b.path("src/gfx/gfx.zig"),
+    .target = target,
+    .imports = &.{
+      .{ .name = "os", .module = os_mod },
+      .{ .name = "base", .module = base_mod },
+      .{ .name = "platform", .module = platform_mod },
+      // .{ .name = "vulkan", .module = vulkan },
     },
   });
 
@@ -100,6 +117,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "base", .module = base_mod },
         .{ .name = "os", .module = os_mod },
         .{ .name = "gfx", .module = gfx_mod },
+        .{ .name = "platform", .module = platform_mod },
         .{ .name = "vulkan", .module = vulkan },
       },
   });

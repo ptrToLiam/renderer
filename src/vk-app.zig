@@ -14,6 +14,10 @@ pub fn app(env: std.process.Environ) void {
   const initial_width = 540;
   const initial_height = 360;
 
+  //---------------------------------------------------------------------------
+  // BEGIN WAYLAND STATE INIT
+  //---------------------------------------------------------------------------
+
   const wayland_init_start_us = time.us();
   var window = gfx.Window.create(
     env,
@@ -47,14 +51,23 @@ pub fn app(env: std.process.Environ) void {
     .xdg_toplevel = window.handle.xdg_toplevel,
   };
 
+
   _ = &wayland_state;
   const wayland_init_end_us = time.us();
   const wayland_init_us = wayland_init_end_us - wayland_init_start_us;
+
+  //---------------------------------------------------------------------------
+  // END WAYLAND STATE INIT
+  //---------------------------------------------------------------------------
 
   std.log.debug(
     "wayland state init complete in {d}us ({d:.2}ms)! (conn_id={d})",
     .{ wayland_init_us, base.f64_(wayland_init_us) / base.f64_(time.us_per_ms), wayland_state.connection.handle },
   );
+
+  //---------------------------------------------------------------------------
+  // BEGIN VULKAN STATE INIT
+  //---------------------------------------------------------------------------
 
   const vk_state_init_start_us = time.us();
 
@@ -82,6 +95,10 @@ pub fn app(env: std.process.Environ) void {
   const vk_state_init_end_us = time.us();
   const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
 
+  //---------------------------------------------------------------------------
+  // END VULKAN STATE INIT
+  //---------------------------------------------------------------------------
+
   std.log.debug(
     "vulkan state init complete in {d}us ({d}ms)!",
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
@@ -89,7 +106,7 @@ pub fn app(env: std.process.Environ) void {
 
   const mod: drm.Modifier = .i915_y_tiled;
   const modval = mod.toModVal();
-  std.log.debug("drm mod invalid :: {{ .tag={s}, .uint={d}, .vendor={s} }}", .{ @tagName(mod), mod, @tagName(modval.vendor) });
+  std.log.debug("drm mod invalid :: {{ .mod={s}, .vendor={s} }}", .{ @tagName(mod), @tagName(modval.vendor) });
 
   var want_exit = true;
   _ = &want_exit;

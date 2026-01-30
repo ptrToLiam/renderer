@@ -10,6 +10,21 @@ pub const RingBuffer = struct {
   read: u32 = 0,
   write: u32 = 0,
 
+  pub fn init_mmap(size: usize) ?RingBuffer {
+    const buffer_size = math.align_pow2(size);
+    const buffer = os.mem_reserve(buffer_size);
+
+    if (os.mem_commit(buffer))
+      return .{ .buf = buffer }
+    else
+      return null;
+  }
+
+  /// Assumes provided buffer to be of pow2 length
+  pub fn init_backing(bytes: []u8) RingBuffer {
+    return .{ .buf = bytes };
+  }
+
   pub fn read_idx(rb: *RingBuffer) u32 {
     return rb.read & (rb.buf.len - 1);
   }
@@ -17,9 +32,11 @@ pub const RingBuffer = struct {
   pub fn write_idx(rb: *RingBuffer) u32 {
     return rb.write & (rb.buf.len - 1);
   }
+
   pub fn inc_read(rb: *RingBuffer) void {
     rb.read +%= 1;
   }
+
   pub fn inc_write(rb: *RingBuffer) void {
     rb.write +%= 1;
   }
@@ -127,4 +144,5 @@ pub inline fn f64_(v: anytype) f64 {
 /// Assumed to be initialized in base.entry.primary()
 pub var program_start_time: u64 = undefined;
 
+const os = @import("os");
 const builtin = @import("builtin");

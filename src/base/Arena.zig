@@ -410,17 +410,15 @@ test "Temp Arena" {
   try std.testing.expect(start_pos == end_pos);
 }
 
-pub inline fn align_pow2(x: usize, b: usize) usize {
-  return @as(usize, (@as(usize, (x + b - 1)) & (~@as(usize, (b - 1)))));
-}
-
 pub const Arena = @This();
 
+const align_pow2 = math.align_pow2;
+
 const log = std.log.scoped(.Arena);
+const TargetOs = builtin.target.os;
+
 const mem = std.mem;
 const posix = std.posix;
-
-const TargetOs = builtin.target.os;
 
 // File Imports
 const math = @import("math.zig");
