@@ -182,6 +182,11 @@ pub const Rng2u64 = packed struct {
 
 //-----------------------------------------------------------------------------
 
+pub inline fn div_roundup(n: anytype, size: usize) u32 {
+  // return (uint32_t) (((uint64_t) n + (a - 1)) / a);
+  return base.u32_(base.u64_(n) + size-1 / size);
+}
+
 pub inline fn align_pow2(x: usize, b: usize) usize {
   return @as(usize, (@as(usize, (x + b - 1)) & (~@as(usize, (b - 1)))));
 }
@@ -758,6 +763,7 @@ const has_avx = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cp
 const has_avx512f = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f) else false;
 const has_fma = if (cpu_arch == .x86_64) std.Target.x86.featureSetHas(builtin.cpu.features, .fma) else false;
 
+const base = @import("base.zig");
 
 // 3rd-Party Imports
 const std = @import("std");

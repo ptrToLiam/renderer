@@ -10,8 +10,8 @@ pub const RingBuffer = struct {
   read: u32 = 0,
   write: u32 = 0,
 
-  pub fn init_mmap(size: usize) ?RingBuffer {
-    const buffer_size = math.align_pow2(size);
+  pub fn init_mmap(buf_size: usize) ?RingBuffer {
+    const buffer_size = math.align_pow2(buf_size);
     const buffer = os.mem_reserve(buffer_size);
 
     if (os.mem_commit(buffer))
@@ -23,6 +23,10 @@ pub const RingBuffer = struct {
   /// Assumes provided buffer to be of pow2 length
   pub fn init_backing(bytes: []u8) RingBuffer {
     return .{ .buf = bytes };
+  }
+
+  pub fn size(rb: *RingBuffer) u32 {
+    return rb.write - rb.read;
   }
 
   pub fn read_idx(rb: *RingBuffer) u32 {
