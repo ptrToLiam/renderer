@@ -437,6 +437,45 @@ pub const Connection = struct {
     return event_list;
   }
 
+  pub fn acquire_surface(
+    conn: *Connection,
+    arena: *Arena,
+    title: [:0]const u8,
+    class: [:0]const u8,
+    width: i32,
+    height: i32,
+  ) platform.Surface {
+    _ = arena;
+
+    var conn_proxy = conn.proxy();
+    const wl_surface = conn.client_state.compositor.create_surface(
+      &conn_proxy,
+    ) catch unreachable;
+    const xdg_surface = conn.client_state.xdg_wm_base.get_xdg_surface(
+      &conn_proxy,
+      .{ .surface = wl_surface },
+    ) catch unreachable;
+    const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy) catch unreachable;
+
+    xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
+    xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
+
+    wl_surface.commit(&conn_proxy) catch unreachable;
+
+    conn.flush() catch unreachable;
+    return .{
+      .handle = .{
+        .wl_surface = wl_surface,
+        .xdg_surface = xdg_surface,
+        .xdg_toplevel = xdg_toplevel,
+      },
+      .dimensions = .{
+        .x = width,
+        .y = height,
+      },
+    };
+  }
+
   pub fn flush(conn: *Connection) wl_protocols.WriteError!void {
     const out_read = conn.out.mask(conn.out.read);
     const out_write = conn.out.mask(conn.out.write);
@@ -561,12 +600,6 @@ pub const Connection = struct {
     );
 
     @atomicStore(u32, &conn.want_flush, 0, .release);
-  }
-
-  pub fn next_fd(conn: *Connection) i32 {
-    // TODO
-    _ = conn;
-    return -1;
   }
 
   pub fn proxy(conn: *Connection) Proxy {
@@ -703,6 +736,16 @@ pub const Connection = struct {
     return idx;
   }
 
+  fn next_fd(conn: *Connection) i32 {
+    // TODO
+    var fd: i32 = -1;
+    _ = &fd;
+    const read = conn.fd_in.mask(conn.fd_in.read);
+    _ = read;
+
+    return fd;
+  }
+
   fn obj_destroy(noalias ctx: *anyopaque, object_id: u32) void {
     const conn: *Connection = @alignCast(@ptrCast(ctx));
     conn.client_state.object_pool.release_object(object_id);
@@ -727,11 +770,12 @@ pub const Connection = struct {
 };
 
 pub const Surface = struct {
-  id: u32,
-  toplevel: XdgShell.Toplevel,
+  wl_surface: Wayland.Surface,
+  xdg_surface: XdgShell.Surface,
+  xdg_toplevel: XdgShell.Toplevel,
 
   pub const nil: Surface = .{
-    .id = 0,
+    .wl_surface = 0,
     .toplevel = .fromInt(0),
   };
 };

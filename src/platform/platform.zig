@@ -30,11 +30,13 @@ pub const Connection = struct {
       height: i32,
     },
   ) Surface {
-    _ = conn;
-    _ = arena;
-    _ = params;
-
-    return .nil;
+    return conn.handle.acquire_surface(
+      arena,
+      params.title,
+      params.class,
+      params.width,
+      params.height,
+    );
   }
 
   const Handle = Impl.ConnectionHandle;
