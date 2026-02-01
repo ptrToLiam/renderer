@@ -6,7 +6,7 @@ pub fn microTimestamp() u64 {
 /// Microseconds since program start
 pub fn us() u64 {
   const cur_us = microTimestamp();
-  const elapsed_us = cur_us - base.program_start_time;
+  const elapsed_us = cur_us - program_start;
   return elapsed_us;
 }
 
@@ -56,6 +56,9 @@ pub const s_per_min = 60;
 pub const s_per_hour = s_per_min * 60;
 pub const s_per_day = s_per_hour * 24;
 pub const s_per_week = s_per_day * 7;
+
+/// Time of program start -- assumed initialized in entry.primary
+pub var program_start: u64 = undefined;
 
 const base = @import("base.zig");
 

@@ -187,8 +187,13 @@ pub inline fn div_roundup(n: anytype, size: usize) u32 {
   return base.u32_(base.u64_(n) + size-1 / size);
 }
 
-pub inline fn align_pow2(x: usize, b: usize) usize {
+pub fn align_pow2(x: usize, b: usize) usize {
   return @as(usize, (@as(usize, (x + b - 1)) & (~@as(usize, (b - 1)))));
+}
+
+pub fn is_pow2(x: anytype) bool {
+  base.Assert(x > 0);
+  return (x & (x - 1)) == 0;
 }
 
 // /// Row-major 4x4 f32 Matrix

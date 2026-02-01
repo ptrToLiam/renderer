@@ -1,8 +1,19 @@
+//-----------------------------------------------------------------------------
+// Module Re-Exports
+//-----------------------------------------------------------------------------
+
 pub const Arena = @import("Arena.zig");
-pub const math = @import("math.zig");
 pub const Thread = @import("Thread.zig");
+
 pub const entry = @import("entry.zig");
+pub const math = @import("math.zig");
 pub const time = @import("time.zig");
+
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// Module Toplevel Types
+//-----------------------------------------------------------------------------
 
 /// Requires backing buffer to be of a power of 2 length.
 pub const RingBuffer = struct {
@@ -22,28 +33,51 @@ pub const RingBuffer = struct {
 
   /// Assumes provided buffer to be of pow2 length
   pub fn init_backing(bytes: []u8) RingBuffer {
+    AssertMsg(
+      (bytes.len < MAX_SIZE) and
+      math.is_pow2(bytes.len),
+      "Buffer size must be power of 2, and fit within 2^31",
+    );
     return .{ .buf = bytes };
   }
 
   pub fn size(rb: *RingBuffer) u32 {
-    return rb.write - rb.read;
+    return rb.mask(rb.write -% rb.read);
   }
 
-  pub fn read_idx(rb: *RingBuffer) u32 {
-    return rb.read & (rb.buf.len - 1);
+  pub fn empty(rb: *RingBuffer) u32 {
+    return rb.write == rb.read;
   }
 
-  pub fn write_idx(rb: *RingBuffer) u32 {
-    return rb.write & (rb.buf.len - 1);
+  pub fn mask(rb: *RingBuffer, idx: u32) u32 {
+    return idx & u32_(rb.buf.len - 1);
   }
 
-  pub fn inc_read(rb: *RingBuffer) void {
-    rb.read +%= 1;
+  pub fn put(rb: *RingBuffer, bytes: []u8) void {
+    const write_idx = rb.mask(rb.write);
+    defer rb.write +%= bytes.len;
+
+    if (rb.buf[write_idx..].len > bytes.len) {
+      @memcpy(
+        rb.buf[write_idx..][0..bytes.len],
+        bytes,
+      );
+    } else {
+      const dst1 = rb.buf[write_idx..];
+      @memcpy(
+        dst1,
+        bytes[0..dst1.len],
+      );
+
+      const remainder = bytes.len - dst1.len;
+      @memcpy(
+        rb.buf[0..remainder],
+        bytes[dst1.len..][0..remainder],
+      );
+    }
   }
 
-  pub fn inc_write(rb: *RingBuffer) void {
-    rb.write +%= 1;
-  }
+  const MAX_SIZE = math.maxInt(u31);
 };
 
 pub const ShiftBuffer = struct {
@@ -62,6 +96,11 @@ pub const ShiftBuffer = struct {
     sb.write = new_write_idx;
   }
 };
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// Module Toplevel Functions
+//-----------------------------------------------------------------------------
 
 pub inline fn StaticAssert(cond: bool, msg: []const u8) void {
   comptime {
@@ -70,11 +109,20 @@ pub inline fn StaticAssert(cond: bool, msg: []const u8) void {
   }
 }
 
+pub inline fn Assert(cond: bool) void {
+  if (!cond)
+    @trap();
+}
+
+pub inline fn AssertMsg(cond: bool, msg: []const u8) void {
+  if (!cond)
+    @panic(msg);
+}
+
 pub inline fn DebugAssert(cond: bool, msg: []const u8) void {
   switch (builtin.mode) {
     .Debug, .ReleaseSafe => {
-      if (!cond)
-        @panic(msg);
+      AssertMsg(cond, msg);
     },
     else => {},
   }
@@ -145,8 +193,7 @@ pub inline fn f64_(v: anytype) f64 {
   };
 }
 
-/// Assumed to be initialized in base.entry.primary()
-pub var program_start_time: u64 = undefined;
+//-----------------------------------------------------------------------------
 
 const os = @import("os");
 const builtin = @import("builtin");

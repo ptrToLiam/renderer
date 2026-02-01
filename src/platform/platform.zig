@@ -22,11 +22,75 @@ pub const Connection = struct {
     _ = conn;
   }
 
+  pub fn acquire_surface(conn: *Connection) Surface {
+    _ = conn;
+  }
+
+  pub fn get_events(conn: *Connection, arena: *Arena) EventList {
+    return conn.handle.get_events(arena);
+  }
+
   const Handle = Impl.ConnectionHandle;
 };
 
-pub const Event = union (enum) {
+pub const EventList = struct {
+  first: ?*Event,
+  last: ?*Event,
+  count: usize,
 
+  pub const empty: EventList = .{
+    .first = null,
+    .last = null,
+    .count = 0,
+  };
+};
+
+pub const Key = enum {
+};
+
+pub const Event = struct {
+  next: ?*Event,
+  prev: ?*Event,
+  timestamp_us: u64,
+  type: EventType = .none,
+  surface_handle: Surface.Handle,
+  modifiers: Modifiers,
+  key: Key,
+  repeat_count: u32,
+  pos: math.Vec2f32,
+  delta: math.Vec2f23,
+
+  pub const nil: Event = .{
+    .next = null,
+    .prev = null,
+    .timestamp_us = undefined,
+    .type = .none,
+    .surface_handle = .nil,
+    .modifiers = .{},
+    .key = .nil,
+    .repeat_count = undefined,
+    .pos = undefined,
+    .delta = undefined,
+  };
+
+  const EventType = enum {
+    none,
+    press,
+    release,
+    mouse_move,
+    text,
+    scroll,
+    surface_unfocus,
+    surface_focus,
+    surface_close,
+  };
+
+  const Modifiers = packed struct (u32) {
+    ctrl: bool = false,
+    shift: bool = false,
+    alt: bool = false,
+    __reserved_bits: u29 = 0,
+  };
 };
 
 pub const Surface = struct {

@@ -2,7 +2,7 @@ pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
   const app_class = "LmDev-" ++ AppClass;
   _ = app_class;
-  
+
   const arena: *Arena = .init(.default);
   defer arena.release();
 
@@ -111,40 +111,6 @@ const AppName = "vkRender";
 const AppClass = "Liam.Games.vkRender";
 const Swapchain = struct {
 };
-//----------------------------------------------------------------
-// TODO: GET RID OF THIS SECTION
-//----------------------------------------------------------------
-const AppState = struct {
-  wayland_state: *WaylandState,
-  swapchain: Swapchain,
-  frame_idx: u64 = 0,
-  exit_flag: u32 = 0,
-
-  pub fn should_exit(state: *AppState) bool {
-    return (@atomicLoad(u32, &state.exit_flag, .seq_cst) == 1);
-  }
-  pub fn signal_exit(state: *AppState) void {
-    @atomicStore(u32, &state.exit_flag, 1, .seq_cst);
-  }
-};
-
-const WaylandState = struct {
-  connection: *Wayland.Connection,
-  proxy: *Wayland.Protocols.Proxy,
-
-  // globals
-  display: Wayland.Protocols.Wayland.Display,
-  seat: Wayland.Protocols.Wayland.Seat,
-  shm: Wayland.Protocols.Wayland.Shm,
-  wm_base: Wayland.Protocols.XdgShell.WmBase,
-
-  // objects
-  wl_surface: Wayland.Protocols.Wayland.Surface,
-  xdg_surface: Wayland.Protocols.XdgShell.Surface,
-  xdg_toplevel: Wayland.Protocols.XdgShell.Toplevel,
-};
-const Wayland = gfx.Wayland;
-//----------------------------------------------------------------
 
 const u32_ = base.u32_;
 const u64_ = base.u64_;

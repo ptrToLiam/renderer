@@ -148,6 +148,188 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
   }
 
+  pub fn load_events(conn: *const Connection) void {
+    const read = conn.in.mask(conn.in.read);
+    const write = conn.in.mask(conn.in.write);
+
+    //-------------------------------------------------------------------------
+    // Prepare IOV Buffer(s) For Read
+    //-------------------------------------------------------------------------
+
+    var iov: [2]linux.iovec = undefined;
+    var iov_len = 1;
+    if (write < read) {
+      const iov_buf = conn.in[write..read];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else if (write == 0) {
+      const iov_buf = conn.in[write..];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else {
+      const iov_buf_0 = conn.in[write..];
+      iov[0].base = iov_buf_0.ptr;
+      iov[0].len = iov_buf_0.len;
+      const iov_buf_1 = conn.in[0..read];
+      iov[1].base = iov_buf_1.ptr;
+      iov[1].len = iov_buf_1.len;
+      iov_len = 2;
+    }
+
+    //-------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------
+    // Read Into Buffer(s)
+    //-------------------------------------------------------------------------
+
+    var cmsg_buf: [cmsg_buf_in_len]u8 = undefined;
+    var msg: linux.msghdr = .{
+      .name = null,
+      .namelen = 0,
+      .iov = iov.ptr,
+      .len = iov.len,
+      .control = cmsg_buf,
+      .controllen = cmsg_buf.len,
+    };
+
+    var rc: usize = linux.recvmsg(
+      conn.handle,
+      &msg,
+      linux.MSG.DONTWAIT,
+    );
+
+    while (base.i32_(rc) < 0 and linux.errno(rc) == .INTR) {
+      rc = linux.recvmsg(
+        conn.handle,
+        &msg,
+        linux.MSG.DONTWAIT | linux.MSG.CMSG_CLOEXEC,
+      );
+    }
+
+    if (base.i32_(rc) < 0) switch (linux.errno(rc)) {
+      .PIPE => @panic("BrokenPipe"),
+      else => {@panic("unexpected err");},
+    };
+    defer conn.in.write +%= base.u32_(rc);
+
+
+    //-------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------
+    // Parse Control Messages
+    //-------------------------------------------------------------------------
+
+    var cmsg_iter = linux.cmsghdr.iter(cmsg_buf[0..msg.controllen]);
+    while (cmsg_iter.next()) |cmsg_header| {
+      if (cmsg_header.type == linux.SOL.SOCKET and cmsg_header.level == linux.SCM_RIGHTS) {
+        conn.fd_in.put(std.mem.asBytes(cmsg_header.data()));
+      }
+    }
+
+    //-------------------------------------------------------------------------
+  }
+
+  pub fn get_events(conn: *Connection, arena: *Arena) platform.EventList {
+    var conn_proxy = conn.proxy();
+    var event_list: platform.EventList = .empty;
+    conn.load_events();
+
+    while (!conn.in.empty()) {
+      const size = conn.in.size();
+
+      // not enough data for header
+      if (size < @sizeOf(WireEventHeader))
+        break;
+
+      //-----------------------------------------------------------------------
+      // Parse Event Header
+      //-----------------------------------------------------------------------
+
+      var header: WireEventHeader = .{};
+      var header_bytes = std.mem.asBytes(&header);
+      const header_read_idx = conn.in.mask(conn.in.read);
+      const header_contiguous_bytes = conn.in.buf[header_read_idx..];
+
+      // Current header bytes wrap around to start of buffer
+      if (header_bytes.len > header_contiguous_bytes.len) {
+        const remainder = header_bytes.len - header_contiguous_bytes.len;
+
+        // copy contiguous bytes
+        @memcpy(
+          header_bytes[0..header_contiguous_bytes.len],
+          header_contiguous_bytes,
+        );
+
+        // copy remaining bytes
+        @memcpy(
+          header_bytes[header_contiguous_bytes.len..],
+          conn.in[0..remainder],
+        );
+      } else {
+        @memcpy(
+          header_bytes,
+          header_contiguous_bytes[0..header_bytes.len],
+        );
+      }
+
+      //-----------------------------------------------------------------------
+
+      //-----------------------------------------------------------------------
+      // Parse Event Body
+      //-----------------------------------------------------------------------
+
+      // not enough data for whole event
+      if (size < header.len)
+        break;
+
+      // bump read idx to event data begin
+      conn.in.read +%= base.u32_(@sizeOf(WireEventHeader));
+
+      const data_len = header.len - @sizeOf(WireEventHeader);
+      const data_read_idx = conn.in.mask(conn.in.read);
+      const data_contiguous_bytes = conn.in.buf[data_read_idx..];
+
+      const scratch = Thread.get_scratch(1, .{arena})
+        orelse @panic("Scratch buffers not initialized!!");
+
+      const scratch_arena = scratch.arena;
+      defer scratch.end();
+
+      var data_bytes = scratch_arena.push(u8, data_len);
+
+      // Current data bytes wrap around to start of buffer
+      if (data_len > data_contiguous_bytes.len) {
+        const remainder = data_len - data_contiguous_bytes.len;
+        @memcpy(
+          data_bytes[0..data_contiguous_bytes.len],
+          data_contiguous_bytes,
+        );
+        @memcpy(
+          data_bytes[data_contiguous_bytes.len..],
+          conn.in.buf[0..remainder],
+        );
+      } else {
+        @memcpy(
+          data_bytes,
+          data_contiguous_bytes[0..data_bytes.len]
+        );
+      }
+
+      const wayland_event = conn.client_state.object_pool
+        .get(header.id)
+        .parse_msg(
+          &conn_proxy,
+          header.op,
+          data_bytes,
+        );
+        _ = wayland_event;
+        _ = &event_list;
+
+      //-----------------------------------------------------------------------
+    }
+    return event_list;
+  }
+
   pub fn flush(conn: *const Connection) wl_protocols.WriteError!void {
     _ = conn;
   }
@@ -344,8 +526,19 @@ pub const Connection = struct {
     return @intCast(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
   }
 
+  const cmsg_buf_in_len = 32 * linux.cmsghdr.msg_len(i32);
   const ring_buffer_size: usize = default_ring_buffer_size;
   const default_ring_buffer_size = 2048;
+};
+
+pub const Surface = struct {
+  id: u32,
+  toplevel: XdgShell.Toplevel,
+
+  pub const nil: Surface = .{
+    .id = 0,
+    .toplevel = .fromInt(0),
+  };
 };
 
 pub const ClientState = struct {
@@ -448,6 +641,7 @@ const Object = wl_protocols.Object;
 const MessageArg = wl_protocols.MessageArg;
 
 const wl_protocols = @import("wayland_protocols.zig");
+const platform = @import("platform.zig");
 
 const math = base.math;
 

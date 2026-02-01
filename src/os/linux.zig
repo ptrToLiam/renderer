@@ -222,6 +222,8 @@ pub const errno = std.posix.errno;
 
 // Type aliases
 pub const timespec = linux.timespec;
+pub const iovec = std.posix.iovec;
+pub const msghdr = std.posix.msghdr;
 
 // Constant/Namespace aliases
 pub const PR = linux.PR;
@@ -229,6 +231,7 @@ pub const MSG = linux.MSG;
 pub const MAP = linux.MAP;
 pub const PROT = linux.PROT;
 pub const MADV = linux.MADV;
+pub const SOL = linux.SOL;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;
