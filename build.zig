@@ -124,7 +124,7 @@ pub fn build(b: *std.Build) void {
   if (rpath_opt) |rpath| root.addRPathSpecial(rpath);
 
   const exe = b.addExecutable(.{
-    .name = "renderer",
+    .name = "project",
     .root_module = root,
     .use_llvm = use_llvm,
     .use_lld = use_lld,

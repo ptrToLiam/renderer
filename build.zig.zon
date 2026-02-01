@@ -1,7 +1,7 @@
 .{
-  .name = .renderer,
+  .name = .project,
   .version = "0.0.0",
-  .fingerprint = 0xf199a19cff4c7204, // Changing this has security and trust implications.
+  .fingerprint = 0x2fb3d0ee51b0adc5, // Changing this has security and trust implications.
   .minimum_zig_version = "0.15.0-dev.1222+5fb36d260",
   .dependencies = .{
     .vulkan_zig = .{
