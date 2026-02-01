@@ -185,10 +185,10 @@ pub const Connection = struct {
               ) catch unreachable;
               globals_bound.linux_dmabuf = true;
             }
-            log.info(
-              "registry_global :: {{ .name={}, .interface={s}, .version={} }}",
-              .{ registry_global.name, registry_global.interface, registry_global.version },
-            );
+            // log.info(
+            //   "registry_global :: {{ .name={}, .interface={s}, .version={} }}",
+            //   .{ registry_global.name, registry_global.interface, registry_global.version },
+            // );
             // conn.consume_event()
           },
           .global_remove => |registry_global_remove| {
@@ -209,7 +209,7 @@ pub const Connection = struct {
         else => { break; },
       }
     }
-    log.info("succesfully bound desired globals!", .{});
+    // log.info("succesfully bound desired globals!", .{});
 
     //-------------------------------------------------------------------------
 
@@ -533,12 +533,11 @@ pub const Connection = struct {
       .flags = 0,
     };
 
-    const bytes_sent = linux.sendmsg(
+      _ = linux.sendmsg(
       conn.fd,
       &msg,
       0,
     );
-    log.debug("Connection::flush(): sendmsg--bytes sent :: {}", .{bytes_sent});
     //-------------------------------------------------------------------------
   }
 
