@@ -224,6 +224,7 @@ pub const errno = std.posix.errno;
 pub const timespec = linux.timespec;
 pub const iovec = std.posix.iovec;
 pub const msghdr = std.posix.msghdr;
+pub const msghdr_const = std.posix.msghdr_const;
 
 // Constant/Namespace aliases
 pub const PR = linux.PR;

@@ -1,7 +1,6 @@
 pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
   const app_class = "LmDev-" ++ AppClass;
-  _ = app_class;
 
   const arena: *Arena = .init(.default);
   defer arena.release();
@@ -15,7 +14,6 @@ pub fn app(env: std.process.Environ) void {
 
   const initial_width = 540;
   const initial_height = 360;
-  _ = initial_width; _ = initial_height;
 
   //---------------------------------------------------------------------------
   // BEGIN PLATFORM STATE INIT
@@ -26,17 +24,17 @@ pub fn app(env: std.process.Environ) void {
 
   defer platform_conn.close();
 
-  // TODO: Implement, lol
-  // var surface = platform.acquire_surface(
-  //   arena,
-  //   .{
-  //     .title = app_name,
-  //     .class = app_class,
-  //     .width = initial_width,
-  //     .height = initial_height,
-  //   },
-  // );
-  // defer surface.release();
+  // TODO: Implement
+  var surface = platform_conn.acquire_surface(
+    arena,
+    .{
+      .title = app_name,
+      .class = app_class,
+      .width = initial_width,
+      .height = initial_height,
+    },
+  );
+  defer surface.release();
 
   const platform_init_end_us = time.us();
   const platform_init_us = platform_init_end_us - platform_init_start_us;
@@ -89,7 +87,7 @@ pub fn app(env: std.process.Environ) void {
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
 
-  const mod: drm.Modifier = .i915_y_tiled;
+  const mod: drm.Modifier = .invalid;
   const modval = mod.toModVal();
   std.log.debug("drm mod invalid :: {{ .mod={s}, .vendor={s} }}", .{ @tagName(mod), @tagName(modval.vendor) });
 

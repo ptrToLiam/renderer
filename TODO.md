@@ -1,28 +1,12 @@
-# Project TODOs
+# TODAY
 
-- [ ] Fix Wayland Event Loading
-- [ ] Platfom Layer
-- [ ] Software Rendering
-
-# Platform Layer
-
-- [ ] Platform-independent event queue
-- [ ] Platform-independent software render swapchain API
-- [ ] Remove need for explicit wayland-state tracking in application code
-
-# Software Rendering
-
-- [ ] Receive commands from logic thread(s?)
-- [ ] Computer Graphics From Scratch - Rasterizing
+- [x] Finish rewrite of Wayland event I/O
+- [x] Get globals binding
+- [ ] Setup surface acquisition
+- [ ] Platform event queue
 
 
-## Computer Graphics From Scratch - Rasterizing
+# MAYBE
 
-- [ ] Line Drawing
-- [ ] Triangles
-- [ ] Perspective Projection
-- [ ] Rendering a Scene
-- [ ] Clipping
-- [ ] Hidden Surface Removal
-- [ ] Shading
-- [ ] Textures
+- [ ] Set up initial Vulkan background clearing
+

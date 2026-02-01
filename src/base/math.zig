@@ -183,8 +183,8 @@ pub const Rng2u64 = packed struct {
 //-----------------------------------------------------------------------------
 
 pub inline fn div_roundup(n: anytype, size: usize) u32 {
-  // return (uint32_t) (((uint64_t) n + (a - 1)) / a);
-  return base.u32_(base.u64_(n) + size-1 / size);
+  // TODO: See if there's a better way to do this... am tired
+  return base.u32_(size * ((base.u64_(n) + (size-1)) / size));
 }
 
 pub fn align_pow2(x: usize, b: usize) usize {

@@ -146,6 +146,8 @@ pub const Context = struct {
           continue :outer;
         }
       }
+      if (result != null)
+        break;
     }
     return result;
   }

@@ -42,10 +42,15 @@ pub const RingBuffer = struct {
   }
 
   pub fn size(rb: *RingBuffer) u32 {
-    return rb.mask(rb.write -% rb.read);
+    if (rb.write < rb.read) {
+      @branchHint(.cold);
+      return rb.mask(rb.read) - rb.write;
+    } else {
+      return rb.write - rb.read;
+    }
   }
 
-  pub fn empty(rb: *RingBuffer) u32 {
+  pub fn empty(rb: *RingBuffer) bool {
     return rb.write == rb.read;
   }
 
@@ -53,9 +58,9 @@ pub const RingBuffer = struct {
     return idx & u32_(rb.buf.len - 1);
   }
 
-  pub fn put(rb: *RingBuffer, bytes: []u8) void {
+  pub fn put(rb: *RingBuffer, bytes: []const u8) void {
     const write_idx = rb.mask(rb.write);
-    defer rb.write +%= bytes.len;
+    defer rb.write +%= u32_(bytes.len);
 
     if (rb.buf[write_idx..].len > bytes.len) {
       @memcpy(

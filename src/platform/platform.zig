@@ -2,32 +2,39 @@
 pub const Connection = struct {
   handle: Handle,
 
+  /// Open client connection to graphics server
   pub fn open(arena: *Arena, env: os.Environ) Connection {
     return .{
       .handle = .open(arena, env),
     };
   }
 
+  /// Close client connection to graphics server
   pub fn close(conn: *Connection) void {
     conn.handle.close();
   }
 
-  /// Poll/load in available events
-  pub fn poll_events(conn: *Connection) void {
-    _ = conn;
-  }
-
-  /// Fetch next available event
-  pub fn get_event(conn: *Connection) ?Event {
-    _ = conn;
-  }
-
-  pub fn acquire_surface(conn: *Connection) Surface {
-    _ = conn;
-  }
-
+  /// Fetch available platform events
   pub fn get_events(conn: *Connection, arena: *Arena) EventList {
     return conn.handle.get_events(arena);
+  }
+
+  /// Obtain a graphical surface to draw on
+  pub fn acquire_surface(
+    conn: *Connection,
+    arena: *Arena,
+    params: struct {
+      title: [:0]const u8,
+      class: [:0]const u8,
+      width: i32,
+      height: i32,
+    },
+  ) Surface {
+    _ = conn;
+    _ = arena;
+    _ = params;
+
+    return .nil;
   }
 
   const Handle = Impl.ConnectionHandle;
@@ -97,6 +104,11 @@ pub const Surface = struct {
   handle: Handle,
   dimensions: math.Vec2i32,
 
+  pub fn release(surface: *Surface) void {
+    _ = surface;
+  }
+
+  pub const nil: Surface = .{ .handle = .nil, .dimensions = undefined };
   const Handle = Impl.SurfaceHandle;
 };
 
