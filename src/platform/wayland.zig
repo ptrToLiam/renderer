@@ -130,9 +130,6 @@ pub const Connection = struct {
       @panic("Call to get_registry failed!");
     };
 
-    // TODO:
-    // - Implement Wayland RingBuffer flush
-    // - Bind Globals
     connection.flush() catch @panic("failed to write to wayland socket");
 
     const GlobalsBound = packed struct (u8) {
@@ -243,7 +240,7 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
   }
 
-  /// Construct DLL of available platform events from received wayland events
+  /// Construct DLL queue of available platform events from received wayland events
   pub fn get_events(conn: *Connection, arena: *Arena, surface: *Surface) platform.EventList {
     var conn_proxy = conn.proxy();
     var event_list: platform.EventList = .empty;

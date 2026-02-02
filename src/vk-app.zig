@@ -74,23 +74,12 @@ pub fn app(env: std.process.Environ) void {
   }
   defer vki.destroyInstance(instance, null);
 
-  const vkGetPhysicalDeviceProperties2 = vk_handle.lookup(
-    vk.PfnGetPhysicalDeviceProperties2,
-    "vkGetPhysicalDeviceProperties2",
-  ).?;
-
-  if (vki.dispatch.vkGetPhysicalDeviceProperties2) |_| {
-    std.log.debug("Successfully located vkGetPhysicalDeviceProperties2 in libvulkan.so.1", .{});
-  } else {
-    std.log.err("Could not locate vkGetPhysicalDeviceProperties2 in libvulkan.so.1", .{});
-  }
-
-
   // NEXT UP:
   // - Allocate GPU memory through Vulkan
   // - Get FileDescriptor of allocated GPU memory
   // - Create Images backed by this memory
   // - Create draw buffers (wl_buffer on wayland) with this memory for presentation to surface
+
   const vk_required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_external_memory.name,
     vk.extensions.khr_external_memory_fd.name,
@@ -118,9 +107,11 @@ pub fn app(env: std.process.Environ) void {
   if (vk_pdevs.len == 0) @panic("no vk physical devices available")
     else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
 
-  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
+
   // vk physical device enumeration
+  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
   for (vk_pdevs) |vk_pdev_opt| {
+
     // NOTE: vk1.4 props => SIGSEGV from drivers on desktop and laptop
     //       stick to vk1.3 properties
     var pdev_props13: vk.PhysicalDeviceVulkan13Properties = undefined;
@@ -132,9 +123,7 @@ pub fn app(env: std.process.Environ) void {
       .properties = undefined,
     };
 
-    // pdev_props2.properties = vki.getPhysicalDeviceProperties(vk_pdev_opt);
-    _ =  vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
-    // _ = vkGetPhysicalDeviceProperties2;
+    _ = vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
 
     var score: u32 = 0;
 
@@ -214,7 +203,7 @@ pub fn app(env: std.process.Environ) void {
   }
 
   vk_pdev.* = vk_pdev_candidate.pdev;
-  std.log.debug("chose device 0x{x}, {s}", .{ vk_pdev.*, vk_pdev_candidate.properties.device_name });
+  std.log.debug("chose device: {s}", .{ vk_pdev_candidate.properties.device_name });
 
   vk_pdev_selection_scratch.end();
 
@@ -230,7 +219,7 @@ pub fn app(env: std.process.Environ) void {
   );
 
   var events: platform.EventList = .empty;
-  var want_exit = true;
+  var want_exit = false;
   _ = &want_exit;
   while (!want_exit) {
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
