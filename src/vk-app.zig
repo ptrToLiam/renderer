@@ -63,7 +63,7 @@ pub fn app(env: std.process.Environ) void {
       .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
       .p_engine_name = "custom",
       .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
-      .api_version = u32_(vk.API_VERSION_1_3),
+      .api_version = u32_(vk.API_VERSION_1_4),
     };
 
     const instance_info: vk.InstanceCreateInfo = .{
@@ -118,20 +118,23 @@ pub fn app(env: std.process.Environ) void {
   if (vk_pdevs.len == 0) @panic("no vk physical devices available")
     else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
 
-  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .score = 0 };
+  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
   // vk physical device enumeration
   for (vk_pdevs) |vk_pdev_opt| {
-    var pdev_props14: vk.PhysicalDeviceVulkan14Properties = undefined;
-    pdev_props14.s_type = .physical_device_vulkan_1_4_properties;
-    pdev_props14.p_next = null;
+    // NOTE: vk1.4 props => SIGSEGV from drivers on desktop and laptop
+    //       stick to vk1.3 properties
+    var pdev_props13: vk.PhysicalDeviceVulkan13Properties = undefined;
+    pdev_props13.s_type = .physical_device_vulkan_1_3_properties;
+    pdev_props13.p_next = null;
 
     var pdev_props2: vk.PhysicalDeviceProperties2 = .{
-      .p_next = &pdev_props14,
+      .p_next = &pdev_props13,
       .properties = undefined,
     };
-    
-    vkGetPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
-    // vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
+
+    // pdev_props2.properties = vki.getPhysicalDeviceProperties(vk_pdev_opt);
+    _ =  vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
+    // _ = vkGetPhysicalDeviceProperties2;
 
     var score: u32 = 0;
 
@@ -204,11 +207,14 @@ pub fn app(env: std.process.Environ) void {
     if (supports_desired_extensions and score > vk_pdev_candidate.score) {
       vk_pdev_candidate = .{
         .pdev = vk_pdev_opt,
+        .properties = pdev_props2.properties,
         .score = score,
       };
     }
   }
+
   vk_pdev.* = vk_pdev_candidate.pdev;
+  std.log.debug("chose device 0x{x}, {s}", .{ vk_pdev.*, vk_pdev_candidate.properties.device_name });
 
   vk_pdev_selection_scratch.end();
 
@@ -243,6 +249,7 @@ pub fn app(env: std.process.Environ) void {
 
 const VkDeviceCandidate = struct {
   pdev: vk.PhysicalDevice,
+  properties: vk.PhysicalDeviceProperties,
   score: u32,
 };
 
