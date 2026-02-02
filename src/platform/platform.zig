@@ -15,8 +15,8 @@ pub const Connection = struct {
   }
 
   /// Fetch available platform events
-  pub fn get_events(conn: *Connection, arena: *Arena) EventList {
-    return conn.handle.get_events(arena);
+  pub fn get_events(conn: *Connection, arena: *Arena, surface: *Surface) EventList {
+    return conn.handle.get_events(arena, &surface.handle);
   }
 
   /// Obtain a graphical surface to draw on
@@ -67,7 +67,7 @@ pub const Event = struct {
   key: Key,
   repeat_count: u32,
   pos: math.Vec2f32,
-  delta: math.Vec2f23,
+  delta: math.Vec2f32,
 
   pub const nil: Event = .{
     .next = null,

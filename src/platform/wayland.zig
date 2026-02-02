@@ -14,6 +14,11 @@ pub const Connection = struct {
   /// Client-side state
   client_state: *ClientState,
 
+  //---------------------------------------------------------------------------
+  // Platform API Surface
+  //---------------------------------------------------------------------------
+
+  /// Open client connection to host wayland compositor
   pub fn open(arena: *Arena, env: os.Environ) Connection {
     //-------------------------------------------------------------------------
     // Allocate & Initialize Ring Buffers
@@ -141,7 +146,7 @@ pub const Connection = struct {
         return @as(u8, @bitCast(a)) == @as(u8, @bitCast(b));
       }
 
-      pub const all_bound: @This() = .{
+      pub const desired: @This() = .{
         .wl_seat = true,
         .wl_compositor = true,
         .xdg_wm_base = true,
@@ -151,71 +156,78 @@ pub const Connection = struct {
 
     var globals_bound: GlobalsBound = .{};
     // Loop until all desired globals are bound OR no more globals are available
-    while (globals_bound.match(.all_bound)) {
-      const event = connection.peek_event(scratch_arena) orelse { connection.load_events(); log.info("gotta load anew", .{}); continue; };
+    while (true) {
+      const event = connection.peek_event(scratch_arena) orelse { connection.load_events(); continue; };
       switch (event) {
-        .wl_registry => |registry_event| switch (registry_event) {
-          .global => |registry_global| {
-            if (std.mem.eql(u8, Seat.InterfaceName, registry_global.interface)) {
-              connection.client_state.seat = connection.client_state.registry.bind(
-                &conn_proxy,
-                Seat,
-                .{ .name = registry_global.name, .interface_version = registry_global.version }
-              ) catch unreachable;
-              globals_bound.wl_seat = true;
-            } else if (std.mem.eql(u8, Compositor.InterfaceName, registry_global.interface)) {
-              connection.client_state.compositor = connection.client_state.registry.bind(
-                &conn_proxy,
-                Compositor,
-                .{ .name = registry_global.name, .interface_version = registry_global.version }
-              ) catch unreachable;
-              globals_bound.wl_compositor = true;
-            } else if (std.mem.eql(u8, XdgWmBase.InterfaceName, registry_global.interface)) {
-              connection.client_state.xdg_wm_base = connection.client_state.registry.bind(
-                &conn_proxy,
-                XdgWmBase,
-                .{ .name = registry_global.name, .interface_version = registry_global.version }
-              ) catch unreachable;
-              globals_bound.xdg_wm_base = true;
-            } else if (std.mem.eql(u8, LinuxDmabuf.InterfaceName, registry_global.interface)) {
-              connection.client_state.linux_dmabuf = connection.client_state.registry.bind(
-                &conn_proxy,
-                LinuxDmabuf,
-                .{ .name = registry_global.name, .interface_version = registry_global.version }
-              ) catch unreachable;
-              globals_bound.linux_dmabuf = true;
-            }
-            // log.info(
-            //   "registry_global :: {{ .name={}, .interface={s}, .version={} }}",
-            //   .{ registry_global.name, registry_global.interface, registry_global.version },
-            // );
-            // conn.consume_event()
-          },
-          .global_remove => |registry_global_remove| {
-            _ = registry_global_remove;
-          },
+        .wl_registry => |registry_event| {
+          defer connection.consume_event();
+
+          switch (registry_event) {
+            .global => |registry_global| {
+              if (std.mem.eql(u8, Seat.InterfaceName, registry_global.interface)) {
+                connection.client_state.seat = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Seat,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_seat = true;
+              } else if (std.mem.eql(u8, Compositor.InterfaceName, registry_global.interface)) {
+                connection.client_state.compositor = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Compositor,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_compositor = true;
+              } else if (std.mem.eql(u8, XdgWmBase.InterfaceName, registry_global.interface)) {
+                connection.client_state.xdg_wm_base = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  XdgWmBase,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.xdg_wm_base = true;
+              } else if (std.mem.eql(u8, LinuxDmabuf.InterfaceName, registry_global.interface)) {
+                connection.client_state.linux_dmabuf = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  LinuxDmabuf,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.linux_dmabuf = true;
+              }
+            },
+            .global_remove => |registry_global_remove| {
+              _ = registry_global_remove;
+            },
+          }
         },
-        .wl_display => |display_event| switch (display_event) {
-          .@"error" => |display_error| {
-            log.err(
-              "display error :: {{ obj_id={}, code={}, message=\"{s}\" }}",
-              .{ display_error.object_id, display_error.code, display_error.message },
-            );
-          },
-          .delete_id => |delete_id| {
-            log.debug("display requested delete_id :: {{ id={} }} ", .{delete_id.id});
-          },
+        .wl_display => |display_event| {
+          defer connection.consume_event();
+          switch (display_event) {
+            .@"error" => |display_error| {
+              log.err(
+                "display error :: {{ obj_id={}, code={}, message=\"{s}\" }}",
+                .{ display_error.object_id, display_error.code, display_error.message },
+              );
+            },
+            .delete_id => |delete_id| {
+              log.debug("display requested delete_id :: {{ id={} }} ", .{delete_id.id});
+            },
+          }
         },
         else => { break; },
       }
     }
-    // log.info("succesfully bound desired globals!", .{});
+
+    if (globals_bound.match(.desired))
+      log.info("succesfully bound desired globals!", .{})
+    else
+      log.info("failed to bind all desired globals!", .{});
 
     //-------------------------------------------------------------------------
 
     return connection;
   }
 
+  /// Close connection to host compositor and free ringbuffer memory
   pub fn close(conn: *Connection) void {
     //-------------------------------------------------------------------------
     //  Retrieve & Free Ring Buffer Backing Pages
@@ -229,6 +241,175 @@ pub const Connection = struct {
     posix.close(conn.fd);
 
     //-------------------------------------------------------------------------
+  }
+
+  /// Construct DLL of available platform events from received wayland events
+  pub fn get_events(conn: *Connection, arena: *Arena, surface: *Surface) platform.EventList {
+    var conn_proxy = conn.proxy();
+    var event_list: platform.EventList = .empty;
+    conn.load_events();
+
+    while (conn.get_event(arena)) |wayland_event| {
+      switch (wayland_event) {
+        .wl_display => |wl_display_event| {
+          switch (wl_display_event) {
+            .@"error" => |display_error| {
+              log.err(
+                "Wayland display error :: {{ object: {}, code: {}, message: \"{s}\"  }}",
+                .{ display_error.object_id, display_error.code, display_error.message },
+              );
+            },
+            .delete_id => |delete_id| {
+              log.warn(
+                "Compositor Requested Delete ID :: {}",
+                .{ delete_id.id },
+              );
+              // conn.client_state.object_pool.get(delete_id.id).destroy()
+              //   catch unreachable;
+            },
+          }
+        },
+        .wl_registry => |wl_registry_event| {
+          switch (wl_registry_event) {
+            .global => |registry_global| {
+              log.debug(
+                "Compositor advertising new global :: {{ name={}, interface={s}, version={} }}",
+                .{ registry_global.name, registry_global.interface, registry_global.version },
+              );
+            },
+            .global_remove => |global_remove_event| {
+              log.warn(
+                "compositor notifying removal of global with name={}",
+                .{ global_remove_event.name },
+              );
+            },
+          }
+        },
+        .wl_seat => |wl_seat_event| {
+          switch (wl_seat_event) {
+            .capabilities => |wl_seat_capabilities| {
+              const seat_capabilities = wl_seat_capabilities.capabilities;
+              log.debug(
+                "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
+                .{
+                  if (seat_capabilities.pointer) "true" else "false",
+                  if (seat_capabilities.touch) "true" else "false",
+                  if (seat_capabilities.keyboard) "true" else "false",
+                },
+              );
+              conn.client_state.seat_capabilities = seat_capabilities;
+            },
+            .name => |wl_seat_name| {
+              const seat_name = wl_seat_name.name;
+              log.debug(
+                "setting wayland client seat name to: {s}",
+                .{ seat_name },
+              );
+              @memcpy(
+                conn.client_state.seat_name[0..seat_name.len],
+                seat_name,
+              );
+              conn.client_state.seat_name[seat_name.len] = 0;
+            },
+          }
+        },
+        .xdg_surface => |xdg_surface_event| {
+          switch (xdg_surface_event) {
+            .configure => |xdg_surface_configure| {
+              const config = xdg_surface_configure;
+              log.debug(
+                "received xdg_surface::configure :: serial={}",
+                .{config.serial},
+              );
+              surface.xdg_surface.ack_configure(&conn_proxy, .{ .serial = config.serial })
+                catch unreachable;
+            },
+          }
+        },
+        .xdg_toplevel => |xdg_toplevel_event| {
+          switch(xdg_toplevel_event) {
+            .configure => |xdg_toplevel_configure| {
+              const config = xdg_toplevel_configure;
+              log.debug(
+                "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
+                .{ config.width, config.height },
+              );
+              // config has: i32 width, height, []const u8 states.
+            },
+            .close => {
+              // TODO: Push close event to event queue
+            },
+            .configure_bounds => |xdg_toplevel_configure_bounds| {
+              const config_bounds = xdg_toplevel_configure_bounds;
+              _ = config_bounds;
+              // config_bounds has: i32 width, height.
+            },
+            .wm_capabilities => |xdg_toplevel_wm_capabilities| {
+              const wm_capabilites: []const XdgToplevel.Enum.WmCapabilities = @alignCast(@ptrCast(
+                xdg_toplevel_wm_capabilities.capabilities
+              ));
+              _ = wm_capabilites;
+              // array of Toplevel.Enum.WmCapabilities
+              // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
+            },
+          }
+        },
+        else => |wl_event| {
+          warn_unhandled_event(wl_event);
+        },
+      }
+      _ = &event_list;
+    }
+    return event_list;
+  }
+
+  /// Acquire a surface handle from host wayland compositor
+  pub fn acquire_surface(
+    conn: *Connection,
+    arena: *Arena,
+    title: [:0]const u8,
+    class: [:0]const u8,
+    width: i32,
+    height: i32,
+  ) platform.Surface {
+    _ = arena;
+
+    var conn_proxy = conn.proxy();
+    const wl_surface = conn.client_state.compositor.create_surface(
+      &conn_proxy,
+    ) catch unreachable;
+    const xdg_surface = conn.client_state.xdg_wm_base.get_xdg_surface(
+      &conn_proxy,
+      .{ .surface = wl_surface },
+    ) catch unreachable;
+    const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy) catch unreachable;
+
+    xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
+    xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
+
+    wl_surface.commit(&conn_proxy) catch unreachable;
+
+    xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
+      catch unreachable;
+
+    conn.flush() catch unreachable;
+    return .{
+      .handle = .{
+        .wl_surface = wl_surface,
+        .xdg_surface = xdg_surface,
+        .xdg_toplevel = xdg_toplevel,
+      },
+      .dimensions = .{
+        .x = width,
+        .y = height,
+      },
+    };
+  }
+
+  //---------------------------------------------------------------------------
+
+  fn warn_unhandled_event(event: anytype) void {
+    log.warn("Unhandled {s} event", .{@tagName(event)});
   }
 
   pub fn load_events(conn: *Connection) void {
@@ -321,7 +502,7 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
   }
 
-  pub fn peek_event(conn: *Connection, arena: *Arena) ?wl_protocols.Event {
+  pub fn peek_event(conn: *Connection, arena: *Arena) ?Event {
     var conn_proxy = conn.proxy();
 
     const event = if (!conn.in.empty()) wayland_event: {
@@ -383,7 +564,7 @@ pub const Connection = struct {
       const data_read_idx = conn.in.mask(conn.in.read);
       const data_contiguous_bytes = conn.in.buf[data_read_idx..];
 
-      defer conn.in.read +%= base.u32_(data_len);
+      defer conn.in.read -%= base.u32_(@sizeOf(WireEventHeader));
 
       const scratch = Thread.Context.get_scratch(1, .{arena}).?;
 
@@ -424,56 +605,44 @@ pub const Connection = struct {
     return event;
   }
 
-  pub fn get_events(conn: *Connection, arena: *Arena) platform.EventList {
-    var conn_proxy = conn.proxy();
-    var event_list: platform.EventList = .empty;
-    conn.load_events();
-
-    while (conn.peek_event(arena)) |wayland_event| {
-      _ = &conn_proxy;
-      _ = wayland_event;
-      _ = &event_list;
-    }
-    return event_list;
+  pub fn get_event(conn: *Connection, arena: *Arena) ?Event {
+    const event = conn.peek_event(arena) orelse return null;
+    conn.consume_event();
+    return event;
   }
 
-  pub fn acquire_surface(
-    conn: *Connection,
-    arena: *Arena,
-    title: [:0]const u8,
-    class: [:0]const u8,
-    width: i32,
-    height: i32,
-  ) platform.Surface {
-    _ = arena;
+  pub fn consume_event(conn: *Connection) void {
+    var header: WireEventHeader = .{
+       .id = 0,
+       .op = 0,
+       .len = 0,
+     };
+     var header_bytes = std.mem.asBytes(&header);
+     const header_read_idx = conn.in.mask(conn.in.read);
+     const header_contiguous_bytes = conn.in.buf[header_read_idx..];
 
-    var conn_proxy = conn.proxy();
-    const wl_surface = conn.client_state.compositor.create_surface(
-      &conn_proxy,
-    ) catch unreachable;
-    const xdg_surface = conn.client_state.xdg_wm_base.get_xdg_surface(
-      &conn_proxy,
-      .{ .surface = wl_surface },
-    ) catch unreachable;
-    const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy) catch unreachable;
+     // Current header bytes wrap around to start of buffer
+     if (header_bytes.len > header_contiguous_bytes.len) {
+       const remainder = header_bytes.len - header_contiguous_bytes.len;
 
-    xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
-    xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
+       // copy contiguous bytes
+       @memcpy(
+         header_bytes[0..header_contiguous_bytes.len],
+         header_contiguous_bytes,
+       );
 
-    wl_surface.commit(&conn_proxy) catch unreachable;
-
-    conn.flush() catch unreachable;
-    return .{
-      .handle = .{
-        .wl_surface = wl_surface,
-        .xdg_surface = xdg_surface,
-        .xdg_toplevel = xdg_toplevel,
-      },
-      .dimensions = .{
-        .x = width,
-        .y = height,
-      },
-    };
+       // copy remaining bytes
+       @memcpy(
+         header_bytes[header_contiguous_bytes.len..],
+         conn.in.buf[0..remainder],
+       );
+     } else {
+       @memcpy(
+         header_bytes,
+         header_contiguous_bytes[0..header_bytes.len],
+       );
+     }
+     conn.in.read +%= header.len;
   }
 
   pub fn flush(conn: *Connection) wl_protocols.WriteError!void {
@@ -770,9 +939,9 @@ pub const Connection = struct {
 };
 
 pub const Surface = struct {
-  wl_surface: Wayland.Surface,
-  xdg_surface: XdgShell.Surface,
-  xdg_toplevel: XdgShell.Toplevel,
+  wl_surface: WaylandSurface,
+  xdg_surface: XdgSurface,
+  xdg_toplevel: XdgToplevel,
 
   pub const nil: Surface = .{
     .wl_surface = 0,
@@ -793,6 +962,9 @@ pub const ClientState = struct {
 
   // Objects
   object_pool: ObjectPool,
+
+  seat_name: [512]u8 = undefined,
+  seat_capabilities: Seat.SeatEnum.Capability = .{},
 };
 
 pub const ObjectPool = struct {
@@ -862,6 +1034,10 @@ const WireEventHeader = packed struct {
   len: u16,
 };
 
+pub const WaylandSurface = Wayland.Surface;
+pub const XdgSurface = XdgShell.Surface;
+pub const XdgToplevel = XdgShell.Toplevel;
+
 pub const Seat = Wayland.Seat;
 pub const Display = Wayland.Display;
 pub const Registry = Wayland.Registry;
@@ -879,14 +1055,16 @@ const RingBuffer = base.RingBuffer;
 const linux = os.linux;
 const posix = os.posix;
 
-const Wayland = wl_protocols.Wayland;
-const XdgShell = wl_protocols.XdgShell;
-const LinuxDmabufV1 = wl_protocols.LinuxDmabufV1;
-const XdgDecoration = wl_protocols.XdgDecorationUnstableV1;
 
-const Proxy = wl_protocols.Proxy;
-const Object = wl_protocols.Object;
-const MessageArg = wl_protocols.MessageArg;
+pub const Wayland = wl_protocols.Wayland;
+pub const XdgShell = wl_protocols.XdgShell;
+pub const LinuxDmabufV1 = wl_protocols.LinuxDmabufV1;
+pub const XdgDecoration = wl_protocols.XdgDecorationUnstableV1;
+
+pub const Proxy = wl_protocols.Proxy;
+pub const Object = wl_protocols.Object;
+pub const Event = wl_protocols.Event;
+pub const MessageArg = wl_protocols.MessageArg;
 
 const wl_protocols = @import("wayland_protocols.zig");
 const platform = @import("platform.zig");

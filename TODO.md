@@ -1,12 +1,12 @@
 # TODAY
 
-- [x] Finish rewrite of Wayland event I/O
-- [x] Get globals binding
-- [ ] Setup surface acquisition
-- [ ] Platform event queue
+- [x] Setup surface acquisition
+- [/] Platform event queue
+- [ ] Allocate GPU memory for images
+- [ ] Window on screen (buffer backed by GPU memory)
+- [ ] Set up initial Vulkan background clearing
 
 
 # MAYBE
 
-- [ ] Set up initial Vulkan background clearing
-
+- [ ] First Triangle
