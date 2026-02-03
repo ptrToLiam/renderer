@@ -36,6 +36,7 @@ pub const Connection = struct {
       const backing_bytes =
         ring_buffer_bytes[backing_bytes_rng_start..][0..ring_buffer_size];
 
+      @memset(backing_bytes, 0);
       ring_buffers[i] = .init_backing(backing_bytes);
     }
 
@@ -358,17 +359,28 @@ pub const Connection = struct {
         .zwp_linux_dmabuf_feedback_v1 => |linux_dmabuf_feedback_event| {
           switch (linux_dmabuf_feedback_event) {
             .format_table => |format_table| {
-              const FormatTableEntry = packed struct(u128) {
-                format: Drm.Format,
-                padding: u32,
-                modifier: Drm.Modifier,
-              };
-
               const fd = format_table.fd;
               const size = format_table.size;
               defer _ = linux.close(fd);
 
-              log.debug("received format table, fd={}, size={}", .{fd, size});
+              log.debug(
+                "received format table, fd={}, size={}",
+                .{ fd, size },
+              );
+
+              // Also try to get file size via seeking
+              const size_from_seek = linux.lseek(fd, 0, linux.SEEK.END);
+              log.debug("lseek END returned: {}", .{size_from_seek});
+
+              if (size_from_seek > 0) {
+                  _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
+              }
+
+              Thread.yield() catch unreachable;
+              Thread.sleep(base.time.ns_per_s * 1000000);
+              Thread.yield() catch unreachable;
+
+
               const rc = linux.mmap(
                 null,
                 size,
@@ -377,72 +389,44 @@ pub const Connection = struct {
                 fd,
                 0,
               );
-              const signed_rc: isize = @bitCast(rc);
 
-              if (signed_rc < 0) {
-                log.err(
-                  "fd mmap returned code: {}",
-                  .{
-                    signed_rc,
-                  }
+              const rc_signed = @as(isize, @bitCast(rc));
+              if (rc_signed < 0 and rc_signed >= -4095) {
+                  const errno = @as(linux.E, @enumFromInt(@as(usize, @intCast(-rc_signed))));
+                  log.err("mmap FAILED: errno={} ({})", .{-rc_signed, errno});
+                  _ = linux.close(fd);
+                  @panic("mmap failed!!");
+              }
+              log.debug(
+                "rc: {}, signed: {}",
+                .{ rc, rc_signed },
+              );
+              const bytes: [*]const u8 = @ptrFromInt(rc);
+              defer _ = linux.munmap(bytes, size);
+
+              var iter = std.mem.window(u8, bytes[0..size], 16, 16);
+              const first_byte = bytes[0];
+              log.debug("first_byte :: {}", .{first_byte});
+              var format: Drm.Format = .invalid;
+              var modifier: Drm.Modifier = .linear;
+              while (iter.next()) |entry_bytes| {
+                @memcpy(
+                  @as([*]u8, @alignCast(@ptrCast(&format)))[0..4],
+                  entry_bytes[0..4],
                 );
-                if (signed_rc == -base.i64_(@intFromEnum(linux.E.NODEV))) {
-                  const tmp = arena.temp();
-                  defer tmp.end();
-
-                  var buf = tmp.arena.push(u8, size);
-
-                  const pr_rc = linux.pread(
-                    fd,
-                    buf.ptr,
-                    size,
-                    0,
-                  );
-                  if (@as(isize, @bitCast(pr_rc)) < 0) {
-                    log.err(
-                      "pread(fd) failed with code :: {} ({})",
-                      .{@as(isize, @bitCast(pr_rc)), linux.errno(pr_rc)},
-                    );
-                    @panic("cannot read from format table file");
-                  }
-
-                  var format_modifier_pair: FormatTableEntry = undefined;
-                  const stack_bytes = std.mem.asBytes(&format_modifier_pair);
-                  var iter = std.mem.window(u8, buf, @sizeOf(FormatTableEntry), @sizeOf(FormatTableEntry));
-                  while (iter.next()) |entry_bytes| {
-                    @memcpy(
-                      stack_bytes,
-                      entry_bytes,
-                    );
-                    std.debug.print(
-                      "format({s}), mod({s})",
-                      .{
-                        @tagName(format_modifier_pair.format),
-                        @tagName(format_modifier_pair.modifier),
-                      },
-                    );
-                  }
-                }
-              } else {
-                const bytes: []const u8 = @as([*]const u8, @ptrFromInt(rc))[0..size];
-
-                var format_modifier_pair: FormatTableEntry = undefined;
-                const stack_bytes = std.mem.asBytes(&format_modifier_pair);
-                var iter = std.mem.window(u8, bytes, @sizeOf(FormatTableEntry), @sizeOf(FormatTableEntry));
-                while (iter.next()) |entry_bytes| {
-                  @memcpy(
-                    stack_bytes,
-                    entry_bytes,
-                  );
-                  std.debug.print(
-                    "format({s}), mod({s})",
-                    .{
-                      @tagName(format_modifier_pair.format),
-                      @tagName(format_modifier_pair.modifier),
-                    },
-                  );
-                }
-                defer _ = linux.munmap(bytes.ptr, size);
+                @memcpy(
+                  @as([*]u8, @alignCast(@ptrCast(&modifier)))[0..8],
+                  entry_bytes[8..16],
+                );
+                // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
+                // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
+                std.debug.print(
+                  "format({s}), mod({s})",
+                  .{
+                    @tagName(format),
+                    @tagName(modifier),
+                  },
+                );
               }
             },
             else => warn_unhandled_event(linux_dmabuf_feedback_event),
@@ -511,6 +495,9 @@ pub const Connection = struct {
       &conn_proxy,
       .{.surface = surface.wl_surface}
     ) catch unreachable;
+    // conn.client_state.linux_dmabuf.get_default_feedback(
+    //   &conn_proxy,
+    // ) catch unreachable;
     conn.flush() catch unreachable;
   }
   pub fn wl_buffer(
@@ -597,7 +584,7 @@ pub const Connection = struct {
     // Read Into Buffer(s)
     //-------------------------------------------------------------------------
 
-    var cmsg_buf: [cmsg_buf_len]u8 = undefined;
+    var cmsg_buf: [cmsg_buf_len]u8 = @splat(0);
     var msg: linux.msghdr = .{
       .name = null,
       .namelen = 0,
@@ -645,9 +632,10 @@ pub const Connection = struct {
 
     var cmsg_iter = linux.cmsghdr.iter(cmsg_buf[0..msg.controllen]);
     while (cmsg_iter.next()) |cmsg_header| {
-      if (cmsg_header.type == linux.SOL.SOCKET and cmsg_header.level == linux.SCM_RIGHTS) {
-        log.debug("event loading, pushing fd ({}) into ringbuffer", .{cmsg_header.data(i32).*});
-        conn.fd_in.put(std.mem.asBytes(cmsg_header.data(i32)));
+      if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM_RIGHTS) {
+        const fd = cmsg_header.data(c_int).*;
+        log.debug("event loading, pushing fd ({}) into ringbuffer", .{fd});
+        conn.fd_in.put(std.mem.asBytes(&fd));
       }
     }
 

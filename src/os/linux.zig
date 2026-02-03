@@ -219,6 +219,8 @@ pub const socket = linux.socket;
 pub const nanosleep = linux.nanosleep;
 pub const pread = linux.pread;
 pub const close = linux.close;
+pub const msync = linux.msync;
+pub const lseek = linux.lseek;
 pub const open = linux.open;
 
 pub const errno = std.posix.errno;
@@ -233,9 +235,11 @@ pub const msghdr_const = std.posix.msghdr_const;
 pub const PR = linux.PR;
 pub const MSG = linux.MSG;
 pub const MAP = linux.MAP;
+pub const MS = linux.MS;
 pub const PROT = linux.PROT;
 pub const MADV = linux.MADV;
 pub const SOL = linux.SOL;
+pub const SEEK = linux.SEEK;
 pub const E = linux.E;
 
 pub const SCM_RIGHTS = 0x01;

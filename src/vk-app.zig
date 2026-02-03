@@ -294,8 +294,14 @@ pub fn app(env: std.process.Environ) void {
   var buf_attached = false;
   var want_attach = false;
 
+  _ = &buf;
+  _ = &wl_buffer;
+  _ = &buf_attached;
+  _ = &want_attach;
+
   var events: platform.EventList = .empty;
   var want_exit = false;
+
   _ = &want_exit;
   while (!want_exit) {
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
@@ -307,34 +313,34 @@ pub fn app(env: std.process.Environ) void {
       // event handling loop
     }
 
-    if (!buf_attached and want_attach) {
-      std.log.debug("want attach, trying to bind", .{});
-      surface.handle.attach_wl_buffer(
-        &platform_conn.handle,
-        wl_buffer,
-        base.i32_(buf.width),
-        base.i32_(buf.height),
-      );
-      buf_attached = true;
-    }
+    // if (!buf_attached and want_attach) {
+    //   std.log.debug("want attach, trying to bind", .{});
+    //   surface.handle.attach_wl_buffer(
+    //     &platform_conn.handle,
+    //     wl_buffer,
+    //     base.i32_(buf.width),
+    //     base.i32_(buf.height),
+    //   );
+    //   buf_attached = true;
+    // }
 
     if (!buf_attached and surface.handle.ready()) {
       platform_conn.check_surface_formats(surface);
-      std.log.debug("create platform surface image with dims {}x{}", .{surface.dimensions.x, surface.dimensions.y});
-      buf = .create(
-        vkd,
-        vk_dev,
-        vki,
-        vk_pdev.*,
-        @intCast(surface.dimensions.x),
-        @intCast(surface.dimensions.y),
-        .b8g8r8a8_unorm,
-        .linear,
-      );
-      wl_buffer = platform_conn.handle.wl_buffer(buf);
-      std.log.debug("wl_surface is marked ready for attach :: surface.is_ready={s}", .{
-        if (surface.handle.ready()) "true" else "false",
-      });
+    //   std.log.debug("create platform surface image with dims {}x{}", .{surface.dimensions.x, surface.dimensions.y});
+    //   buf = .create(
+    //     vkd,
+    //     vk_dev,
+    //     vki,
+    //     vk_pdev.*,
+    //     @intCast(surface.dimensions.x),
+    //     @intCast(surface.dimensions.y),
+    //     .b8g8r8a8_unorm,
+    //     .linear,
+    //   );
+    //   wl_buffer = platform_conn.handle.wl_buffer(buf);
+    //   std.log.debug("wl_surface is marked ready for attach :: surface.is_ready={s}", .{
+    //     if (surface.handle.ready()) "true" else "false",
+    //   });
       want_attach = true;
     }
 
