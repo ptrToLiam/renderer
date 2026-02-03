@@ -122,6 +122,13 @@ pub const Format = enum (u32) {
   yvu422 = fourcc_code('Y', 'V', '1', '6'),   // 2x1 subsampled Cr (1) and Cb (2) planes
   yuv444 = fourcc_code('Y', 'U', '2', '4'),   // non-subsampled Cb (1) and Cr (2) planes
   yvu444 = fourcc_code('Y', 'V', '2', '4'),   // non-subsampled Cr (1) and Cb (2) planes
+
+  pub fn fromInt(n: u32) Format {
+    return @enumFromInt(n);
+  }
+  pub fn toInt(fmt: Format) u32 {
+    return @intFromEnum(fmt);
+  }
 };
 
 pub const FourccCode = packed struct (u32) {
@@ -473,6 +480,12 @@ pub const Modifier = enum (u64) {
   pub fn toInt(mod: Modifier) u64 {
     return u64_(mod);
   }
+  pub fn hi(mod: Modifier) u32 {
+    return @as(HiLo64, @bitCast(mod.toInt())).hi;
+  }
+  pub fn lo(mod: Modifier) u32 {
+    return @as(HiLo64, @bitCast(mod.toInt())).lo;
+  }
 
   pub fn toModVal(mod: Modifier) ModifierValue {
     return .fromInt(mod.toInt());
@@ -514,7 +527,11 @@ pub const Modifier = enum (u64) {
   const afbc_block_size_mask: u64 = 0xf;
   const afbc_block_size_16x16: u64 = 1;
   const afbc_block_size_32x8: u64 = 2;
+};
 
+const HiLo64 = packed struct (u64) {
+  lo: u32,
+  hi: u32,
 };
 
 const u64_ = base.u64_;

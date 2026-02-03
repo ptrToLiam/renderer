@@ -42,12 +42,7 @@ pub const RingBuffer = struct {
   }
 
   pub fn size(rb: *RingBuffer) u32 {
-    if (rb.write < rb.read) {
-      @branchHint(.cold);
-      return rb.mask(rb.read) - rb.write;
-    } else {
-      return rb.write - rb.read;
-    }
+    return rb.write -% rb.read;
   }
 
   pub fn empty(rb: *RingBuffer) bool {

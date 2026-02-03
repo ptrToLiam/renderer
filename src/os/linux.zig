@@ -217,6 +217,9 @@ pub const madvise = linux.madvise;
 pub const mprotect = linux.mprotect;
 pub const socket = linux.socket;
 pub const nanosleep = linux.nanosleep;
+pub const pread = linux.pread;
+pub const close = linux.close;
+pub const open = linux.open;
 
 pub const errno = std.posix.errno;
 
@@ -233,6 +236,7 @@ pub const MAP = linux.MAP;
 pub const PROT = linux.PROT;
 pub const MADV = linux.MADV;
 pub const SOL = linux.SOL;
+pub const E = linux.E;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;

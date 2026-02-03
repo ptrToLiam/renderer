@@ -7399,7 +7399,7 @@ pub const LinuxDmabufV1 = struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1Enum.Enum.Flags,
+                flags: LinuxBufferParamsV1Enum.Flags,
             },
         ) !wl_buffer {
             const request_op = 3;
@@ -7477,7 +7477,7 @@ pub const LinuxDmabufV1 = struct {
                     msg_args: []MessageArg,
                 ) LinuxBufferParamsV1Event.Created {
                     return .{
-                        .buffer = .fromInt(msg_args[0].new_id),
+                        .buffer = msg_args[0].new_id,
                     };
                 }
             };

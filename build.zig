@@ -52,6 +52,10 @@ pub fn build(b: *std.Build) void {
     b.pathFromRoot("protocols/wayland/linux-dmabuf-v1.xml"),
   };
 
+  const vulkan = b.dependency("vulkan_zig", .{
+    .registry = b.path("protocols/vulkan/vk.xml"),
+  }).module("vulkan-zig");
+
   const os_mod = b.addModule("os", .{
     .root_source_file = b.path("src/os/os.zig"),
     .target = target,
@@ -77,19 +81,20 @@ pub fn build(b: *std.Build) void {
       .{ .name = "os", .module = os_mod },
       .{ .name = "base", .module = base_mod },
       .{ .name = "wayland-protocols", .module = wayland_protocols_mod },
+      .{ .name = "vulkan", .module = vulkan },
     },
   });
 
-  const gfx_mod = b.addModule("gfx", .{
-    .root_source_file = b.path("src/gfx/gfx.zig"),
-    .target = target,
-    .imports = &.{
-      .{ .name = "os", .module = os_mod },
-      .{ .name = "base", .module = base_mod },
-      .{ .name = "platform", .module = platform_mod },
-      // .{ .name = "vulkan", .module = vulkan },
-    },
-  });
+  // const gfx_mod = b.addModule("gfx", .{
+  //   .root_source_file = b.path("src/gfx/gfx.zig"),
+  //   .target = target,
+  //   .imports = &.{
+  //     .{ .name = "os", .module = os_mod },
+  //     .{ .name = "base", .module = base_mod },
+  //     .{ .name = "platform", .module = platform_mod },
+  //     // .{ .name = "vulkan", .module = vulkan },
+  //   },
+  // });
 
   const wayland_codegen_exe = b.addExecutable(.{
     .name = "wayland_codegen",
@@ -104,10 +109,6 @@ pub fn build(b: *std.Build) void {
   });
   b.installArtifact(wayland_codegen_exe);
 
-  const vulkan = b.dependency("vulkan_zig", .{
-    .registry = b.path("protocols/vulkan/vk.xml"),
-  }).module("vulkan-zig");
-
   const root = b.createModule(.{
       .root_source_file = b.path("src/main.zig"),
       .target = target,
@@ -116,7 +117,6 @@ pub fn build(b: *std.Build) void {
       .imports = &.{
         .{ .name = "base", .module = base_mod },
         .{ .name = "os", .module = os_mod },
-        .{ .name = "gfx", .module = gfx_mod },
         .{ .name = "platform", .module = platform_mod },
         .{ .name = "vulkan", .module = vulkan },
       },

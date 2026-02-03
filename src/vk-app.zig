@@ -84,10 +84,11 @@ pub fn app(env: std.process.Environ) void {
     vk.extensions.khr_external_memory.name,
     vk.extensions.khr_external_memory_fd.name,
     vk.extensions.ext_external_memory_dma_buf.name,
+    vk.extensions.ext_image_drm_format_modifier.name,
   };
   const vk_pdev: *vk.PhysicalDevice = arena.create(vk.PhysicalDevice);
 
-  // get vk device
+  // Physical Device Selection
   var vk_pdev_count: u32 = 0;
   _ = vki.enumeratePhysicalDevices(
     instance,
@@ -178,16 +179,6 @@ pub fn app(env: std.process.Environ) void {
           break :found false;
         };
 
-        std.log.debug(
-          "{s} {s}",
-          .{
-            ext,
-            if (found_ext)
-              "found!"
-            else
-              "not found!",
-          },
-        );
         if (!found_ext) break :ext_support false;
       }
       break :ext_support true;
@@ -203,9 +194,89 @@ pub fn app(env: std.process.Environ) void {
   }
 
   vk_pdev.* = vk_pdev_candidate.pdev;
-  std.log.debug("chose device: {s}", .{ vk_pdev_candidate.properties.device_name });
 
   vk_pdev_selection_scratch.end();
+
+  std.log.debug(
+    "Selected GPU: {s}, type: {s}",
+    .{
+      vk_pdev_candidate.properties.device_name,
+      @tagName(vk_pdev_candidate.properties.device_type),
+    },
+  );
+  var vk_dev_create_scratch = Thread.Context.get_scratch(1, .{arena}).?;
+  const vk_dev_create_arena = vk_dev_create_scratch.arena;
+  // Logical Device Creation
+  const vk_dev, const queue_family_index = vk_dev: {
+    const queue_family_index = qfi: {
+      var queue_family_count: u32 = 0;
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        vk_pdev.*,
+        &queue_family_count,
+        null,
+      );
+      const queue_families = vk_dev_create_arena.push(
+        vk.QueueFamilyProperties,
+        queue_family_count
+      );
+
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        vk_pdev.*,
+        &queue_family_count,
+        queue_families.ptr,
+      );
+
+      for (queue_families, 0..) |queue_family_props, index| {
+        if (queue_family_props.queue_flags.graphics_bit) {
+          break :qfi base.u32_(index);
+        }
+      }
+      @panic("Unable to find suitable graphics queue for device!");
+    };
+
+    var queue_priority: f32 = 1;
+    const queue_info: vk.DeviceQueueCreateInfo = .{
+      .queue_family_index = queue_family_index,
+      .queue_count = 1,
+      .p_queue_priorities = @ptrCast(&queue_priority),
+    };
+
+    const device_info: vk.DeviceCreateInfo = .{
+      .p_queue_create_infos = &.{
+        queue_info,
+      },
+      .queue_create_info_count = 1,
+      .p_enabled_features = null,
+
+      .enabled_extension_count = @intCast(vk_required_device_extensions.len),
+      .pp_enabled_extension_names = &vk_required_device_extensions,
+    };
+
+    break :vk_dev .{
+      vki.createDevice(
+        vk_pdev.*,
+        &device_info,
+        null,
+      ) catch unreachable,
+      queue_family_index,
+    };
+  };
+
+  var vkd: vk.DeviceWrapper = .load(
+    vk_dev,
+    vki.dispatch.vkGetDeviceProcAddr.?,
+  );
+  defer vkd.destroyDevice(vk_dev, null);
+  vk_dev_create_scratch.end();
+
+  const vkd_queue = vkd.getDeviceQueue(
+    vk_dev,
+    queue_family_index,
+    0,
+  );
+
+  _ = vkd_queue;
+  var buf: OffscreenBuffer = undefined;
 
   //---------------------------------------------------------------------------
   // END VULKAN STATE INIT
@@ -217,6 +288,11 @@ pub fn app(env: std.process.Environ) void {
     "vulkan state init complete in {d}us ({d}ms)!",
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
+
+  var wl_buffer: platform.wayland.Wayland.Buffer = undefined;
+
+  var buf_attached = false;
+  var want_attach = false;
 
   var events: platform.EventList = .empty;
   var want_exit = false;
@@ -231,6 +307,37 @@ pub fn app(env: std.process.Environ) void {
       // event handling loop
     }
 
+    if (!buf_attached and want_attach) {
+      std.log.debug("want attach, trying to bind", .{});
+      surface.handle.attach_wl_buffer(
+        &platform_conn.handle,
+        wl_buffer,
+        base.i32_(buf.width),
+        base.i32_(buf.height),
+      );
+      buf_attached = true;
+    }
+
+    if (!buf_attached and surface.handle.ready()) {
+      platform_conn.check_surface_formats(surface);
+      std.log.debug("create platform surface image with dims {}x{}", .{surface.dimensions.x, surface.dimensions.y});
+      buf = .create(
+        vkd,
+        vk_dev,
+        vki,
+        vk_pdev.*,
+        @intCast(surface.dimensions.x),
+        @intCast(surface.dimensions.y),
+        .b8g8r8a8_unorm,
+        .linear,
+      );
+      wl_buffer = platform_conn.handle.wl_buffer(buf);
+      std.log.debug("wl_surface is marked ready for attach :: surface.is_ready={s}", .{
+        if (surface.handle.ready()) "true" else "false",
+      });
+      want_attach = true;
+    }
+
     update();
     draw();
   }
@@ -241,6 +348,8 @@ const VkDeviceCandidate = struct {
   properties: vk.PhysicalDeviceProperties,
   score: u32,
 };
+
+const OffscreenBuffer = platform.OffscreenBuffer;
 
 fn update() void {
 }
@@ -264,11 +373,11 @@ const Thread = base.Thread;
 const math = base.math;
 const time = base.time;
 
-const drm = @import("drm.zig");
+const drm = gfx.Drm;
+const gfx = platform.gfx;
 
 const base = @import("base");
 const os = @import("os");
-const gfx = @import("gfx");
 const vk = @import("vulkan");
 const platform = @import("platform");
 

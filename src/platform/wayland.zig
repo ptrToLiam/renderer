@@ -320,6 +320,7 @@ pub const Connection = struct {
               );
               surface.xdg_surface.ack_configure(&conn_proxy, .{ .serial = config.serial })
                 catch unreachable;
+              surface.is_ready = true;
             },
           }
         },
@@ -331,6 +332,9 @@ pub const Connection = struct {
                 "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
                 .{ config.width, config.height },
               );
+              const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
+              platform_surface.dimensions.x = config.width;
+              platform_surface.dimensions.y = config.height;
               // config has: i32 width, height, []const u8 states.
             },
             .close => {
@@ -349,6 +353,99 @@ pub const Connection = struct {
               // array of Toplevel.Enum.WmCapabilities
               // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
             },
+          }
+        },
+        .zwp_linux_dmabuf_feedback_v1 => |linux_dmabuf_feedback_event| {
+          switch (linux_dmabuf_feedback_event) {
+            .format_table => |format_table| {
+              const FormatTableEntry = packed struct(u128) {
+                format: Drm.Format,
+                padding: u32,
+                modifier: Drm.Modifier,
+              };
+
+              const fd = format_table.fd;
+              const size = format_table.size;
+              defer _ = linux.close(fd);
+
+              log.debug("received format table, fd={}, size={}", .{fd, size});
+              const rc = linux.mmap(
+                null,
+                size,
+                .{ .READ = true },
+                .{ .TYPE = .PRIVATE },
+                fd,
+                0,
+              );
+              const signed_rc: isize = @bitCast(rc);
+
+              if (signed_rc < 0) {
+                log.err(
+                  "fd mmap returned code: {}",
+                  .{
+                    signed_rc,
+                  }
+                );
+                if (signed_rc == -base.i64_(@intFromEnum(linux.E.NODEV))) {
+                  const tmp = arena.temp();
+                  defer tmp.end();
+
+                  var buf = tmp.arena.push(u8, size);
+
+                  const pr_rc = linux.pread(
+                    fd,
+                    buf.ptr,
+                    size,
+                    0,
+                  );
+                  if (@as(isize, @bitCast(pr_rc)) < 0) {
+                    log.err(
+                      "pread(fd) failed with code :: {} ({})",
+                      .{@as(isize, @bitCast(pr_rc)), linux.errno(pr_rc)},
+                    );
+                    @panic("cannot read from format table file");
+                  }
+
+                  var format_modifier_pair: FormatTableEntry = undefined;
+                  const stack_bytes = std.mem.asBytes(&format_modifier_pair);
+                  var iter = std.mem.window(u8, buf, @sizeOf(FormatTableEntry), @sizeOf(FormatTableEntry));
+                  while (iter.next()) |entry_bytes| {
+                    @memcpy(
+                      stack_bytes,
+                      entry_bytes,
+                    );
+                    std.debug.print(
+                      "format({s}), mod({s})",
+                      .{
+                        @tagName(format_modifier_pair.format),
+                        @tagName(format_modifier_pair.modifier),
+                      },
+                    );
+                  }
+                }
+              } else {
+                const bytes: []const u8 = @as([*]const u8, @ptrFromInt(rc))[0..size];
+
+                var format_modifier_pair: FormatTableEntry = undefined;
+                const stack_bytes = std.mem.asBytes(&format_modifier_pair);
+                var iter = std.mem.window(u8, bytes, @sizeOf(FormatTableEntry), @sizeOf(FormatTableEntry));
+                while (iter.next()) |entry_bytes| {
+                  @memcpy(
+                    stack_bytes,
+                    entry_bytes,
+                  );
+                  std.debug.print(
+                    "format({s}), mod({s})",
+                    .{
+                      @tagName(format_modifier_pair.format),
+                      @tagName(format_modifier_pair.modifier),
+                    },
+                  );
+                }
+                defer _ = linux.munmap(bytes.ptr, size);
+              }
+            },
+            else => warn_unhandled_event(linux_dmabuf_feedback_event),
           }
         },
         else => |wl_event| {
@@ -404,6 +501,63 @@ pub const Connection = struct {
   }
 
   //---------------------------------------------------------------------------
+
+  pub fn check_surface_formats(
+    conn: *Connection,
+    surface: Surface,
+  ) void {
+    var conn_proxy = conn.proxy();
+    _ = conn.client_state.linux_dmabuf.get_surface_feedback(
+      &conn_proxy,
+      .{.surface = surface.wl_surface}
+    ) catch unreachable;
+    conn.flush() catch unreachable;
+  }
+  pub fn wl_buffer(
+    conn: *Connection,
+    buf: platform.OffscreenBuffer
+  ) Wayland.Buffer {
+    var conn_proxy = conn.proxy();
+    conn.flush() catch unreachable;
+    const params = conn.client_state.linux_dmabuf.create_params(
+      &conn_proxy,
+    ) catch unreachable;
+
+    std.log.debug(
+      "trying to create buffer {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
+      .{
+        buf.memory_fd,
+        buf.offset,
+        buf.stride,
+        buf.drm_modifier.hi(),
+        buf.drm_modifier.lo(),
+      },
+    );
+    params.add(
+      &conn_proxy,
+      .{
+        .fd = buf.memory_fd,
+        .plane_idx = 0,
+        .offset = buf.offset,
+        .stride = buf.stride,
+        .modifier_hi = buf.drm_modifier.hi(),
+        .modifier_lo = buf.drm_modifier.lo(),
+      },
+    ) catch unreachable;
+
+    defer conn.flush() catch unreachable;
+    defer params.destroy(&conn_proxy) catch unreachable;
+
+    return params.create_immed(
+      &conn_proxy,
+      .{
+        .width = @intCast(buf.width),
+        .height = @intCast(buf.height),
+        .format = gfx.Drm.Format.abgr8888.toInt(),
+        .flags = .{},
+      },
+    ) catch unreachable;
+  }
 
   fn warn_unhandled_event(event: anytype) void {
     log.warn("Unhandled {s} event", .{@tagName(event)});
@@ -492,6 +646,7 @@ pub const Connection = struct {
     var cmsg_iter = linux.cmsghdr.iter(cmsg_buf[0..msg.controllen]);
     while (cmsg_iter.next()) |cmsg_header| {
       if (cmsg_header.type == linux.SOL.SOCKET and cmsg_header.level == linux.SCM_RIGHTS) {
+        log.debug("event loading, pushing fd ({}) into ringbuffer", .{cmsg_header.data(i32).*});
         conn.fd_in.put(std.mem.asBytes(cmsg_header.data(i32)));
       }
     }
@@ -905,9 +1060,12 @@ pub const Connection = struct {
   fn next_fd(conn: *Connection) i32 {
     // TODO
     var fd: i32 = -1;
-    _ = &fd;
     const read = conn.fd_in.mask(conn.fd_in.read);
-    _ = read;
+    @memcpy(
+      std.mem.asBytes(&fd),
+      conn.fd_in.buf[read..][0..@sizeOf(i32)],
+    );
+    conn.fd_in.read +%= @sizeOf(i32);
 
     return fd;
   }
@@ -939,7 +1097,40 @@ pub const Surface = struct {
   wl_surface: WaylandSurface,
   xdg_surface: XdgSurface,
   xdg_toplevel: XdgToplevel,
+  is_ready: bool = false,
 
+  pub fn ready(surface: *Surface) bool {
+    return surface.is_ready;
+  }
+  pub fn attach_wl_buffer(
+    surface: *Surface,
+    conn: *Connection,
+    buffer: Wayland.Buffer,
+    width: i32,
+    height: i32,
+  ) void {
+    var proxy = conn.proxy();
+    surface.wl_surface.attach(
+      &proxy,
+      .{
+        .buffer = buffer,
+        .x = 0,
+        .y = 0,
+      },
+    ) catch unreachable;
+
+    surface.wl_surface.damage(
+      &proxy,
+      .{
+        .x = 0,
+        .y = 0,
+        .width = width,
+        .height = height,
+      },
+    ) catch unreachable;
+
+    surface.wl_surface.commit(&proxy) catch unreachable;
+  }
   pub const nil: Surface = .{
     .wl_surface = 0,
     .toplevel = .fromInt(0),
@@ -1062,6 +1253,9 @@ pub const Proxy = wl_protocols.Proxy;
 pub const Object = wl_protocols.Object;
 pub const Event = wl_protocols.Event;
 pub const MessageArg = wl_protocols.MessageArg;
+
+const Drm = gfx.Drm;
+const gfx = platform.gfx;
 
 const wl_protocols = @import("wayland_protocols.zig");
 const platform = @import("platform.zig");
