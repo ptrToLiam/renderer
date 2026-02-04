@@ -1,0 +1,9 @@
+.{
+  .name = .wayland,
+  .version = "0.0.0",
+  .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
+  .paths = .{
+    "build.zig",
+    "src",
+  },
+}
