@@ -30,7 +30,7 @@ pub fn main(init: std.process.Init) !void {
         .type = .file_name,
         .name = arg,
       };
-      dll_push_end(
+      sll_push_end(
         protocol_path,
         &first_protocol_file_opt,
         &last_protocol_file_opt,
@@ -106,6 +106,26 @@ pub fn main(init: std.process.Init) !void {
     );
   }
 
+  _ = try out_writer.write(CombinedEventBeginMsg);
+  protocol_opt = output.protocol_first;
+  while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+    var interface_opt: ?*EntryNode = protocol.interface_first;
+    while (interface_opt) |interface| : (interface_opt = interface.next) {
+      var event_opt: ?*EntryNode = interface.event_first;
+      while (event_opt) |event| : (event_opt = event.next) {
+        const event_name = if (Keywords.has(event.name) or is_digit(event.name[0]))
+          try std.fmt.allocPrint(allocator, "@\"{s}\"", .{event.name})
+        else event.name;
+
+        try out_writer.print(
+          CombinedEventEntryFmt,
+          .{interface.name, event.name, interface.name, event_name},
+        );
+      }
+    }
+  }
+  _ = try out_writer.write(CombinedEventEndMsg);
+
   try out.flush();
 }
 
@@ -156,7 +176,25 @@ fn write_wl_message(
   else wl_message.name;
 
   switch (wl_message.type) {
-    .request => {},
+    .request => {
+      try writer.print(
+        ClientRequestBeginFmt,
+        .{message_name},
+      );
+      try write_wl_args(
+        writer,
+        allocator,
+        wl_message,
+      );
+      try writer.print(
+        ClientRequestArgsEndFmt,
+        .{},
+      );
+      try writer.print(
+        ClientRequestEndFmt,
+        .{},
+      );
+    },
     .event => {
       if (wl_message.arg_count > 0) {
         try writer.print(
@@ -243,7 +281,6 @@ fn write_wl_args(
       }
     }
   } else if (wl_interface_entry.type == .event) {
-    std.debug.print("client event {s} has {} entries\n", .{wl_interface_entry.name, wl_interface_entry.arg_count});
     var event_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
     while (event_entry_opt) |event_entry| : (event_entry_opt = event_entry.next) {
       const entry_name = if (Keywords.has(event_entry.name) or is_digit(event_entry.name[0]))
@@ -253,6 +290,18 @@ fn write_wl_args(
       try writer.print(
         ClientEventEntryFmt,
         .{entry_name, event_entry.arg_type.? },
+      );
+    }
+  } else if (wl_interface_entry.type == .request) {
+    var request_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
+    while (request_arg_opt) |request_arg| : (request_arg_opt = request_arg.next) {
+      const arg_name = if (Keywords.has(request_arg.name) or is_digit(request_arg.name[0]))
+        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{request_arg.name})
+      else request_arg.name;
+
+      try writer.print(
+        ClientEventEntryFmt,
+        .{arg_name, request_arg.arg_type.? },
       );
     }
   }
@@ -279,7 +328,7 @@ fn generate_protocol_code(
   const protocol = try arena.create(EntryNode);
   try fetch_entry_metadata(arena, protocol, spec.root, .protocol);
 
-  defer dll_push_end(
+  defer sll_push_end(
     protocol,
     &output.protocol_first,
     &output.protocol_last,
@@ -290,7 +339,7 @@ fn generate_protocol_code(
   while (spec_interfaces.next()) |spec_interface| {
     const interface = try arena.create(EntryNode);
     try fetch_entry_metadata(arena, interface, spec_interface, .interface);
-    defer dll_push_end(
+    defer sll_push_end(
       interface,
       &protocol.interface_first,
       &protocol.interface_last,
@@ -301,7 +350,7 @@ fn generate_protocol_code(
     while (spec_interface_enums.next()) |spec_interface_enum| {
       const @"enum" = try arena.create(EntryNode);
       try fetch_entry_metadata(arena, @"enum", spec_interface_enum, .@"enum");
-      defer dll_push_end(
+      defer sll_push_end(
         @"enum",
         &interface.enum_first,
         &interface.enum_last,
@@ -312,7 +361,7 @@ fn generate_protocol_code(
       while (enum_entries.next()) |enum_entry| {
         const entry = try arena.create(EntryNode);
         try fetch_entry_metadata(arena, entry, enum_entry, .@"arg");
-        defer dll_push_end(
+        defer sll_push_end(
           entry,
           &@"enum".arg_first,
           &@"enum".arg_last,
@@ -325,7 +374,7 @@ fn generate_protocol_code(
     while (spec_interface_events.next()) |spec_interface_event| {
       const event = try arena.create(EntryNode);
       try fetch_entry_metadata(arena, event, spec_interface_event, .event);
-      defer dll_push_end(
+      defer sll_push_end(
         event,
         &interface.event_first,
         &interface.event_last,
@@ -336,7 +385,7 @@ fn generate_protocol_code(
       while (event_entries.next()) |event_entry| {
         const entry = try arena.create(EntryNode);
         try fetch_entry_metadata(arena, entry, event_entry, .@"arg");
-        defer dll_push_end(
+        defer sll_push_end(
           entry,
           &event.arg_first,
           &event.arg_last,
@@ -349,12 +398,24 @@ fn generate_protocol_code(
     while (spec_interface_requests.next()) |spec_interface_request| {
       const request = try arena.create(EntryNode);
       try fetch_entry_metadata(arena, request, spec_interface_request, .request);
-      defer dll_push_end(
+      defer sll_push_end(
         request,
         &interface.request_first,
         &interface.request_last,
         &interface.request_count,
       );
+
+      var request_args = spec_interface_request.findChildrenByTag("arg");
+      while (request_args.next()) |request_arg| {
+        const arg = try arena.create(EntryNode);
+        try fetch_entry_metadata(arena, arg, request_arg, .@"arg");
+        defer sll_push_end(
+          arg,
+          &request.arg_first,
+          &request.arg_last,
+          &request.arg_count,
+        );
+      }
     }
   }
 }
@@ -378,9 +439,6 @@ fn fetch_entry_metadata(
   const entry_value = if (element.getAttribute("value")) |val|
     try arena.dupe(u8, val)
   else null;
-  const entry_arg_type = if (element.getAttribute("type")) |typ|
-    try arena.dupe(u8, typ)
-  else null;
   const entry_interface = if (element.getAttribute("interface")) |int|
     try arena.dupe(u8, int)
   else null;
@@ -391,6 +449,14 @@ fn fetch_entry_metadata(
       .bitfield
     else
       @"type";
+
+  const entry_arg_type = arg_type: {
+    // TODO: Convert to zig type OR interface type IF interface present
+    if (element.getAttribute("type")) |typ| {
+      break :arg_type try arena.dupe(u8, typ);
+    }
+    break :arg_type null;
+  }
 
   entry.* = .{
     .name = entry_name,
@@ -494,9 +560,27 @@ const InterfaceBeginFmt =
 
 const InterfaceEndFmt =
 \\
-\\  pub const Name = {s};
+\\  pub const Name = "{s}";
 \\  pub const Version = {s};
 \\}};
+\\
+;
+
+const ClientRequestBeginFmt =
+\\
+\\  pub fn {s}(
+\\
+;
+const ClientRequestArgEntryFmt =
+\\    {s}: {s},
+\\
+;
+const ClientRequestArgsEndFmt =
+\\  ) void {{
+\\
+;
+const ClientRequestEndFmt =
+\\  }}
 \\
 ;
 
@@ -565,15 +649,15 @@ const EnumEndFmt =
 ;
 
 const CombinedEventBeginMsg =
-\\pub const Event = union (enum) {{
+\\pub const Event = union (enum) {
 \\
 ;
 const CombinedEventEntryFmt =
-\\  {s}: {s}.{s},
+\\  {s}_{s}: {s}.{s},
 \\
 ;
 const CombinedEventEndMsg =
-\\}};
+\\};
 \\
 ;
 
@@ -645,7 +729,7 @@ const Output = struct {
   protocol_count: u32 = 0,
 };
 
-fn dll_push_end(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
+fn sll_push_end(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
   if (last.*) |last_old| {
     last_old.next = node;
     last.* = node;
