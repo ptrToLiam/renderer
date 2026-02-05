@@ -1,38 +1,411 @@
 pub fn main(init: std.process.Init) !void {
-  const io = init.io;
   const allocator = init.arena.allocator();
+  var threaded: Io.Threaded = .init(allocator, .{ .environ = init.minimal.environ });
+  defer threaded.deinit();
+  const io = threaded.io();
   var args = try init.minimal.args.iterateAllocator(allocator);
 
   const program_name = args.next() orelse "wayland-protocols-generator";
   const cwd = Io.Dir.cwd();
-  var write_out_buffered: [512]u8 = undefined;
-  const stdout = Io.File.stdout().writer(io, write_out_buffered);
 
   var debug = false;
   var out_path_opt: ?[]const u8 = null;
-  var first_protocol_opt: ?*EntryNode = null;
-  var last_protocol_opt: ?*EntryNode = null;
+  var first_protocol_file_opt: ?*EntryNode = null;
+  var last_protocol_file_opt: ?*EntryNode = null;
   var protocol_count: u32 = 0;
 
-  while (args.next()) |arg| {
+  var arg_count: u16 = 0;
+  while (args.next()) |arg| : (arg_count += 1) {
     if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-      stdout_writer.write(UsageMsg, .{program_name});
+      var backing: [1024]u8 = undefined;
+      var stdout = Io.File.stdout().writer(io, &backing);
+      try stdout.interface.print(UsageMsgFmt, .{program_name});
     } else if (std.mem.eql(u8, arg, "-o") or std.mem.eql(u8, arg, "--out")) {
-      out_path_opt = arg.next();
+      out_path_opt = args.next();
     } else if (std.mem.eql(u8, arg, "--debug")) {
       debug = true;
     } else {
-      const protocol_path = allocator.create(EntryNode);
+      const protocol_path = try allocator.create(EntryNode);
       protocol_path.* = .{
         .type = .file_name,
         .name = arg,
       };
-      dll_push(protocols_in_opt)
+      dll_push_end(
+        protocol_path,
+        &first_protocol_file_opt,
+        &last_protocol_file_opt,
+        &protocol_count,
+      );
+    }
+  }
+
+  if (arg_count == 0) {
+    var backing: [1024]u8 = undefined;
+    var stdout = Io.File.stdout().writer(io, &backing);
+    try stdout.interface.print(UsageMsgFmt, .{program_name});
+  }
+
+  var cur_protocol_file_opt: ?*EntryNode = first_protocol_file_opt;
+  var output: Output = .{};
+  while (cur_protocol_file_opt) |cur_protocol_file| {
+    cur_protocol_file_opt = cur_protocol_file.next;
+    std.debug.print(
+      "reading protocol file :: {s}\n",
+      .{ cur_protocol_file.name },
+    );
+    try generate_protocol_code(
+      io,
+      allocator,
+      &output,
+      cur_protocol_file.name,
+    );
+  }
+
+  std.debug.print("found {} protocols!\n", .{output.protocol_count});
+
+  const out_file = if (out_path_opt) |out_path|
+    try cwd.createFile(
+      io,
+      out_path,
+      .{},
+    )
+  else return error.FileNotFound;
+  var buf: [1024]u8 = undefined;
+  var out = out_file.writerStreaming(io, &buf);
+  var out_writer = &out.interface;
+
+  var protocol_opt: ?*EntryNode = output.protocol_first;
+  _ = try out_writer.write(OutputBeginMsg);
+  _ = try out_writer.write(BitfieldMixinMsg);
+  while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+    std.debug.print(
+      "found {} interfaces in protocol {s}!\n",
+      .{
+        protocol.interface_count,
+        protocol.name,
+      },
+    );
+
+    try out_writer.print(
+      ProtocolBeginFmt,
+      .{ protocol.name },
+    );
+
+    var interface_opt: ?*EntryNode = protocol.interface_first;
+    while (interface_opt) |interface| : (interface_opt = interface.next) {
+      try write_wl_interface(
+        out_writer,
+        allocator,
+        interface,
+      );
+    }
+
+    try out_writer.print(
+      ProtocolEndString,
+      .{},
+    );
+  }
+
+  try out.flush();
+}
+
+fn write_wl_interface(
+  writer: *Io.Writer,
+  allocator: std.mem.Allocator,
+  wl_interface: *EntryNode,
+) !void {
+  try writer.print(
+    InterfaceBeginFmt,
+    .{ wl_interface.name, wl_interface.name, wl_interface.name },
+  );
+
+  // write requests / events
+  {
+    var message_opt: ?*EntryNode = wl_interface.request_first;
+    while (message_opt) |wl_request| : (message_opt = wl_request.next) {
+      try write_wl_message(writer, allocator, wl_request);
+    }
+
+    message_opt = wl_interface.event_first;
+    while (message_opt) |wl_event| : (message_opt = wl_event.next) {
+      try write_wl_message(writer, allocator, wl_event);
+    }
+  }
+
+  // write enums / bitfields
+  {
+    var enum_opt: ?*EntryNode = wl_interface.enum_first;
+    while (enum_opt) |wl_enum| : (enum_opt = wl_enum.next) {
+      try write_wl_enum(writer, allocator, wl_enum);
+    }
+  }
+
+  try writer.print(
+    InterfaceEndFmt,
+    .{ wl_interface.name, wl_interface.version.? },
+  );
+}
+
+fn write_wl_message(
+  writer: *Io.Writer,
+  allocator: std.mem.Allocator,
+  wl_message: *EntryNode,
+) !void {
+  const message_name = if (Keywords.has(wl_message.name) or is_digit(wl_message.name[0]))
+    try std.fmt.allocPrint(allocator, "@\"{s}\"", .{wl_message.name})
+  else wl_message.name;
+
+  switch (wl_message.type) {
+    .request => {},
+    .event => {
+      if (wl_message.arg_count > 0) {
+        try writer.print(
+          ClientEventBeginFmt,
+          .{message_name},
+        );
+        try write_wl_args(
+          writer,
+          allocator,
+          wl_message,
+        );
+        try writer.print(
+          ClientEventEndFmt,
+          .{},
+        );
+      } else {
+        try writer.print(
+          ClientEventBeginEmptyFmt,
+          .{message_name},
+        );
+      }
+    },
+    else => return error.NotAWlMessage,
+  }
+}
+
+fn write_wl_enum(
+  writer: *Io.Writer,
+  allocator: std.mem.Allocator,
+  wl_enum: *EntryNode,
+) !void {
+  const enum_name = if (Keywords.has(wl_enum.name) or is_digit(wl_enum.name[0]))
+    try std.fmt.allocPrint(allocator, "@\"{s}\"", .{wl_enum.name})
+  else wl_enum.name;
+
+  if (wl_enum.type == .bitfield)
+    try writer.print(BitfieldBeginFmt, .{enum_name})
+  else if (wl_enum.type == .@"enum")
+    try writer.print(EnumBeginFmt, .{enum_name})
+  else
+    return error.NotAWlEnum;
+
+  try write_wl_args(writer, allocator, wl_enum);
+
+  if (wl_enum.type == .bitfield)
+    try writer.print(
+      BitfieldEndFmt,
+      .{ 32 - wl_enum.arg_count },
+    )
+  else if (wl_enum.type == .@"enum")
+    try writer.print(
+      EnumEndFmt,
+      .{}
+    );
+}
+
+fn write_wl_args(
+  writer: *Io.Writer,
+  allocator: std.mem.Allocator,
+  wl_interface_entry: *EntryNode,
+) !void {
+  if (wl_interface_entry.type == .bitfield) {
+    var bitfield_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
+    while (bitfield_entry_opt) |entry| : (bitfield_entry_opt = entry.next) {
+      const entry_name = if (Keywords.has(entry.name) or is_digit(entry.name[0]))
+        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{entry.name})
+      else entry.name;
+
+      try writer.print(BitfieldEntryFmt, .{entry_name});
+    }
+
+  } else if (wl_interface_entry.type == .@"enum") {
+    var enum_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
+    while (enum_entry_opt) |entry| : (enum_entry_opt = entry.next) {
+      const entry_name = if (Keywords.has(entry.name) or is_digit(entry.name[0]))
+        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{entry.name})
+      else entry.name;
+
+
+      if (entry.value) |entry_value| {
+        try writer.print(EnumEntryValueFmt, .{entry_name, entry_value});
+      } else {
+        try writer.print(EnumEntryNoValueFmt, .{entry_name});
+      }
+    }
+  } else if (wl_interface_entry.type == .event) {
+    std.debug.print("client event {s} has {} entries\n", .{wl_interface_entry.name, wl_interface_entry.arg_count});
+    var event_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
+    while (event_entry_opt) |event_entry| : (event_entry_opt = event_entry.next) {
+      const entry_name = if (Keywords.has(event_entry.name) or is_digit(event_entry.name[0]))
+        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{event_entry.name})
+      else event_entry.name;
+
+      try writer.print(
+        ClientEventEntryFmt,
+        .{entry_name, event_entry.arg_type.? },
+      );
     }
   }
 }
 
-const UsageMsg =
+fn generate_protocol_code(
+  io: Io,
+  arena: std.mem.Allocator,
+  output: *Output,
+  spec_filename: []const u8,
+) !void {
+  var local_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+  defer local_arena.deinit();
+  const local_allocator = local_arena.allocator();
+
+  const xml_spec_data = try Io.Dir.cwd().readFileAlloc(
+    io,
+    spec_filename,
+    arena,
+    .unlimited
+  );
+  const spec = try Xml.parse(local_allocator, xml_spec_data);
+
+  const protocol = try arena.create(EntryNode);
+  try fetch_entry_metadata(arena, protocol, spec.root, .protocol);
+
+  defer dll_push_end(
+    protocol,
+    &output.protocol_first,
+    &output.protocol_last,
+    &output.protocol_count,
+  );
+
+  var spec_interfaces = spec.root.findChildrenByTag("interface");
+  while (spec_interfaces.next()) |spec_interface| {
+    const interface = try arena.create(EntryNode);
+    try fetch_entry_metadata(arena, interface, spec_interface, .interface);
+    defer dll_push_end(
+      interface,
+      &protocol.interface_first,
+      &protocol.interface_last,
+      &protocol.interface_count,
+    );
+
+    var spec_interface_enums = spec_interface.findChildrenByTag("enum");
+    while (spec_interface_enums.next()) |spec_interface_enum| {
+      const @"enum" = try arena.create(EntryNode);
+      try fetch_entry_metadata(arena, @"enum", spec_interface_enum, .@"enum");
+      defer dll_push_end(
+        @"enum",
+        &interface.enum_first,
+        &interface.enum_last,
+        &interface.enum_count,
+      );
+
+      var enum_entries = spec_interface_enum.findChildrenByTag("entry");
+      while (enum_entries.next()) |enum_entry| {
+        const entry = try arena.create(EntryNode);
+        try fetch_entry_metadata(arena, entry, enum_entry, .@"arg");
+        defer dll_push_end(
+          entry,
+          &@"enum".arg_first,
+          &@"enum".arg_last,
+          &@"enum".arg_count,
+        );
+      }
+    }
+
+    var spec_interface_events = spec_interface.findChildrenByTag("event");
+    while (spec_interface_events.next()) |spec_interface_event| {
+      const event = try arena.create(EntryNode);
+      try fetch_entry_metadata(arena, event, spec_interface_event, .event);
+      defer dll_push_end(
+        event,
+        &interface.event_first,
+        &interface.event_last,
+        &interface.event_count,
+      );
+
+      var event_entries = spec_interface_event.findChildrenByTag("arg");
+      while (event_entries.next()) |event_entry| {
+        const entry = try arena.create(EntryNode);
+        try fetch_entry_metadata(arena, entry, event_entry, .@"arg");
+        defer dll_push_end(
+          entry,
+          &event.arg_first,
+          &event.arg_last,
+          &event.arg_count,
+        );
+      }
+    }
+
+    var spec_interface_requests = spec_interface.findChildrenByTag("request");
+    while (spec_interface_requests.next()) |spec_interface_request| {
+      const request = try arena.create(EntryNode);
+      try fetch_entry_metadata(arena, request, spec_interface_request, .request);
+      defer dll_push_end(
+        request,
+        &interface.request_first,
+        &interface.request_last,
+        &interface.request_count,
+      );
+    }
+  }
+}
+
+fn fetch_entry_metadata(
+  arena: std.mem.Allocator,
+  entry: *EntryNode,
+  element: *const Xml.Element,
+  @"type": EntryType,
+) !void {
+  const entry_name = try arena.dupe(u8, element.getAttribute("name").?);
+  const entry_version = if (element.getAttribute("version")) |ver|
+    try arena.dupe(u8, ver)
+  else null;
+  const entry_summary = if (element.getAttribute("summary")) |sum|
+    try arena.dupe(u8, sum)
+  else null;
+  const entry_description = if (element.getCharData("description")) |desc|
+    try arena.dupe(u8, desc)
+  else null;
+  const entry_value = if (element.getAttribute("value")) |val|
+    try arena.dupe(u8, val)
+  else null;
+  const entry_arg_type = if (element.getAttribute("type")) |typ|
+    try arena.dupe(u8, typ)
+  else null;
+  const entry_interface = if (element.getAttribute("interface")) |int|
+    try arena.dupe(u8, int)
+  else null;
+  const entry_nullable = (element.getAttribute("nullable") != null);
+  const entry_type =
+    if (@"type" == .@"enum" and
+    element.getAttribute("bitfield") != null)
+      .bitfield
+    else
+      @"type";
+
+  entry.* = .{
+    .name = entry_name,
+    .description = entry_description,
+    .version = entry_version,
+    .summary = entry_summary,
+    .nullable = entry_nullable,
+    .value = entry_value,
+    .arg_type = entry_arg_type,
+    .interface = entry_interface,
+    .type = entry_type,
+  };
+}
+
+const UsageMsgFmt =
 \\Generate code for interacting with a set of specified Wayland protocols in
 \\a less callback-heavy manner.
 \\
@@ -46,6 +419,161 @@ const UsageMsg =
 \\  -h --help       Show this message and exit.
 \\  --debug         Write unformatted source to STDOUT in error cases.
 \\  -o --out <name> Output file to write to
+\\
+;
+
+const OutputBeginMsg =
+\\//  This file is generated from provided Wayland XML specifications by
+\\//  wayland-code-generator and should NOT be edited manually.
+\\
+;
+
+const BitfieldMixinMsg =
+\\
+\\pub fn BitfieldMixin(comptime T: type) type {
+\\  const int_type = T.@"struct".backing_int.?;
+\\
+\\  return struct {
+\\    pub fn toInt(self: T) Int {
+\\      return @bitCast(self);
+\\    }
+\\    pub fn fromInt(int: Int) T {
+\\      return @bitCast(int);
+\\    }
+\\    pub fn not(self: T) T {
+\\      return fromInt(~toInt(self));
+\\    }
+\\
+\\    pub fn either(a: T, b: T) T {
+\\      return fromInt(toInt(a) | toInt(b));
+\\    }
+\\    pub fn both(a: T, b: T) T {
+\\      return fromInt(toInt(a) & toInt(b));
+\\    }
+\\    pub fn eql(a: T, b: T) bool {
+\\      return fromInt(a) == fromInt(b);
+\\    }
+\\    pub fn contains(a: T, b: T) bool {
+\\      return toInt(both(a, b)) == toInt(b);
+\\    }
+\\    pub const Int = int_type;
+\\  };
+\\}
+\\
+\\
+;
+
+const ProtocolBeginFmt =
+\\//-----------------------------------------------------------------------------
+\\// BEGIN Protocol {s}
+\\//-----------------------------------------------------------------------------
+\\
+;
+
+const ProtocolEndString =
+\\
+\\//-----------------------------------------------------------------------------
+\\
+\\
+;
+
+const InterfaceBeginFmt =
+\\
+\\pub const {s} = enum (u32) {{
+\\  _,
+\\
+\\  pub fn toInt(self: {s}) u32 {{
+\\    return @intFromEnum(self);
+\\  }}
+\\
+\\  pub fn fromInt(int: u32) {s} {{
+\\    return @enumFromInt(int);
+\\  }}
+\\
+;
+
+const InterfaceEndFmt =
+\\
+\\  pub const Name = {s};
+\\  pub const Version = {s};
+\\}};
+\\
+;
+
+const ClientEventBeginFmt =
+\\
+\\  pub const {s} = struct {{
+\\
+;
+const ClientEventBeginEmptyFmt =
+\\
+\\  pub const {s} = void;
+\\
+;
+const ClientEventEntryFmt =
+\\    {s}: {s},
+\\
+;
+const ClientEventEndFmt =
+\\  }};
+\\
+;
+
+const BitfieldBeginFmt =
+\\
+\\  pub const {s} = packed struct (u32) {{
+\\
+;
+
+const BitfieldEntryFmt =
+\\    {s}: bool = false,
+\\
+;
+const BitfieldEndFmt =
+\\
+\\    __reserved_bits: u{},
+\\
+\\    pub const toInt = Mixin.toInt;
+\\    pub const fromInt = Mixin.fromInt;
+\\    pub const not = Mixin.not;
+\\    pub const either = Mixin.either;
+\\    pub const both = Mixin.both;
+\\    pub const eql = Mixin.eql;
+\\    pub const contains = Mixin.contains;
+\\
+\\    const Mixin = BitfieldMixin(@This());
+\\  }};
+\\
+;
+
+const EnumBeginFmt =
+\\
+\\  pub const {s} = enum (u32) {{
+\\
+;
+const EnumEntryValueFmt =
+\\    {s} = {s},
+\\
+;
+const EnumEntryNoValueFmt =
+\\    {s},
+\\
+;
+const EnumEndFmt =
+\\  }};
+\\
+;
+
+const CombinedEventBeginMsg =
+\\pub const Event = union (enum) {{
+\\
+;
+const CombinedEventEntryFmt =
+\\  {s}: {s}.{s},
+\\
+;
+const CombinedEventEndMsg =
+\\}};
 \\
 ;
 
@@ -73,6 +601,7 @@ const DataType = enum (u32) {
 const EntryType = enum (u32) {
   invalid,
   file_name,
+  protocol,
   interface,
   request,
   event,
@@ -83,32 +612,55 @@ const EntryType = enum (u32) {
 
 const EntryNode = struct {
   next: ?*EntryNode = null,
-  prev: ?*EntryNode = null,
+  interface_first: ?*EntryNode = null,
+  interface_last: ?*EntryNode = null,
+  interface_count: u32 = 0,
   enum_first: ?*EntryNode = null,
+  enum_last: ?*EntryNode = null,
   enum_count: u32 = 0,
   event_first: ?*EntryNode = null,
+  event_last: ?*EntryNode = null,
   event_count: u32 = 0,
   request_first: ?*EntryNode = null,
+  request_last: ?*EntryNode = null,
   request_count: u32 = 0,
   arg_first: ?*EntryNode = null,
+  arg_last: ?*EntryNode = null,
   arg_count: u32 = 0,
   description: ?[]const u8 = null,
+  summary: ?[]const u8 = null,
   interface: ?[]const u8 = null,
+  version: ?[]const u8 = null,
+  value: ?[]const u8 = null,
+  arg_type: ?[]const u8 = null,
   name: []const u8,
   type: EntryType = .invalid,
   data_type: DataType = .invalid,
+  nullable: bool = false,
 };
 
-fn sll_push_end(node: *EntryNode, first: ?*EntryNode, last: ?*EntryNode, count: *u32) void {
-  if (last) |last_old| {
-    last_old.next = node,
-    last = node,
+const Output = struct {
+  protocol_first: ?*EntryNode = null,
+  protocol_last: ?*EntryNode = null,
+  protocol_count: u32 = 0,
+};
+
+fn dll_push_end(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
+  if (last.*) |last_old| {
+    last_old.next = node;
+    last.* = node;
   } else {
-    first = node,
-    last = node,
+    first.* = node;
+    last.* = node;
   }
   count.* += 1;
 }
 
-const xml = @import("xml.zig");
+fn is_digit(char: u8) bool {
+  return (char >= '0' and char <= '9');
+}
+const Io = std.Io;
+const Keywords = std.zig.Token.keywords;
+
+const Xml = @import("xml.zig");
 const std = @import("std");

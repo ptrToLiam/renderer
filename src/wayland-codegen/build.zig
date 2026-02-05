@@ -1,6 +1,6 @@
 pub fn build(b: *std.Build) !void {
   const target = b.standardTargetOptions(.{});
-  const optimize = b.standrdOptimizeOptions(.{});
+  const optimize = b.standardOptimizeOption(.{});
 
   const protocols_opt = b.option(
     []std.Build.LazyPath,
@@ -9,7 +9,7 @@ pub fn build(b: *std.Build) !void {
   );
 
   const root = b.createModule(.{
-    .root_source_file = b.path("generator.zig"),
+    .root_source_file = b.path("src/generator.zig"),
     .target = target,
     .optimize = optimize
   });
@@ -27,11 +27,13 @@ pub fn build(b: *std.Build) !void {
       wl_generate_cmd.addFileArg(protocol);
     }
 
-    const protocols_zig = wl_generate_cmd.addOutputFileArg("protocols.zig")
+    const protocols_zig = wl_generate_cmd.addOutputFileArg("protocols.zig");
 
     const protocols_zig_module = b.addModule("wayland-protocols", .{
       .root_source_file = protocols_zig,
     });
+
+    _ = protocols_zig_module;
   }
 }
 
