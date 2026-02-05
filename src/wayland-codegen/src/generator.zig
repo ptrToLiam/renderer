@@ -160,6 +160,9 @@ pub fn main(init: std.process.Init) !void {
     _ = try out_writer.write(CombinedInterfaceEndMsg);
   }
 
+  // add import std for scoped log
+  _ = try out_writer.write(LogPaste);
+
   try out.flush();
 }
 
@@ -185,6 +188,7 @@ fn write_wl_interface(
       try write_wl_message(writer, allocator, wl_interface, wl_request);
     }
 
+
     message_opt = wl_interface.event_first;
     while (message_opt) |wl_event| : (message_opt = wl_event.next) {
       try write_wl_message(writer, allocator, wl_interface, wl_event);
@@ -197,7 +201,7 @@ fn write_wl_interface(
   }
 
   // write enums / bitfields
-  {
+  if (wl_interface.enum_count > 0) {
     try writer.print(
       InterfaceBeginSectionFmt,
       .{ wl_interface.name, "ENUMS" },
@@ -241,8 +245,35 @@ fn write_wl_message(
       }
       try writer.print(
         ClientRequestArgsEndFmt,
-        .{ wl_message.arg_type.? },
+        .{ wl_message.arg_type.?, wl_message.opcode },
       );
+
+      // request body
+      {
+        if (!std.mem.eql(u8, wl_message.arg_type.?, "void")) {
+          try writer.print(
+            ClientRequestObjectCreateFmt,
+            .{ wl_message.arg_type.? },
+          );
+          if (std.mem.eql(u8, wl_message.arg_type.?, "InterfaceT")) {
+            _ = try writer.write(ClientRequestInterfaceBindVersionWarn);
+          }
+          try write_wl_message_encode(
+            writer,
+            wl_message,
+          );
+          try writer.print(
+            ClientRequestObjectStoreFmt,
+            .{ }
+          );
+        } else {
+          try write_wl_message_encode(
+            writer,
+            wl_message,
+          );
+        }
+      }
+
       try writer.print(
         ClientRequestEndFmt,
         .{},
@@ -341,6 +372,102 @@ fn write_wl_args(
   }
 }
 
+fn write_wl_message_encode(
+  writer: *Io.Writer,
+  wl_message: *EntryNode,
+) !void {
+  _ = try writer.write(
+    MessageEncodeBeginMsg,
+  );
+  const is_bind_fn = std.mem.eql(u8, "InterfaceT", wl_message.arg_type.?);
+  var arg_opt: ?*EntryNode = wl_message.arg_first;
+  while (arg_opt) |arg| : (arg_opt = arg.next) {
+    switch (arg.data_type) {
+      .uint => {
+        if (is_bind_fn and std.mem.eql(u8, "version", arg.identifier)) {
+
+          try writer.print(
+            \\        .{{ .string = InterfaceT.Name }},
+            \\        .{{ .uint = selected_version }},
+            \\        .{{ .new_id = result.toInt() }},
+            \\
+            , .{ }
+          );
+        } else if (arg.type == .@"enum") {
+          try writer.print(
+            \\        .{{ .@"enum" = .{{ .{s} = {s} }} }},
+            \\
+            , .{ arg.arg_type.?, arg.identifier }
+          );
+        } else {
+          try writer.print(
+            "        .{{ .uint = {s} }},\n",
+            .{ arg.identifier }
+          );
+        }
+      },
+      .string => {
+        try writer.print(
+          \\        .{{ .string = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .object => {
+        try writer.print(
+          \\        .{{ .object = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .array => {
+        try writer.print(
+          \\        .{{ .array = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .int => {
+        try writer.print(
+          \\        .{{ .int = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .new_id => if (!is_bind_fn) {
+        try writer.print(
+          \\        .{{ .new_id = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .fd => {
+        try writer.print(
+          \\        .{{ .fd = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .fixed => {
+        try writer.print(
+          \\        .{{ .fixed = {s} }},
+          \\
+          , .{ arg.identifier }
+        );
+      },
+      .invalid, .destructor => {},
+    }
+  }
+  _ = try writer.write(MessageEncodeEndMsg);
+}
+
+fn write_wl_message_decode(
+  writer: *Io.Writer,
+  wl_message: *EntryNode,
+) !void {
+  _ = writer; _ = wl_message;
+}
+
 fn generate_protocol_code(
   io: Io,
   arena: std.mem.Allocator,
@@ -428,10 +555,12 @@ fn generate_protocol_code(
       }
     }
 
+    var request_opcode: u16 = 0;
     var spec_interface_requests = spec_interface.findChildrenByTag("request");
-    while (spec_interface_requests.next()) |spec_interface_request| {
+    while (spec_interface_requests.next()) |spec_interface_request| : (request_opcode += 1) {
       const request = try arena.create(EntryNode);
       try fetch_entry_data(arena, request, spec_interface_request, .request);
+      request.opcode = request_opcode;
       request.arg_type = "void";
       defer sll_push_end(
         request,
@@ -451,6 +580,19 @@ fn generate_protocol_code(
             request.arg_type = "InterfaceT";
             sll_push_front(
               arg,
+              &request.arg_first,
+              &request.arg_last,
+              &request.arg_count,
+            );
+            const interface_version = try arena.create(EntryNode);
+            interface_version.* = .{
+              .name = "version",
+              .identifier = "version",
+              .data_type = .uint,
+              .arg_type = "u32",
+            };
+            sll_push_end(
+              interface_version,
               &request.arg_first,
               &request.arg_last,
               &request.arg_count,
@@ -507,7 +649,6 @@ fn fetch_entry_data(
   );
 
   const entry_arg_type, const entry_data_type = arg_type: {
-    // TODO: Convert to zig type OR interface type IF interface present
     if (element.getAttribute("type")) |typ| {
       const data_type = std.meta.stringToEnum(DataType, typ).?;
       break :arg_type
@@ -765,6 +906,33 @@ const ClientRequestArgEntryFmt =
 ;
 const ClientRequestArgsEndFmt =
 \\  ) {s} {{
+\\    const Opcode = {};
+\\
+;
+
+const ClientRequestObjectCreateFmt =
+\\    const result: {s} = .fromInt(proxy.get_id());
+\\
+;
+const ClientRequestInterfaceBindVersionWarn =
+\\
+\\    if (InterfaceT.Version != version) {
+\\      log.warn(
+\\        "Interface {s} version mismatch :: Client expects v{} — Compositor has v{}",
+\\        .{
+\\          InterfaceT.Name,
+\\          InterfaceT.Version,
+\\          version,
+\\        },
+\\      );
+\\    }
+\\    const selected_version = @min(InterfaceT.Version, version);
+\\
+;
+const ClientRequestObjectStoreFmt =
+\\
+\\    proxy.put_object(result.object());
+\\    return result;
 \\
 ;
 const ClientRequestEndFmt =
@@ -836,6 +1004,19 @@ const EnumEndFmt =
 \\
 ;
 
+const MessageEncodeBeginMsg =
+\\    proxy.message_encode(
+\\      self.toInt(),
+\\      Opcode,
+\\      &.{
+\\
+;
+const MessageEncodeEndMsg =
+\\      },
+\\    );
+\\
+;
+
 const CombinedInterfaceBeginMsg =
 \\pub const Object = union (enum) {
 \\
@@ -875,10 +1056,15 @@ const CombinedEnumEndMsg =
 \\
 ;
 
+const LogPaste =
+\\const log = @import("std").log.scoped(.WaylandProtocols);
+\\
+;
+
 const DataType = enum (u32) {
   invalid,
   // u32
-  uint, // uint may also be an enum/bitfield
+  uint, // uint may also be an enum/bitfield type
   object,
   new_id,
   // i32
@@ -955,6 +1141,7 @@ const EntryNode = struct {
   value: ?[]const u8 = null,
   arg_type: ?[]const u8 = null,
   name: []const u8,
+  opcode: u16 = 0,
   identifier: []const u8 = undefined,
   type: EntryType = .invalid,
   data_type: DataType = .invalid,
