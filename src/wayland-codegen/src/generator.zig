@@ -76,7 +76,7 @@ pub fn main(init: std.process.Init) !void {
 
   var protocol_opt: ?*EntryNode = output.protocol_first;
   _ = try out_writer.write(OutputBeginMsg);
-  _ = try out_writer.write(BitfieldMixinMsg);
+  _ = try out_writer.write(WaylandGeneralTypesCodePaste);
   while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
     std.debug.print(
       "found {} interfaces in protocol {s}!\n",
@@ -106,25 +106,59 @@ pub fn main(init: std.process.Init) !void {
     );
   }
 
-  _ = try out_writer.write(CombinedEventBeginMsg);
-  protocol_opt = output.protocol_first;
-  while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
-    var interface_opt: ?*EntryNode = protocol.interface_first;
-    while (interface_opt) |interface| : (interface_opt = interface.next) {
-      var event_opt: ?*EntryNode = interface.event_first;
-      while (event_opt) |event| : (event_opt = event.next) {
-        const event_name = if (Keywords.has(event.name) or is_digit(event.name[0]))
-          try std.fmt.allocPrint(allocator, "@\"{s}\"", .{event.name})
-        else event.name;
+  // Write Combined Event Union
+  {
+    _ = try out_writer.write(CombinedEnumBeginMsg);
+    protocol_opt = output.protocol_first;
+    while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+      var interface_opt: ?*EntryNode = protocol.interface_first;
+      while (interface_opt) |interface| : (interface_opt = interface.next) {
+        var enum_opt: ?*EntryNode = interface.enum_first;
+        while (enum_opt) |@"enum"| : (enum_opt = @"enum".next) {
+          try out_writer.print(
+            CombinedEnumEntryFmt,
+            .{ interface.name, @"enum".name, interface.name, @"enum".identifier },
+          );
+        }
+      }
+    }
+    _ = try out_writer.write(CombinedEnumEndMsg);
+  }
 
+  // Write Combined Event Union
+  {
+    _ = try out_writer.write(CombinedEventBeginMsg);
+    protocol_opt = output.protocol_first;
+    while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+      var interface_opt: ?*EntryNode = protocol.interface_first;
+      while (interface_opt) |interface| : (interface_opt = interface.next) {
+        var event_opt: ?*EntryNode = interface.event_first;
+        while (event_opt) |event| : (event_opt = event.next) {
+          try out_writer.print(
+            CombinedEventEntryFmt,
+            .{interface.name, event.name, interface.name, event.identifier},
+          );
+        }
+      }
+    }
+    _ = try out_writer.write(CombinedEventEndMsg);
+  }
+
+  // Write Combined Object Union
+  {
+    _ = try out_writer.write(CombinedInterfaceBeginMsg);
+    protocol_opt = output.protocol_first;
+    while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+      var interface_opt: ?*EntryNode = protocol.interface_first;
+      while (interface_opt) |interface| : (interface_opt = interface.next) {
         try out_writer.print(
-          CombinedEventEntryFmt,
-          .{interface.name, event.name, interface.name, event_name},
+          CombinedInterfaceEntryFmt,
+          .{ interface.name, interface.identifier },
         );
       }
     }
+    _ = try out_writer.write(CombinedInterfaceEndMsg);
   }
-  _ = try out_writer.write(CombinedEventEndMsg);
 
   try out.flush();
 }
@@ -141,23 +175,43 @@ fn write_wl_interface(
 
   // write requests / events
   {
+    try writer.print(
+      InterfaceBeginSectionFmt,
+      .{ wl_interface.name, "MESSAGES" },
+    );
+
     var message_opt: ?*EntryNode = wl_interface.request_first;
     while (message_opt) |wl_request| : (message_opt = wl_request.next) {
-      try write_wl_message(writer, allocator, wl_request);
+      try write_wl_message(writer, allocator, wl_interface, wl_request);
     }
 
     message_opt = wl_interface.event_first;
     while (message_opt) |wl_event| : (message_opt = wl_event.next) {
-      try write_wl_message(writer, allocator, wl_event);
+      try write_wl_message(writer, allocator, wl_interface, wl_event);
     }
+
+    try writer.print(
+      InterfaceEndSectionFmt,
+      .{},
+    );
   }
 
   // write enums / bitfields
   {
+    try writer.print(
+      InterfaceBeginSectionFmt,
+      .{ wl_interface.name, "ENUMS" },
+    );
+
     var enum_opt: ?*EntryNode = wl_interface.enum_first;
     while (enum_opt) |wl_enum| : (enum_opt = wl_enum.next) {
-      try write_wl_enum(writer, allocator, wl_enum);
+      try write_wl_enum(writer, wl_enum);
     }
+
+    try writer.print(
+      InterfaceEndSectionFmt,
+      .{},
+    );
   }
 
   try writer.print(
@@ -168,27 +222,26 @@ fn write_wl_interface(
 
 fn write_wl_message(
   writer: *Io.Writer,
-  allocator: std.mem.Allocator,
+  arena: std.mem.Allocator,
+  wl_interface: *EntryNode,
   wl_message: *EntryNode,
 ) !void {
-  const message_name = if (Keywords.has(wl_message.name) or is_digit(wl_message.name[0]))
-    try std.fmt.allocPrint(allocator, "@\"{s}\"", .{wl_message.name})
-  else wl_message.name;
-
+  _ = arena;
   switch (wl_message.type) {
     .request => {
       try writer.print(
         ClientRequestBeginFmt,
-        .{message_name},
+        .{ wl_message.identifier, wl_interface.identifier },
       );
-      try write_wl_args(
-        writer,
-        allocator,
-        wl_message,
-      );
+      if (wl_message.arg_count > 0) {
+        try write_wl_args(
+          writer,
+          wl_message,
+        );
+      }
       try writer.print(
         ClientRequestArgsEndFmt,
-        .{},
+        .{ wl_message.arg_type.? },
       );
       try writer.print(
         ClientRequestEndFmt,
@@ -199,11 +252,10 @@ fn write_wl_message(
       if (wl_message.arg_count > 0) {
         try writer.print(
           ClientEventBeginFmt,
-          .{message_name},
+          .{wl_message.identifier},
         );
         try write_wl_args(
           writer,
-          allocator,
           wl_message,
         );
         try writer.print(
@@ -213,7 +265,7 @@ fn write_wl_message(
       } else {
         try writer.print(
           ClientEventBeginEmptyFmt,
-          .{message_name},
+          .{wl_message.identifier},
         );
       }
     },
@@ -223,21 +275,16 @@ fn write_wl_message(
 
 fn write_wl_enum(
   writer: *Io.Writer,
-  allocator: std.mem.Allocator,
   wl_enum: *EntryNode,
 ) !void {
-  const enum_name = if (Keywords.has(wl_enum.name) or is_digit(wl_enum.name[0]))
-    try std.fmt.allocPrint(allocator, "@\"{s}\"", .{wl_enum.name})
-  else wl_enum.name;
-
   if (wl_enum.type == .bitfield)
-    try writer.print(BitfieldBeginFmt, .{enum_name})
+    try writer.print(BitfieldBeginFmt, .{wl_enum.identifier})
   else if (wl_enum.type == .@"enum")
-    try writer.print(EnumBeginFmt, .{enum_name})
+    try writer.print(EnumBeginFmt, .{wl_enum.identifier})
   else
     return error.NotAWlEnum;
 
-  try write_wl_args(writer, allocator, wl_enum);
+  try write_wl_args(writer, wl_enum);
 
   if (wl_enum.type == .bitfield)
     try writer.print(
@@ -253,57 +300,44 @@ fn write_wl_enum(
 
 fn write_wl_args(
   writer: *Io.Writer,
-  allocator: std.mem.Allocator,
   wl_interface_entry: *EntryNode,
 ) !void {
-  if (wl_interface_entry.type == .bitfield) {
-    var bitfield_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
-    while (bitfield_entry_opt) |entry| : (bitfield_entry_opt = entry.next) {
-      const entry_name = if (Keywords.has(entry.name) or is_digit(entry.name[0]))
-        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{entry.name})
-      else entry.name;
-
-      try writer.print(BitfieldEntryFmt, .{entry_name});
-    }
-
-  } else if (wl_interface_entry.type == .@"enum") {
-    var enum_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
-    while (enum_entry_opt) |entry| : (enum_entry_opt = entry.next) {
-      const entry_name = if (Keywords.has(entry.name) or is_digit(entry.name[0]))
-        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{entry.name})
-      else entry.name;
-
-
-      if (entry.value) |entry_value| {
-        try writer.print(EnumEntryValueFmt, .{entry_name, entry_value});
-      } else {
-        try writer.print(EnumEntryNoValueFmt, .{entry_name});
+  switch (wl_interface_entry.type) {
+    .bitfield => {
+      var bitfield_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
+      while (bitfield_entry_opt) |entry| : (bitfield_entry_opt = entry.next) {
+        try writer.print(BitfieldEntryFmt, .{entry.identifier});
       }
-    }
-  } else if (wl_interface_entry.type == .event) {
-    var event_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
-    while (event_entry_opt) |event_entry| : (event_entry_opt = event_entry.next) {
-      const entry_name = if (Keywords.has(event_entry.name) or is_digit(event_entry.name[0]))
-        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{event_entry.name})
-      else event_entry.name;
-
-      try writer.print(
-        ClientEventEntryFmt,
-        .{entry_name, event_entry.arg_type.? },
-      );
-    }
-  } else if (wl_interface_entry.type == .request) {
-    var request_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
-    while (request_arg_opt) |request_arg| : (request_arg_opt = request_arg.next) {
-      const arg_name = if (Keywords.has(request_arg.name) or is_digit(request_arg.name[0]))
-        try std.fmt.allocPrint(allocator, "@\"{s}\"", .{request_arg.name})
-      else request_arg.name;
-
-      try writer.print(
-        ClientEventEntryFmt,
-        .{arg_name, request_arg.arg_type.? },
-      );
-    }
+    },
+    .@"enum" => {
+      var enum_entry_opt: ?*EntryNode = wl_interface_entry.arg_first;
+      while (enum_entry_opt) |entry| : (enum_entry_opt = entry.next) {
+        if (entry.value) |entry_value| {
+          try writer.print(EnumEntryValueFmt, .{entry.identifier, entry_value});
+        } else {
+          try writer.print(EnumEntryNoValueFmt, .{entry.identifier});
+        }
+      }
+    },
+    .event => {
+      var event_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
+      while (event_arg_opt) |event_arg| : (event_arg_opt = event_arg.next) {
+        try writer.print(
+          ClientEventEntryFmt,
+          .{ event_arg.identifier, event_arg.arg_type.? },
+        );
+      }
+    },
+    .request => {
+      var request_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
+      while (request_arg_opt) |request_arg| : (request_arg_opt = request_arg.next) {
+        try writer.print(
+          ClientEventEntryFmt,
+          .{ request_arg.identifier, request_arg.arg_type.? },
+        );
+      }
+    },
+    .invalid, .file_name, .protocol, .interface, .arg => return error.InvalidNodeType,
   }
 }
 
@@ -326,7 +360,7 @@ fn generate_protocol_code(
   const spec = try Xml.parse(local_allocator, xml_spec_data);
 
   const protocol = try arena.create(EntryNode);
-  try fetch_entry_metadata(arena, protocol, spec.root, .protocol);
+  try fetch_entry_data(arena, protocol, spec.root, .protocol);
 
   defer sll_push_end(
     protocol,
@@ -338,7 +372,7 @@ fn generate_protocol_code(
   var spec_interfaces = spec.root.findChildrenByTag("interface");
   while (spec_interfaces.next()) |spec_interface| {
     const interface = try arena.create(EntryNode);
-    try fetch_entry_metadata(arena, interface, spec_interface, .interface);
+    try fetch_entry_data(arena, interface, spec_interface, .interface);
     defer sll_push_end(
       interface,
       &protocol.interface_first,
@@ -349,7 +383,7 @@ fn generate_protocol_code(
     var spec_interface_enums = spec_interface.findChildrenByTag("enum");
     while (spec_interface_enums.next()) |spec_interface_enum| {
       const @"enum" = try arena.create(EntryNode);
-      try fetch_entry_metadata(arena, @"enum", spec_interface_enum, .@"enum");
+      try fetch_entry_data(arena, @"enum", spec_interface_enum, .@"enum");
       defer sll_push_end(
         @"enum",
         &interface.enum_first,
@@ -360,7 +394,7 @@ fn generate_protocol_code(
       var enum_entries = spec_interface_enum.findChildrenByTag("entry");
       while (enum_entries.next()) |enum_entry| {
         const entry = try arena.create(EntryNode);
-        try fetch_entry_metadata(arena, entry, enum_entry, .@"arg");
+        try fetch_entry_data(arena, entry, enum_entry, .@"arg");
         defer sll_push_end(
           entry,
           &@"enum".arg_first,
@@ -373,7 +407,7 @@ fn generate_protocol_code(
     var spec_interface_events = spec_interface.findChildrenByTag("event");
     while (spec_interface_events.next()) |spec_interface_event| {
       const event = try arena.create(EntryNode);
-      try fetch_entry_metadata(arena, event, spec_interface_event, .event);
+      try fetch_entry_data(arena, event, spec_interface_event, .event);
       defer sll_push_end(
         event,
         &interface.event_first,
@@ -384,7 +418,7 @@ fn generate_protocol_code(
       var event_entries = spec_interface_event.findChildrenByTag("arg");
       while (event_entries.next()) |event_entry| {
         const entry = try arena.create(EntryNode);
-        try fetch_entry_metadata(arena, entry, event_entry, .@"arg");
+        try fetch_entry_data(arena, entry, event_entry, .@"arg");
         defer sll_push_end(
           entry,
           &event.arg_first,
@@ -397,7 +431,8 @@ fn generate_protocol_code(
     var spec_interface_requests = spec_interface.findChildrenByTag("request");
     while (spec_interface_requests.next()) |spec_interface_request| {
       const request = try arena.create(EntryNode);
-      try fetch_entry_metadata(arena, request, spec_interface_request, .request);
+      try fetch_entry_data(arena, request, spec_interface_request, .request);
+      request.arg_type = "void";
       defer sll_push_end(
         request,
         &interface.request_first,
@@ -408,8 +443,23 @@ fn generate_protocol_code(
       var request_args = spec_interface_request.findChildrenByTag("arg");
       while (request_args.next()) |request_arg| {
         const arg = try arena.create(EntryNode);
-        try fetch_entry_metadata(arena, arg, request_arg, .@"arg");
-        defer sll_push_end(
+        try fetch_entry_data(arena, arg, request_arg, .@"arg");
+        if (arg.data_type == .new_id) {
+          if (arg.interface == null) {
+            arg.arg_type = "type";
+            arg.identifier = "comptime InterfaceT";
+            request.arg_type = "InterfaceT";
+            sll_push_front(
+              arg,
+              &request.arg_first,
+              &request.arg_last,
+              &request.arg_count,
+            );
+            continue;
+          }
+          request.arg_type = arg.interface;
+        }
+        sll_push_end(
           arg,
           &request.arg_first,
           &request.arg_last,
@@ -420,7 +470,7 @@ fn generate_protocol_code(
   }
 }
 
-fn fetch_entry_metadata(
+fn fetch_entry_data(
   arena: std.mem.Allocator,
   entry: *EntryNode,
   element: *const Xml.Element,
@@ -450,16 +500,30 @@ fn fetch_entry_metadata(
     else
       @"type";
 
-  const entry_arg_type = arg_type: {
+  const entry_identifier = try toIdentifier(
+    arena,
+    entry_name,
+    entry_type,
+  );
+
+  const entry_arg_type, const entry_data_type = arg_type: {
     // TODO: Convert to zig type OR interface type IF interface present
     if (element.getAttribute("type")) |typ| {
-      break :arg_type try arena.dupe(u8, typ);
+      const data_type = std.meta.stringToEnum(DataType, typ).?;
+      break :arg_type
+      .{
+        if (data_type == .object and entry_interface != null)
+          entry_interface
+        else
+          data_type.zigTypeString(),
+        data_type,
+      };
     }
-    break :arg_type null;
-  }
+
+    break :arg_type .{ null, .invalid };
+  };
 
   entry.* = .{
-    .name = entry_name,
     .description = entry_description,
     .version = entry_version,
     .summary = entry_summary,
@@ -467,34 +531,123 @@ fn fetch_entry_metadata(
     .value = entry_value,
     .arg_type = entry_arg_type,
     .interface = entry_interface,
+    .name = entry_name,
+    .identifier = entry_identifier,
+    .data_type = entry_data_type,
     .type = entry_type,
   };
 }
 
-const UsageMsgFmt =
-\\Generate code for interacting with a set of specified Wayland protocols in
-\\a less callback-heavy manner.
+const WaylandGeneralTypesCodePaste =
 \\
-\\The core Wayland specification document can be obtained from
-\\https://gitlab.freedesktop.org/wayland/wayland
-\\and other protocols can be found at
-\\https://gitlab.freedesktop.org/wayland/wayland-protocols
+\\pub const MessageArg = union(enum) {
+\\  string: [:0]const u8,
+\\  array: []const u8,
+\\  @"enum": Enum,
+\\  new_id: u32,
+\\  object: u32,
+\\  fixed: f32,
+\\  uint: u32,
+\\  int: i32,
+\\  fd: i32,
+\\};
 \\
-\\Usage: {s} [options] <xml specification paths> -o <output zig source>
-\\Options:
-\\  -h --help       Show this message and exit.
-\\  --debug         Write unformatted source to STDOUT in error cases.
-\\  -o --out <name> Output file to write to
+\\pub const Proxy = struct {
+\\  ctx: *anyopaque,
+\\  vtable: VTable,
 \\
-;
-
-const OutputBeginMsg =
-\\//  This file is generated from provided Wayland XML specifications by
-\\//  wayland-code-generator and should NOT be edited manually.
+\\  pub fn message_decode(
+\\    noalias proxy: *Proxy,
+\\    noalias args_out: []MessageArg,
+\\    noalias message: []const u8,
+\\  ) void {
+\\    @call(
+\\      .auto,
+\\      proxy.vtable.message_decode,
+\\      .{ proxy.ctx, args_out, message },
+\\    );
+\\  }
 \\
-;
-
-const BitfieldMixinMsg =
+\\  pub fn message_encode(
+\\    noalias proxy: *Proxy,
+\\    id: u32,
+\\    opcode: u16,
+\\    noalias args: []const ?MessageArg,
+\\  ) void {
+\\    @call(
+\\      .auto,
+\\      proxy.vtable.message_encode,
+\\      .{ proxy.ctx, id, opcode, args },
+\\    );
+\\  }
+\\
+\\  pub fn get_id(
+\\    proxy: *Proxy,
+\\  ) u32 {
+\\    return @call(
+\\      .auto,
+\\      proxy.vtable.get_id,
+\\      .{ proxy.ctx },
+\\    );
+\\  }
+\\
+\\  pub fn put_object(
+\\    proxy: *Proxy,
+\\    object: Object,
+\\  ) void {
+\\    @call(
+\\      .auto,
+\\      proxy.vtable.put_object,
+\\      .{ proxy.ctx, object },
+\\    );
+\\  }
+\\
+\\  pub fn destroy_object(
+\\    proxy: *Proxy,
+\\    object_id: u32,
+\\  ) void {
+\\    @call(
+\\      .auto,
+\\      proxy.vtable.destroy_object,
+\\      .{ proxy.ctx, object_id },
+\\    );
+\\  }
+\\
+\\  const VTable = struct {
+\\    message_decode: MessageDecodeFn,
+\\    message_encode: MessageEncodeFn,
+\\    get_id: GetIdFn,
+\\    put_object: PutObjectFn,
+\\    destroy_object: DestroyObjectFn,
+\\  };
+\\};
+\\
+\\pub const MessageDecodeFn = *const fn (
+\\  noalias ctx: *anyopaque,
+\\  args_out: []MessageArg,
+\\  noalias message: []const u8
+\\) void;
+\\
+\\pub const MessageEncodeFn = *const fn (
+\\  noalias ctx: *anyopaque,
+\\  id: u32,
+\\  opcode: u16,
+\\  noalias args: []?MessageArg,
+\\) void;
+\\
+\\pub const GetIdFn = *const fn (
+\\  noalias ctx: *anyopaque,
+\\) u32;
+\\
+\\pub const PutObjectFn = *const fn (
+\\  noalias ctx: *anyopaque,
+\\  object: Object,
+\\) void;
+\\
+\\pub const DestroyObjectFn = *const fn (
+\\  noalias ctx: *anyopaque,
+\\  object_id: u32,
+\\) void;
 \\
 \\pub fn BitfieldMixin(comptime T: type) type {
 \\  const int_type = T.@"struct".backing_int.?;
@@ -529,6 +682,29 @@ const BitfieldMixinMsg =
 \\
 ;
 
+const UsageMsgFmt =
+\\Generate code for interacting with a set of specified Wayland protocols in
+\\a less callback-heavy manner.
+\\
+\\The core Wayland specification document can be obtained from
+\\https://gitlab.freedesktop.org/wayland/wayland
+\\and other protocols can be found at
+\\https://gitlab.freedesktop.org/wayland/wayland-protocols
+\\
+\\Usage: {s} [options] <xml specification paths> -o <output zig source>
+\\Options:
+\\  -h --help       Show this message and exit.
+\\  --debug         Write unformatted source to STDOUT in error cases.
+\\  -o --out <name> Output file to write to
+\\
+;
+
+const OutputBeginMsg =
+\\//  This file is generated from provided Wayland XML specifications by
+\\//  wayland-code-generator and should NOT be edited manually.
+\\
+;
+
 const ProtocolBeginFmt =
 \\//-----------------------------------------------------------------------------
 \\// BEGIN Protocol {s}
@@ -557,7 +733,17 @@ const InterfaceBeginFmt =
 \\  }}
 \\
 ;
-
+const InterfaceBeginSectionFmt =
+\\
+\\  //---------------------------------------------------------------------------
+\\  // BEGIN {s} {s}
+\\  //---------------------------------------------------------------------------
+\\
+;
+const InterfaceEndSectionFmt =
+\\  //---------------------------------------------------------------------------
+\\
+;
 const InterfaceEndFmt =
 \\
 \\  pub const Name = "{s}";
@@ -569,6 +755,8 @@ const InterfaceEndFmt =
 const ClientRequestBeginFmt =
 \\
 \\  pub fn {s}(
+\\    noalias self: *const {s},
+\\    noalias proxy: *Proxy,
 \\
 ;
 const ClientRequestArgEntryFmt =
@@ -576,7 +764,7 @@ const ClientRequestArgEntryFmt =
 \\
 ;
 const ClientRequestArgsEndFmt =
-\\  ) void {{
+\\  ) {s} {{
 \\
 ;
 const ClientRequestEndFmt =
@@ -648,6 +836,19 @@ const EnumEndFmt =
 \\
 ;
 
+const CombinedInterfaceBeginMsg =
+\\pub const Object = union (enum) {
+\\
+;
+const CombinedInterfaceEntryFmt =
+\\  {s}: {s},
+\\
+;
+const CombinedInterfaceEndMsg =
+\\};
+\\
+;
+
 const CombinedEventBeginMsg =
 \\pub const Event = union (enum) {
 \\
@@ -657,6 +858,19 @@ const CombinedEventEntryFmt =
 \\
 ;
 const CombinedEventEndMsg =
+\\};
+\\
+;
+
+const CombinedEnumBeginMsg =
+\\pub const Enum = union (enum) {
+\\
+;
+const CombinedEnumEntryFmt =
+\\  {s}_{s}: {s}.{s},
+\\
+;
+const CombinedEnumEndMsg =
 \\};
 \\
 ;
@@ -680,6 +894,29 @@ const DataType = enum (u32) {
 
   // basically exclusive to .destroy() requests
   destructor,
+
+  pub fn zigType(comptime data_type: DataType) type {
+    return switch (data_type) {
+      .destructor, .invalid => void,
+      .uint, .object, .new_id => u32,
+      .int => i32,
+      .fd => c_int,
+      .fixed => f32,
+      .array => []const u8,
+      .string => [:0]const u8,
+    };
+  }
+  pub fn zigTypeString(data_type: DataType) []const u8 {
+    return switch (data_type) {
+      .destructor, .invalid => @typeName(void),
+      .uint, .object, .new_id => @typeName(u32),
+      .int => @typeName(i32),
+      .fd => @typeName(c_int),
+      .fixed => @typeName(f32),
+      .array => @typeName([]const u8),
+      .string => @typeName([:0]const u8),
+    };
+  }
 };
 
 const EntryType = enum (u32) {
@@ -718,6 +955,7 @@ const EntryNode = struct {
   value: ?[]const u8 = null,
   arg_type: ?[]const u8 = null,
   name: []const u8,
+  identifier: []const u8 = undefined,
   type: EntryType = .invalid,
   data_type: DataType = .invalid,
   nullable: bool = false,
@@ -729,6 +967,17 @@ const Output = struct {
   protocol_count: u32 = 0,
 };
 
+fn sll_push_front(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
+  if (first.*) |first_old| {
+    first.* = node;
+    node.next = first_old;
+  } else {
+    first.* = node;
+    last.* = node;
+  }
+  count.* += 1;
+}
+
 fn sll_push_end(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
   if (last.*) |last_old| {
     last_old.next = node;
@@ -738,10 +987,51 @@ fn sll_push_end(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count
     last.* = node;
   }
   count.* += 1;
+  }
+
+fn sll_remove(node: *EntryNode, first: *?*EntryNode, last: *?*EntryNode, count: *u32) void {
+  if (first.* == null and last.* == null) return;
+
+  if (first.* != null and first.*.? == node) {
+    first.* = node.next;
+    node.next = null;
+    count.* -= 1;
+    if (count.* == 0) last.* = null;
+  } else {
+    var iter: ?*EntryNode = first.*;
+    while (iter) |cur| : (iter = cur.next) {
+      if (cur.next) |next| if (next == node) {
+        cur.next = node.next;
+        if (last.*.? == node) last.* = cur;
+        node.next = null;
+        count.* -= 1;
+      };
+    }
+  }
 }
 
 fn is_digit(char: u8) bool {
   return (char >= '0' and char <= '9');
+}
+
+pub fn toIdentifier(
+  allocator: std.mem.Allocator,
+  string: []const u8,
+  entry_type: EntryType,
+) ![]const u8 {
+  std.debug.assert(string.len > 0);
+
+  if (entry_type == .@"enum" or entry_type == .bitfield) {
+    const name = try allocator.dupe(u8, string);
+    name[0] = std.ascii.toUpper(name[0]);
+    return name;
+  }
+
+  if (is_digit(string[0]) or Keywords.has(string)) {
+    return try std.fmt.allocPrint(allocator, "@\"{s}\"", .{ string });
+  }
+
+  return string;
 }
 const Io = std.Io;
 const Keywords = std.zig.Token.keywords;
