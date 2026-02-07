@@ -112,12 +112,23 @@ pub const Event = struct {
 pub const Surface = struct {
   handle: Handle,
   dimensions: math.Vec2i32,
+  flags: Flags = .{},
 
   pub fn release(surface: *Surface) void {
     _ = surface;
   }
 
   pub const nil: Surface = .{ .handle = .nil, .dimensions = undefined };
+
+  pub const Flags = packed struct (u32) {
+    fullscreen: bool = false,
+    maximized: bool = false,
+    minimized: bool = false,
+    resize: bool = false,
+
+    __reserved_bits: u28 = 0,
+  };
+
   const Handle = Impl.SurfaceHandle;
 };
 

@@ -56,6 +56,15 @@ pub fn build(b: *std.Build) void {
     .registry = b.path("protocols/vulkan/vk.xml"),
   }).module("vulkan-zig");
 
+  const wayland = b.dependency("wayland", .{
+    .protocols = &.{
+      b.path("protocols/wayland/wayland.xml"),
+      b.path("protocols/wayland/xdg-shell.xml"),
+      b.path("protocols/wayland/xdg-decoration-unstable-v1.xml"),
+      b.path("protocols/wayland/linux-dmabuf-v1.xml"),
+    },
+  });
+
   const os_mod = b.addModule("os", .{
     .root_source_file = b.path("src/os/os.zig"),
     .target = target,

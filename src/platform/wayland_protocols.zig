@@ -7371,7 +7371,7 @@ pub const LinuxDmabufV1 = struct {
                 width: i32,
                 height: i32,
                 format: u32,
-                flags: LinuxBufferParamsV1Enum.Enum.Flags,
+                flags: LinuxBufferParamsV1Enum.Flags,
             },
         ) !void {
             const request_op = 2;

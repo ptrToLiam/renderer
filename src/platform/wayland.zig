@@ -262,6 +262,7 @@ pub const Connection = struct {
                 "Compositor Requested Delete ID :: {}",
                 .{ delete_id.id },
               );
+              conn.client_state.object_pool.release_object(delete_id.id);
               // conn.client_state.object_pool.get(delete_id.id).destroy()
               //   catch unreachable;
             },
@@ -311,6 +312,12 @@ pub const Connection = struct {
             },
           }
         },
+        .wl_callback => |wl_callback_event| {
+          log.debug(
+            "received wl_callback with data: {}",
+            .{ wl_callback_event.done.callback_data },
+          );
+        },
         .xdg_surface => |xdg_surface_event| {
           switch (xdg_surface_event) {
             .configure => |xdg_surface_configure| {
@@ -334,8 +341,10 @@ pub const Connection = struct {
                 .{ config.width, config.height },
               );
               const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
-              platform_surface.dimensions.x = config.width;
-              platform_surface.dimensions.y = config.height;
+              if (platform_surface.flags.resize) {
+                platform_surface.dimensions.x = config.width;
+                platform_surface.dimensions.y = config.height;
+              }
               // config has: i32 width, height, []const u8 states.
             },
             .close => {
@@ -464,11 +473,12 @@ pub const Connection = struct {
 
     xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
     xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
+    xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
+      catch unreachable;
 
     wl_surface.commit(&conn_proxy) catch unreachable;
 
-    xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
-      catch unreachable;
+    _ = conn.client_state.display.sync(&conn_proxy) catch unreachable;
 
     conn.flush() catch unreachable;
     return .{
@@ -500,6 +510,7 @@ pub const Connection = struct {
     // ) catch unreachable;
     conn.flush() catch unreachable;
   }
+
   pub fn wl_buffer(
     conn: *Connection,
     buf: platform.OffscreenBuffer
@@ -535,7 +546,7 @@ pub const Connection = struct {
     defer conn.flush() catch unreachable;
     defer params.destroy(&conn_proxy) catch unreachable;
 
-    return params.create_immed(
+    params.create(
       &conn_proxy,
       .{
         .width = @intCast(buf.width),
@@ -544,6 +555,7 @@ pub const Connection = struct {
         .flags = .{},
       },
     ) catch unreachable;
+    return .fromInt(conn.client_state.object_pool.next_object_id());
   }
 
   fn warn_unhandled_event(event: anytype) void {
@@ -731,13 +743,17 @@ pub const Connection = struct {
         );
       }
 
-      const wayland_event = conn.client_state.object_pool
-        .get(header.id)
-        .parse_msg(
-          &conn_proxy,
-          header.op,
-          data_bytes,
-        ) catch unreachable;
+      const relevant_object = conn.client_state.object_pool.get(header.id);
+      const wayland_event = relevant_object.parse_msg(
+        &conn_proxy,
+        header.op,
+        data_bytes,
+      ) catch unreachable;
+      if (wayland_event == .wl_callback)
+        log.debug(
+          "received response on callback object of id: {}",
+          .{@as(*const u32, @alignCast(@ptrCast(relevant_object.ptr))).*},
+        );
 
       break :wayland_event wayland_event;
     } else null;
@@ -1164,6 +1180,7 @@ pub const ObjectPool = struct {
     op.objects[ id_to_idx(object_id) ] = undefined;
     op.free_idx_list.push(object_id);
   }
+
   pub fn get(op: *ObjectPool, object_id: u32) *Object {
     return &op.objects[id_to_idx(object_id)];
   }
@@ -1202,6 +1219,16 @@ const FreeIdxList = struct {
     fil.indices[fil.index_available] = index;
     fil.index_available += 1;
   }
+};
+
+pub const dma_buf = struct {
+  handle: Wayland.Buffer,
+  flags: Flags,
+
+  pub const Flags = packed struct (u32) {
+    confirmed: bool = false,
+    __reserved_bits: u31 = 0,
+  };
 };
 
 const WireEventHeader = packed struct {

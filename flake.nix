@@ -29,7 +29,7 @@
             vulkan-tools-lunarg
             vulkan-validation-layers
             vulkan-extension-layer
-            zig.packages.${system}."master-2026-01-18"
+            zig.packages.${system}."master-2026-02-03"
           ];
           shellHook = ''
             VULKAN_LOADER_LIB="${pkgs.vulkan-loader}/lib"
