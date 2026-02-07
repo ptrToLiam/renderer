@@ -111,7 +111,8 @@ pub const Event = struct {
 
 pub const Surface = struct {
   handle: Handle,
-  dimensions: math.Vec2i32,
+  width: i32,
+  height: i32,
   flags: Flags = .{},
 
   pub fn release(surface: *Surface) void {

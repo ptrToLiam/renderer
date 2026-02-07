@@ -222,7 +222,9 @@ pub const close = linux.close;
 pub const msync = linux.msync;
 pub const lseek = linux.lseek;
 pub const open = linux.open;
-
+pub const unlink = linux.unlink;
+pub const ftruncate = linux.ftruncate;
+pub const connect = linux.connect;
 pub const errno = std.posix.errno;
 
 // Type aliases

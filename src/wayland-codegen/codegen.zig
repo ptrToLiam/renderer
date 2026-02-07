@@ -1383,7 +1383,7 @@ const Arena = base.Arena;
 const log = std.log.scoped(.wl_codegen);
 
 // File Imports
-const Xml = @import("xml.zig");
+const Xml = @import("src/xml.zig");
 
 // Internal Module Imports
 const base = @import("base");

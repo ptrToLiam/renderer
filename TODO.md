@@ -4,9 +4,10 @@
 - [/] Platform event queue
 - [x] Vulkan instance initialization
 - [x] Vulkan physical device selection
-- [ ] Vulkan device queue setup
-- [ ] Vulkan logical device creation
-- [ ] Allocate GPU memory for images
+- [x] Vulkan device queue setup
+- [x] Vulkan logical device creation
+- [x] Allocate GPU memory for images
+- [ ] Window on Screen (wl_shm first to test)
 - [ ] Window on screen (buffer backed by GPU memory)
 - [ ] Set up initial Vulkan background clearing
   - [ ] Basic screen clearing

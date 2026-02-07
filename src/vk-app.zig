@@ -276,7 +276,6 @@ pub fn app(env: std.process.Environ) void {
   );
 
   _ = vkd_queue;
-  var buf: OffscreenBuffer = undefined;
 
   //---------------------------------------------------------------------------
   // END VULKAN STATE INIT
@@ -289,18 +288,26 @@ pub fn app(env: std.process.Environ) void {
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
 
-  var wl_buffer: platform.wayland.Wayland.Buffer = undefined;
-
-  var buf_attached = false;
-  var want_attach = false;
-
-  _ = &buf;
-  _ = &wl_buffer;
-  _ = &buf_attached;
-  _ = &want_attach;
-
   var events: platform.EventList = .empty;
   var want_exit = false;
+
+  var shm_pool = create_shm_pool(
+    &platform_conn.handle,
+    platform_conn.handle.client_state.wl_shm,
+    surface.width,
+    surface.height,
+  );
+
+  platform_conn.handle.flush() catch unreachable;
+
+  const buffer = shm_pool.create_buffer(
+    surface.width,
+    surface.height,
+    .xrgb8888,
+  );
+
+  var want_attach = false;
+  var attached = false;
 
   _ = &want_exit;
   while (!want_exit) {
@@ -313,40 +320,150 @@ pub fn app(env: std.process.Environ) void {
       // event handling loop
     }
 
-    if (!buf_attached and want_attach) {
-      // std.log.debug("want attach, trying to bind", .{});
-      // surface.handle.attach_wl_buffer(
-      //   &platform_conn.handle,
-      //   wl_buffer,
-      //   base.i32_(buf.width),
-      //   base.i32_(buf.height),
-      // );
-      buf_attached = true;
+    if (want_attach and !attached) {
+      log.debug("attempting to attach buffer now!", .{});
+      surface.handle.wl_surface.attach(
+        &shm_pool.proxy,
+        .{
+          .buffer = buffer,
+          .x = 0,
+          .y = 0,
+        }
+      ) catch unreachable;
+      surface.handle.wl_surface.damage_buffer(
+        &shm_pool.proxy,
+        .{
+          .x = 0,
+          .y = 0,
+          .width = surface.width,
+          .height = surface.height,
+        },
+      ) catch unreachable;
+      surface.handle.wl_surface.commit(
+        &shm_pool.proxy,
+      ) catch unreachable;
+      attached = true;
     }
 
-    if (!buf_attached and surface.handle.ready()) {
-      // platform_conn.check_surface_formats(surface);
-      std.log.debug("create platform surface image with dims {}x{}", .{surface.dimensions.x, surface.dimensions.y});
-      buf = .create(
-        vkd,
-        vk_dev,
-        vki,
-        vk_pdev.*,
-        @intCast(surface.dimensions.x),
-        @intCast(surface.dimensions.y),
-        .b8g8r8a8_unorm,
-        .linear,
-      );
-      wl_buffer = platform_conn.handle.wl_buffer(buf);
-      std.log.debug("wl_surface is marked ready for attach :: surface.is_ready={s}", .{
-        if (surface.handle.ready()) "true" else "false",
-      });
+    if (!want_attach and surface.handle.ready()) {
+      log.debug("surface ready :: setting want_attach to true", .{});
       want_attach = true;
+      platform_conn.handle.flush() catch unreachable;
     }
 
     update();
     draw();
   }
+}
+
+const ShmPool = struct {
+  proxy: platform.wayland.Proxy,
+  wl_shm_pool: platform.wayland.ShmPool,
+  buffer: []u32,
+  fd: c_int,
+
+  pub fn create_buffer(
+    pool: *ShmPool,
+    width: i32,
+    height: i32,
+    format: platform.wayland.Shm.ShmEnum.Format,
+  ) platform.wayland.Wayland.Buffer {
+    @memset(pool.buffer, 0xffffffff);
+    return pool.wl_shm_pool.create_buffer(
+      &pool.proxy,
+      .{
+        .offset = 0,
+        .width = width,
+        .height = height,
+        .stride = width*4,
+        .format = format,
+      },
+    ) catch unreachable;
+  }
+};
+
+fn create_shm_pool(
+  conn: *platform.wayland.Connection,
+  shm: platform.wayland.Shm,
+  width: i32,
+  height:i32,
+) ShmPool {
+  const scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const shm_fd = open_shmfile(scratch.arena);
+  var proxy = conn.proxy();
+
+  const img_stride = width * 4;
+  const img_size = height * img_stride;
+  _ = os.linux.ftruncate(
+    shm_fd,
+    img_size,
+  );
+
+  const rc = os.linux.mmap(
+    null,
+    @intCast(img_size),
+    .{ .READ = true, .WRITE = true },
+    .{ .TYPE = .SHARED },
+    shm_fd,
+    0
+  );
+
+  if (@as(isize, @bitCast(rc)) < 0) {
+    log.err("failed to map in shmfile memory!", .{});
+  }
+
+  const ptr: []u8 = @as([*]u8, @ptrFromInt(rc))[0..@intCast(img_size)];
+  const img_buffer: []u32 = @alignCast(@ptrCast(ptr));
+
+  const shm_pool = shm.create_pool(&proxy, .{
+    .fd = shm_fd,
+    .size = @intCast(img_size),
+  }) catch unreachable;
+
+  return .{
+    .proxy = proxy,
+    .fd = shm_fd,
+    .buffer = img_buffer,
+    .wl_shm_pool = shm_pool,
+  };
+}
+
+fn open_shmfile(arena: *Arena) c_int {
+  const linux = os.linux;
+  const timestamp = time.us();
+  const name_template = "/var/tmp/vkRender-XXXXXX";
+
+  var name = arena.push(u8, name_template.len + 1);
+  @memcpy(name[0..name.len-1], name_template);
+  for (name[(name.len - 7)..][0..6]) |*byte| {
+    byte.* = @intCast((
+      'A' + (timestamp & 15) + ((timestamp & 16) * 2)
+    ));
+  }
+
+  log.debug("opening shmfile with name {s}", .{name});
+
+  const fd = linux.open(
+    @ptrCast(name.ptr),
+    .{
+      .ACCMODE = .RDWR,
+      .CREAT = true,
+      .EXCL = true,
+      .CLOEXEC = true,
+    },
+    0o600,
+  );
+
+  log.debug("shmfile handle :: {}", .{@as(isize, @bitCast(fd))});
+  _ = linux.unlink(@ptrCast(name.ptr));
+  return @intCast(@as(isize, @bitCast(fd)));
+}
+
+fn update() void {
+}
+
+fn draw() void {
 }
 
 const VkDeviceCandidate = struct {
@@ -356,12 +473,6 @@ const VkDeviceCandidate = struct {
 };
 
 const OffscreenBuffer = platform.OffscreenBuffer;
-
-fn update() void {
-}
-
-fn draw() void {
-}
 
 const AppName = "vkRender";
 const AppClass = "Liam.Games.vkRender";
@@ -386,6 +497,8 @@ const base = @import("base");
 const os = @import("os");
 const vk = @import("vulkan");
 const platform = @import("platform");
+
+const log = std.log.scoped(.App);
 
 const std = @import("std");
 const builtin = @import("builtin");

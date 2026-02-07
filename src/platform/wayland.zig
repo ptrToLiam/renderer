@@ -87,13 +87,14 @@ pub const Connection = struct {
       break :socket_addr addr;
     };
 
-    posix.connect(
+    const connect_rc = linux.connect(
       socket_fd,
-      @ptrCast(&socket_addr),
+      &socket_addr,
       @intCast(@sizeOf(@TypeOf(socket_addr))),
-    ) catch {
-      @panic("Failed to connect to wayland socket :: ");
-    };
+    );
+    if (@as(isize, @bitCast(connect_rc)) < 0) {
+      @panic("Failed to connec to wayland socket!");
+    }
 
     //-------------------------------------------------------------------------
 
@@ -138,7 +139,8 @@ pub const Connection = struct {
       wl_compositor: bool = false,
       xdg_wm_base: bool = false,
       linux_dmabuf: bool = false,
-      __reserved_bits: u4 = 0,
+      wl_shm: bool = false,
+      __reserved_bits: u3 = 0,
 
       pub fn match(a: @This(), b: @This()) bool {
         return @as(u8, @bitCast(a)) == @as(u8, @bitCast(b));
@@ -149,6 +151,7 @@ pub const Connection = struct {
         .wl_compositor = true,
         .xdg_wm_base = true,
         .linux_dmabuf = true,
+        .wl_shm = true,
       };
     };
 
@@ -190,6 +193,13 @@ pub const Connection = struct {
                   .{ .name = registry_global.name, .interface_version = registry_global.version }
                 ) catch unreachable;
                 globals_bound.linux_dmabuf = true;
+              } else if (std.mem.eql(u8, Shm.InterfaceName, registry_global.interface)) {
+                connection.client_state.wl_shm = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Shm,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_shm = true;
               }
             },
             .global_remove => |registry_global_remove| {
@@ -312,6 +322,10 @@ pub const Connection = struct {
             },
           }
         },
+        .wl_shm => |wl_shm_event| {
+          const fmt_event = wl_shm_event.format.format;
+          log.debug("received wl_shm format event :: fmt={s}", .{@tagName(fmt_event)});
+        },
         .wl_callback => |wl_callback_event| {
           log.debug(
             "received wl_callback with data: {}",
@@ -342,10 +356,10 @@ pub const Connection = struct {
               );
               const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
               if (platform_surface.flags.resize) {
-                platform_surface.dimensions.x = config.width;
-                platform_surface.dimensions.y = config.height;
+                log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
+                platform_surface.width = config.width;
+                platform_surface.height = config.height;
               }
-              // config has: i32 width, height, []const u8 states.
             },
             .close => {
               // TODO: Push close event to event queue
@@ -384,11 +398,6 @@ pub const Connection = struct {
               if (size_from_seek > 0) {
                   _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
               }
-
-              Thread.yield() catch unreachable;
-              Thread.sleep(base.time.ns_per_s * 1000000);
-              Thread.yield() catch unreachable;
-
 
               const rc = linux.mmap(
                 null,
@@ -460,6 +469,7 @@ pub const Connection = struct {
     height: i32,
   ) platform.Surface {
     _ = arena;
+    _ = class;
 
     var conn_proxy = conn.proxy();
     const wl_surface = conn.client_state.compositor.create_surface(
@@ -472,13 +482,13 @@ pub const Connection = struct {
     const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy) catch unreachable;
 
     xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
-    xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
-    xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
-      catch unreachable;
+    // xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
+    // xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
+    //   catch unreachable;
 
     wl_surface.commit(&conn_proxy) catch unreachable;
 
-    _ = conn.client_state.display.sync(&conn_proxy) catch unreachable;
+    // _ = conn.client_state.display.sync(&conn_proxy) catch unreachable;
 
     conn.flush() catch unreachable;
     return .{
@@ -487,10 +497,8 @@ pub const Connection = struct {
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
       },
-      .dimensions = .{
-        .x = width,
-        .y = height,
-      },
+      .width = width,
+      .height = height,
     };
   }
 
@@ -546,7 +554,7 @@ pub const Connection = struct {
     defer conn.flush() catch unreachable;
     defer params.destroy(&conn_proxy) catch unreachable;
 
-    params.create(
+    return params.create_immed(
       &conn_proxy,
       .{
         .width = @intCast(buf.width),
@@ -555,7 +563,7 @@ pub const Connection = struct {
         .flags = .{},
       },
     ) catch unreachable;
-    return .fromInt(conn.client_state.object_pool.next_object_id());
+    // return .fromInt(conn.client_state.object_pool.next_object_id());
   }
 
   fn warn_unhandled_event(event: anytype) void {
@@ -989,6 +997,7 @@ pub const Connection = struct {
   fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) wl_protocols.WriteError!void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
     var msg_len: u16 = @sizeOf(WireEventHeader);
+    log.debug("writing message :: id={}, opcode={} args={any}", .{id, op, args});
     for (args) |arg_opt| {
       if (arg_opt) |arg| switch (arg) {
         .int, .uint, .fixed, .object, .new_id, .@"enum" => msg_len += @sizeOf(u32),
@@ -1148,6 +1157,7 @@ pub const ClientState = struct {
 
   // Globals
   seat: Seat,
+  wl_shm: Shm,
   compositor: Compositor,
   xdg_wm_base: XdgWmBase,
   linux_dmabuf: LinuxDmabuf,
@@ -1240,7 +1250,9 @@ const WireEventHeader = packed struct {
 pub const WaylandSurface = Wayland.Surface;
 pub const XdgSurface = XdgShell.Surface;
 pub const XdgToplevel = XdgShell.Toplevel;
+pub const ShmPool = Wayland.ShmPool;
 
+pub const Shm = Wayland.Shm;
 pub const Seat = Wayland.Seat;
 pub const Display = Wayland.Display;
 pub const Registry = Wayland.Registry;
