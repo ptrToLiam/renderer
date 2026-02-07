@@ -362,10 +362,11 @@ fn write_wl_args(
     .request => {
       var request_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
       while (request_arg_opt) |request_arg| : (request_arg_opt = request_arg.next) {
-        try writer.print(
-          ClientEventEntryFmt,
-          .{ request_arg.identifier, request_arg.arg_type.? },
-        );
+        if (!(request_arg.data_type == .new_id))
+          try writer.print(
+            ClientEventEntryFmt,
+            .{ request_arg.identifier, request_arg.arg_type.? },
+          );
       }
     },
     .invalid, .file_name, .protocol, .interface, .arg => return error.InvalidNodeType,
@@ -436,9 +437,9 @@ fn write_wl_message_encode(
       },
       .new_id => if (!is_bind_fn) {
         try writer.print(
-          \\        .{{ .new_id = {s} }},
+          \\        .{{ .new_id = result.toInt() }},
           \\
-          , .{ arg.identifier }
+          , .{ }
         );
       },
       .fd => {
@@ -465,9 +466,30 @@ fn write_wl_message_decode(
   writer: *Io.Writer,
   wl_message: *EntryNode,
 ) !void {
-  _ = writer; _ = wl_message;
+  _ = try writer.write(MessageDecodeBeginMsg);
+  var arg_opt: ?*EntryNode = wl_message.arg_first;
+  while (arg_opt) |arg| : (arg_opt = arg.next) {
+
+  }
+  _ = try writer.write(MessageDecodeEndMsg);
 }
 
+const MessageDecodeBeingMsg =
+\\  pub fn event(
+\\    proxy: *Proxy,
+\\    opcode: u16,
+\\    data: []const u8
+\\  ) Event {
+\\    const event_in = event: {
+\\
+;
+const MessageDecodeEndMsg =
+\\    };
+\\
+\\    return event_in;
+\\  }
+\\
+;
 fn generate_protocol_code(
   io: Io,
   arena: std.mem.Allocator,
