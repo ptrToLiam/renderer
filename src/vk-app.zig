@@ -318,6 +318,14 @@ pub fn app(env: std.process.Environ) void {
     var event_opt = events.first;
     while (event_opt) |ev| : (event_opt = ev.next) {
       // event handling loop
+      switch (ev.type) {
+        .surface_close => {
+          want_exit = true;
+        },
+        else => {
+          std.log.debug("app-level ev :: {any}", .{ev});
+        },
+      }
     }
 
     if (want_attach and !attached) {
@@ -351,6 +359,10 @@ pub fn app(env: std.process.Environ) void {
       platform_conn.handle.flush() catch unreachable;
     }
 
+    surface.handle.wl_surface.damage(&shm_pool.proxy, .{ .x = 0, .y = 0, .width = surface.width, .height = surface.height }) catch unreachable;
+    surface.handle.wl_surface.commit(&shm_pool.proxy) catch unreachable;
+    platform_conn.handle.flush() catch unreachable;
+
     update();
     draw();
   }
@@ -368,7 +380,7 @@ const ShmPool = struct {
     height: i32,
     format: platform.wayland.Shm.ShmEnum.Format,
   ) platform.wayland.Wayland.Buffer {
-    @memset(pool.buffer, 0xffffffff);
+    defer @memset(pool.buffer, 0xefefefef);
     return pool.wl_shm_pool.create_buffer(
       &pool.proxy,
       .{

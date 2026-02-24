@@ -54,6 +54,17 @@ pub const EventList = struct {
   last: ?*Event,
   count: usize,
 
+  pub fn push(noalias list: *EventList, noalias event: *Event) void {
+    defer list.count += 1;
+    if (list.last) |tail| {
+      tail.next = event;
+      list.last = event;
+    } else {
+      list.first = event;
+      list.last = event;
+    }
+  }
+
   pub const empty: EventList = .{
     .first = null,
     .last = null,
@@ -61,20 +72,21 @@ pub const EventList = struct {
   };
 };
 
-pub const Key = enum {
+pub const Key = enum (u32) {
+  none = 0,
 };
 
 pub const Event = struct {
-  next: ?*Event,
-  prev: ?*Event,
+  next: ?*Event = null,
+  prev: ?*Event = null,
   timestamp_us: u64,
   type: EventType = .none,
   surface_handle: Surface.Handle,
-  modifiers: Modifiers,
-  key: Key,
-  repeat_count: u32,
-  pos: math.Vec2f32,
-  delta: math.Vec2f32,
+  modifiers: Modifiers = .none,
+  key: Key = .none,
+  repeat_count: u32 = 0,
+  pos: math.Vec2f32 = .{ .x = 0 , .y = 0 },
+  delta: math.Vec2f32 = .{ .x = 0, .y = 0 },
 
   pub const nil: Event = .{
     .next = null,
@@ -83,7 +95,7 @@ pub const Event = struct {
     .type = .none,
     .surface_handle = .nil,
     .modifiers = .{},
-    .key = .nil,
+    .key = .none,
     .repeat_count = undefined,
     .pos = undefined,
     .delta = undefined,
@@ -106,6 +118,8 @@ pub const Event = struct {
     shift: bool = false,
     alt: bool = false,
     __reserved_bits: u29 = 0,
+
+    pub const none: Modifiers = .{};
   };
 };
 

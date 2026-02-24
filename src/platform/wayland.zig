@@ -363,6 +363,13 @@ pub const Connection = struct {
             },
             .close => {
               // TODO: Push close event to event queue
+              const close_event = arena.create(platform.Event);
+              close_event.* = .{
+                .timestamp_us = base.time.us(),
+                .type = .surface_close,
+                .surface_handle = surface.*,
+              };
+              event_list.push(close_event);
             },
             .configure_bounds => |xdg_toplevel_configure_bounds| {
               const config_bounds = xdg_toplevel_configure_bounds;
@@ -852,41 +859,35 @@ pub const Connection = struct {
     var cmsg: [cmsg_buf_len]u8 = undefined;
     var cmsg_len: usize = 0;
 
+    const c_int_size = @sizeOf(c_int);
+    const fd_cmsg_t = linux.cmsg(c_int);
+    const ctrlmsg_size = @sizeOf(fd_cmsg_t);
+
     while (!conn.fd_out.empty()) {
       const fd_out_read = conn.fd_out.mask(conn.fd_out.read);
       const contiguous_bytes = conn.fd_out.buf[fd_out_read..];
 
-      var control_msg: linux.cmsg(i32) = .init(
-        posix.SOL.SOCKET,
-        linux.SCM_RIGHTS,
-        -1,
-      );
-      var control_msg_data_bytes = std.mem.asBytes(&control_msg.data);
-      if (contiguous_bytes.len < @sizeOf(i32)) {
-        @branchHint(.cold);
-        const remainder = @sizeOf(i32) - contiguous_bytes.len;
-        @memcpy(
-          control_msg_data_bytes[0..contiguous_bytes.len],
-          contiguous_bytes[0..],
-        );
-        @memcpy(
-          control_msg_data_bytes[contiguous_bytes.len..],
-          conn.fd_out.buf[0..remainder],
-        );
-      } else {
-        @memcpy(
-          control_msg_data_bytes[cmsg_len..][0..@sizeOf(i32)],
-          contiguous_bytes[fd_out_read..][0..@sizeOf(i32)],
-        );
-      }
+      var fd_out: c_int = -1;
+      var fd_out_bytes = std.mem.asBytes(&fd_out);
 
       @memcpy(
-        cmsg[cmsg_len..][0..@sizeOf(@TypeOf(control_msg))],
+        fd_out_bytes[0..][0..c_int_size],
+        contiguous_bytes[fd_out_read..][0..c_int_size],
+      );
+
+      const control_msg: fd_cmsg_t = .init(
+        posix.SOL.SOCKET,
+        linux.SCM_RIGHTS,
+        fd_out,
+      );
+
+      @memcpy(
+        cmsg[cmsg_len..][0..ctrlmsg_size],
         std.mem.asBytes(&control_msg),
       );
 
-      conn.fd_out.read +%= base.u32_(@sizeOf(i32));
-      cmsg_len += @sizeOf(@TypeOf(control_msg));
+      conn.fd_out.read +%= base.u32_(c_int_size);
+      cmsg_len += ctrlmsg_size;
     }
 
     //-------------------------------------------------------------------------
@@ -997,7 +998,6 @@ pub const Connection = struct {
   fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) wl_protocols.WriteError!void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
     var msg_len: u16 = @sizeOf(WireEventHeader);
-    log.debug("writing message :: id={}, opcode={} args={any}", .{id, op, args});
     for (args) |arg_opt| {
       if (arg_opt) |arg| switch (arg) {
         .int, .uint, .fixed, .object, .new_id, .@"enum" => msg_len += @sizeOf(u32),
@@ -1010,7 +1010,6 @@ pub const Connection = struct {
     }
 
     if (!connection.out.empty() and connection.out.size() < msg_len) {
-      log.debug("out.size < msg_len, flushing", .{});
       connection.flush() catch |err| {
         log.err("Connection flush failed due to err :: {s}", .{@errorName(err)});
         return wl_protocols.WriteError.WriteFailed;
