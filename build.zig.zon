@@ -1,23 +1,24 @@
 .{
-  .name = .project,
-  .version = "0.0.0",
-  .fingerprint = 0x2fb3d0ee51b0adc5, // Changing this has security and trust implications.
-  .minimum_zig_version = "0.15.0-dev.1222+5fb36d260",
-  .dependencies = .{
-    .vulkan_zig = .{
-      .url = "https://github.com/Snektron/vulkan-zig/archive/0f95d5d861892ae3382e926ecb7b30f412e2e8d6.tar.gz",
-      .hash = "vulkan-0.0.0-r7Ytxz5JAwCpaw-HUTAWqOirdjsXGGNArUHIf7s7rhBP",
+    .name = .project,
+    .version = "0.0.0",
+    .fingerprint = 0x2fb3d0ee51b0adc5, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.0-dev.1222+5fb36d260",
+    .dependencies = .{
+        .vulkan_zig = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/0f95d5d861892ae3382e926ecb7b30f412e2e8d6.tar.gz",
+            .hash = "vulkan-0.0.0-r7Ytxz5JAwCpaw-HUTAWqOirdjsXGGNArUHIf7s7rhBP",
+        },
+        .wayland_protocol_codegen= .{
+            .url = "git+https://github.com/ptrToLiam/wayland-protocol-codegen#87d4973d4890eeef184bd43967d8495463ff705f",
+            .hash = "wayland_protocol_codegen-0.0.0-Qh8GvM7aAABksEZiF3IjHwU1Bc-x8E6zNMosUo0TR46k",
+        },
     },
-    .wayland_zig = .{
-      .path = "src/wayland-codegen",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        "README.md",
     },
-  },
-  .paths = .{
-    "build.zig",
-    "build.zig.zon",
-    "src",
-    // For example...
-    //"LICENSE",
-    "README.md",
-  },
 }

@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) void {
     b.path("protocols/wayland/linux-dmabuf-v1.xml"),
   };
 
-  const wayland_protocols = b.dependency("wayland_zig", .{
+  const wayland_protocols = b.dependency("wayland_protocol_codegen", .{
     .protocols = &wayland_protocol_specifications,
   }).module("wayland-protocols");
 
@@ -76,19 +76,6 @@ pub fn build(b: *std.Build) void {
   //     // .{ .name = "vulkan", .module = vulkan },
   //   },
   // });
-
-  const wayland_codegen_exe = b.addExecutable(.{
-    .name = "wayland_codegen",
-    .root_module = b.createModule(.{
-      .root_source_file = b.path("src/wayland-codegen/codegen.zig"),
-      .target = target,
-      .optimize = optimize,
-      .imports = &.{
-        .{ .name = "base", .module = base_mod },
-      },
-    }),
-  });
-  b.installArtifact(wayland_codegen_exe);
 
   const root = b.createModule(.{
       .root_source_file = b.path("src/main.zig"),
