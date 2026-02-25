@@ -1237,7 +1237,7 @@ pub const MessageArg = wl_protocols.MessageArg;
 const Drm = gfx.Drm;
 const gfx = platform.gfx;
 
-const wl_protocols = @import("wayland_protocols.zig");
+const wl_protocols = @import("wayland-protocols");
 const platform = @import("platform.zig");
 
 const math = base.math;

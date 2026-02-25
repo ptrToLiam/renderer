@@ -4,24 +4,6 @@ pub fn build(b: *std.Build) void {
   const target = b.standardTargetOptions(.{});
   const optimize = b.standardOptimizeOption(.{});
 
-  const codegen_debug = b.option(
-    bool,
-    "codegen-debug",
-    "run wayland protocol codegen with debug logs",
-  ) orelse false;
-
-  const codegen_output_dir = b.option(
-    []const u8,
-    "codegen-dir",
-    "output path for generated code",
-  ) orelse "src/generated";
-
-  const codegen_output_name = b.option(
-    []const u8,
-    "codegen-name",
-    "output name for generated code",
-  ) orelse "wayland_protocols.zig";
-
   const use_llvm = b.option(
     bool,
     "use-llvm",
@@ -45,26 +27,20 @@ pub fn build(b: *std.Build) void {
     "Add a custom rpath for loading dynamic libraries (i.e., libvulkan.so.1) on linux",
   );
 
-  const wayland_protocols = &.{
-    b.pathFromRoot("protocols/wayland/wayland.xml"),
-    b.pathFromRoot("protocols/wayland/xdg-shell.xml"),
-    b.pathFromRoot("protocols/wayland/xdg-decoration-unstable-v1.xml"),
-    b.pathFromRoot("protocols/wayland/linux-dmabuf-v1.xml"),
-  };
-
   const vulkan = b.dependency("vulkan_zig", .{
     .registry = b.path("protocols/vulkan/vk.xml"),
   }).module("vulkan-zig");
 
-  // new wayland codegen -- not yet ready
-  // const wayland = b.dependency("wayland", .{
-  //   .protocols = &.{
-  //     b.path("protocols/wayland/wayland.xml"),
-  //     b.path("protocols/wayland/xdg-shell.xml"),
-  //     b.path("protocols/wayland/xdg-decoration-unstable-v1.xml"),
-  //     b.path("protocols/wayland/linux-dmabuf-v1.xml"),
-  //   },
-  // });
+  const wayland_protocol_specifications = [_]std.Build.LazyPath{
+    b.path("protocols/wayland/wayland.xml"),
+    b.path("protocols/wayland/xdg-shell.xml"),
+    b.path("protocols/wayland/xdg-decoration-unstable-v1.xml"),
+    b.path("protocols/wayland/linux-dmabuf-v1.xml"),
+  };
+
+  const wayland_protocols = b.dependency("wayland_zig", .{
+    .protocols = &wayland_protocol_specifications,
+  }).module("wayland-protocols");
 
   const os_mod = b.addModule("os", .{
     .root_source_file = b.path("src/os/os.zig"),
@@ -79,18 +55,13 @@ pub fn build(b: *std.Build) void {
     },
   });
 
-  const wayland_protocols_mod = b.addModule("wayland-protocols", .{
-    .root_source_file = b.path("src/generated/wayland_protocols.zig"),
-    .target = target,
-  });
-
   const platform_mod = b.addModule("platform", .{
     .root_source_file = b.path("src/platform/platform.zig"),
     .target = target,
     .imports = &.{
       .{ .name = "os", .module = os_mod },
       .{ .name = "base", .module = base_mod },
-      .{ .name = "wayland-protocols", .module = wayland_protocols_mod },
+      .{ .name = "wayland-protocols", .module = wayland_protocols },
       .{ .name = "vulkan", .module = vulkan },
     },
   });
@@ -140,19 +111,6 @@ pub fn build(b: *std.Build) void {
     .use_lld = use_lld,
   });
   b.installArtifact(exe);
-
-  const codegen_step = b.step("codegen", "Run codegen");
-  const codegen_cmd = b.addRunArtifact(wayland_codegen_exe);
-
-  codegen_step.dependOn(&codegen_cmd.step);
-  codegen_cmd.addArgs(&.{
-    "--prefix",
-    b.pathFromRoot(codegen_output_dir),
-    "--name",
-    codegen_output_name,
-  });
-  codegen_cmd.addArgs(wayland_protocols);
-  if (codegen_debug) codegen_cmd.addArg("--debug");
 
   const run_step = b.step("run", "Run the app");
   const run_cmd = b.addRunArtifact(exe);

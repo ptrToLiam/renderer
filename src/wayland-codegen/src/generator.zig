@@ -49,11 +49,11 @@ pub fn main(init: std.process.Init) !void {
   var output: Output = .{};
   while (cur_protocol_file_opt) |cur_protocol_file| {
     cur_protocol_file_opt = cur_protocol_file.next;
-    std.debug.print(
+    if (debug) std.debug.print(
       "reading protocol file :: {s}\n",
       .{ cur_protocol_file.name },
     );
-    try generate_protocol_code(
+    try generate_zig_code_tree(
       io,
       allocator,
       &output,
@@ -61,7 +61,7 @@ pub fn main(init: std.process.Init) !void {
     );
   }
 
-  std.debug.print("found {} protocols!\n", .{output.protocol_count});
+  if (debug) std.debug.print("found {} protocols!\n", .{output.protocol_count});
 
   const out_file = if (out_path_opt) |out_path|
     try cwd.createFile(
@@ -78,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
   _ = try out_writer.write(OutputBeginMsg);
   _ = try out_writer.write(WaylandGeneralTypesCodePaste);
   while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
-    std.debug.print(
+    if (debug) std.debug.print(
       "found {} interfaces in protocol {s}!\n",
       .{
         protocol.interface_count,
@@ -586,7 +586,7 @@ const MessageDecodeEndMsg =
 \\
 ;
 
-fn generate_protocol_code(
+fn generate_zig_code_tree(
   io: Io,
   arena: std.mem.Allocator,
   output: *Output,

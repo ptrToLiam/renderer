@@ -8,6 +8,12 @@ pub fn build(b: *std.Build) !void {
     "Paths to desired wayland protocols (e.g. wayland.xml, xdg-shell.xml, etc.)"
   );
 
+  const debug_opt = b.option(
+    bool,
+    "debug",
+    "run generator with debug logging"
+  ) orelse false;
+
   const root = b.createModule(.{
     .root_source_file = b.path("src/generator.zig"),
     .target = target,
@@ -26,6 +32,10 @@ pub fn build(b: *std.Build) !void {
     for (protocols) |protocol| {
       wl_generate_cmd.addFileArg(protocol);
     }
+
+    wl_generate_cmd.addArg("-o");
+
+    if (debug_opt) wl_generate_cmd.addArg("--debug");
 
     const protocols_zig = wl_generate_cmd.addOutputFileArg("protocols.zig");
 
