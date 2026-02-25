@@ -128,7 +128,9 @@ pub const Connection = struct {
 
     client_state.display = .fromInt(client_state.object_pool.next_object_id());
     client_state.object_pool.push_object(client_state.display.object());
-    client_state.registry = client_state.display.get_registry(&conn_proxy);
+    client_state.registry = client_state.display.get_registry(&conn_proxy) catch {
+      @panic("Call to get_registry failed!");
+    };
 
     connection.flush() catch @panic("failed to write to wayland socket");
 
@@ -158,60 +160,66 @@ pub const Connection = struct {
     while (true) {
       const event = connection.peek_event(scratch_arena) orelse { connection.load_events(); continue; };
       switch (event) {
-        .wl_registry_global => |registry_global| {
+        .wl_registry => |registry_event| {
           defer connection.consume_event();
-          if (std.mem.eql(u8, Seat.Name, registry_global.interface)) {
-            connection.client_state.seat = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              Seat,
-              registry_global.version,
-            );
-            globals_bound.wl_seat = true;
-          } else if (std.mem.eql(u8, Compositor.Name, registry_global.interface)) {
-            connection.client_state.compositor = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              Compositor,
-              registry_global.version,
-            );
-            globals_bound.wl_compositor = true;
-          } else if (std.mem.eql(u8, XdgWmBase.Name, registry_global.interface)) {
-            connection.client_state.xdg_wm_base = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              XdgWmBase,
-              registry_global.version,
-            );
-            globals_bound.xdg_wm_base = true;
-          } else if (std.mem.eql(u8, LinuxDmabuf.Name, registry_global.interface)) {
-            connection.client_state.linux_dmabuf = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              LinuxDmabuf,
-              registry_global.version,
-            );
-            globals_bound.linux_dmabuf = true;
-          } else if (std.mem.eql(u8, Shm.Name, registry_global.interface)) {
-            connection.client_state.wl_shm = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              Shm,
-              registry_global.version
-            );
-            globals_bound.wl_shm = true;
+
+          switch (registry_event) {
+            .global => |registry_global| {
+              if (std.mem.eql(u8, Seat.InterfaceName, registry_global.interface)) {
+                connection.client_state.seat = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Seat,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_seat = true;
+              } else if (std.mem.eql(u8, Compositor.InterfaceName, registry_global.interface)) {
+                connection.client_state.compositor = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Compositor,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_compositor = true;
+              } else if (std.mem.eql(u8, XdgWmBase.InterfaceName, registry_global.interface)) {
+                connection.client_state.xdg_wm_base = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  XdgWmBase,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.xdg_wm_base = true;
+              } else if (std.mem.eql(u8, LinuxDmabuf.InterfaceName, registry_global.interface)) {
+                connection.client_state.linux_dmabuf = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  LinuxDmabuf,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.linux_dmabuf = true;
+              } else if (std.mem.eql(u8, Shm.InterfaceName, registry_global.interface)) {
+                connection.client_state.wl_shm = connection.client_state.registry.bind(
+                  &conn_proxy,
+                  Shm,
+                  .{ .name = registry_global.name, .interface_version = registry_global.version }
+                ) catch unreachable;
+                globals_bound.wl_shm = true;
+              }
+            },
+            .global_remove => |registry_global_remove| {
+              _ = registry_global_remove;
+            },
           }
         },
-        .wl_display_error => |display_error| {
+        .wl_display => |display_event| {
           defer connection.consume_event();
-          log.err(
-            "display error :: {{ obj_id={}, code={}, message=\"{s}\" }}",
-            .{ display_error.object_id, display_error.code, display_error.message },
-          );
-        },
-        .wl_display_delete_id => |delete_id| {
-          defer connection.consume_event();
-          log.debug("display requested delete_id :: {{ id={} }} ", .{delete_id.id});
+          switch (display_event) {
+            .@"error" => |display_error| {
+              log.err(
+                "display error :: {{ obj_id={}, code={}, message=\"{s}\" }}",
+                .{ display_error.object_id, display_error.code, display_error.message },
+              );
+            },
+            .delete_id => |delete_id| {
+              log.debug("display requested delete_id :: {{ id={} }} ", .{delete_id.id});
+            },
+          }
         },
         else => { break; },
       }
@@ -251,175 +259,202 @@ pub const Connection = struct {
 
     while (conn.get_event(arena)) |wayland_event| {
       switch (wayland_event) {
-        .wl_display_error => |display_error| {
-          log.err(
-            "Wayland display error :: {{ object: {}, code: {}, message: \"{s}\"  }}",
-            .{ display_error.object_id, display_error.code, display_error.message },
-          );
-        },
-        .wl_display_delete_id => |delete_id| {
-          log.warn(
-            "Compositor Requested Delete ID :: {}",
-            .{ delete_id.id },
-          );
-          conn.client_state.object_pool.release_object(delete_id.id);
-          // conn.client_state.object_pool.get(delete_id.id).destroy()
-          //   catch unreachable;
-        },
-        .wl_registry_global => |registry_global| {
-          log.debug(
-            "Compositor advertising new global :: {{ name={}, interface={s}, version={} }}",
-            .{ registry_global.name, registry_global.interface, registry_global.version },
-          );
-        },
-        .wl_registry_global_remove => |global_remove| {
-          log.warn(
-            "compositor notifying removal of global with name={}",
-            .{ global_remove.name },
-          );
-        },
-        .wl_seat_capabilities => |wl_seat_capabilities| {
-          const seat_capabilities = wl_seat_capabilities.capabilities;
-          log.debug(
-            "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
-            .{
-              if (seat_capabilities.pointer) "true" else "false",
-              if (seat_capabilities.touch) "true" else "false",
-              if (seat_capabilities.keyboard) "true" else "false",
+        .wl_display => |wl_display_event| {
+          switch (wl_display_event) {
+            .@"error" => |display_error| {
+              log.err(
+                "Wayland display error :: {{ object: {}, code: {}, message: \"{s}\"  }}",
+                .{ display_error.object_id, display_error.code, display_error.message },
+              );
             },
-          );
-          conn.client_state.seat_capabilities = seat_capabilities;
+            .delete_id => |delete_id| {
+              log.warn(
+                "Compositor Requested Delete ID :: {}",
+                .{ delete_id.id },
+              );
+              conn.client_state.object_pool.release_object(delete_id.id);
+              // conn.client_state.object_pool.get(delete_id.id).destroy()
+              //   catch unreachable;
+            },
+          }
         },
-        .wl_seat_name => |wl_seat_name| {
-          const seat_name = wl_seat_name.name;
-          log.debug(
-            "setting wayland client seat name to: {s}",
-            .{ seat_name },
-          );
-          @memcpy(
-            conn.client_state.seat_name[0..seat_name.len],
-            seat_name,
-          );
-          conn.client_state.seat_name[seat_name.len] = 0;
+        .wl_registry => |wl_registry_event| {
+          switch (wl_registry_event) {
+            .global => |registry_global| {
+              log.debug(
+                "Compositor advertising new global :: {{ name={}, interface={s}, version={} }}",
+                .{ registry_global.name, registry_global.interface, registry_global.version },
+              );
+            },
+            .global_remove => |global_remove_event| {
+              log.warn(
+                "compositor notifying removal of global with name={}",
+                .{ global_remove_event.name },
+              );
+            },
+          }
         },
-        .wl_shm_format => |fmt_event| {
-          log.debug("received wl_shm format event :: fmt={s}", .{@tagName(fmt_event.format)});
+        .wl_seat => |wl_seat_event| {
+          switch (wl_seat_event) {
+            .capabilities => |wl_seat_capabilities| {
+              const seat_capabilities = wl_seat_capabilities.capabilities;
+              log.debug(
+                "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
+                .{
+                  if (seat_capabilities.pointer) "true" else "false",
+                  if (seat_capabilities.touch) "true" else "false",
+                  if (seat_capabilities.keyboard) "true" else "false",
+                },
+              );
+              conn.client_state.seat_capabilities = seat_capabilities;
+            },
+            .name => |wl_seat_name| {
+              const seat_name = wl_seat_name.name;
+              log.debug(
+                "setting wayland client seat name to: {s}",
+                .{ seat_name },
+              );
+              @memcpy(
+                conn.client_state.seat_name[0..seat_name.len],
+                seat_name,
+              );
+              conn.client_state.seat_name[seat_name.len] = 0;
+            },
+          }
         },
-        .wl_callback_done => |done| {
+        .wl_shm => |wl_shm_event| {
+          const fmt_event = wl_shm_event.format.format;
+          log.debug("received wl_shm format event :: fmt={s}", .{@tagName(fmt_event)});
+        },
+        .wl_callback => |wl_callback_event| {
           log.debug(
             "received wl_callback with data: {}",
-            .{ done.callback_data },
+            .{ wl_callback_event.done.callback_data },
           );
         },
-        .xdg_surface_configure => |xdg_surface_configure| {
-          const config = xdg_surface_configure;
-          log.debug(
-            "received xdg_surface::configure :: serial={}",
-            .{config.serial},
-          );
-          surface.xdg_surface.ack_configure(&conn_proxy, config.serial);
-          surface.is_ready = true;
-        },
-        .xdg_toplevel_configure => |xdg_toplevel_configure| {
-          const config = xdg_toplevel_configure;
-          log.debug(
-            "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
-            .{ config.width, config.height },
-          );
-          const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
-          if (platform_surface.flags.resize) {
-            log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
-            platform_surface.width = config.width;
-            platform_surface.height = config.height;
+        .xdg_surface => |xdg_surface_event| {
+          switch (xdg_surface_event) {
+            .configure => |xdg_surface_configure| {
+              const config = xdg_surface_configure;
+              log.debug(
+                "received xdg_surface::configure :: serial={}",
+                .{config.serial},
+              );
+              surface.xdg_surface.ack_configure(&conn_proxy, .{ .serial = config.serial })
+                catch unreachable;
+              surface.is_ready = true;
+            },
           }
         },
-        .xdg_toplevel_close => {
-          // TODO: Push close event to event queue
-          const close_event = arena.create(platform.Event);
-          close_event.* = .{
-            .timestamp_us = base.time.us(),
-            .type = .surface_close,
-            .surface_handle = surface.*,
-          };
-          event_list.push(close_event);
-        },
-        .xdg_toplevel_configure_bounds => |xdg_toplevel_configure_bounds| {
-          const config_bounds = xdg_toplevel_configure_bounds;
-          _ = config_bounds;
-          // config_bounds has: i32 width, height.
-        },
-        .xdg_toplevel_wm_capabilities => |xdg_toplevel_wm_capabilities| {
-          const wm_capabilites: []const XdgToplevel.WmCapabilities = @alignCast(@ptrCast(
-            xdg_toplevel_wm_capabilities.capabilities
-          ));
-          _ = wm_capabilites;
-          // array of Toplevel.Enum.WmCapabilities
-          // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
-        },
-        .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
-          const fd = format_table.fd;
-          const size = format_table.size;
-          defer _ = linux.close(fd);
-
-          log.debug(
-            "received format table, fd={}, size={}",
-            .{ fd, size },
-          );
-
-          // Also try to get file size via seeking
-          const size_from_seek = linux.lseek(fd, 0, linux.SEEK.END);
-          log.debug("lseek END returned: {}", .{size_from_seek});
-
-          if (size_from_seek > 0) {
-              _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
+        .xdg_toplevel => |xdg_toplevel_event| {
+          switch(xdg_toplevel_event) {
+            .configure => |xdg_toplevel_configure| {
+              const config = xdg_toplevel_configure;
+              log.debug(
+                "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
+                .{ config.width, config.height },
+              );
+              const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
+              if (platform_surface.flags.resize) {
+                log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
+                platform_surface.width = config.width;
+                platform_surface.height = config.height;
+              }
+            },
+            .close => {
+              // TODO: Push close event to event queue
+              const close_event = arena.create(platform.Event);
+              close_event.* = .{
+                .timestamp_us = base.time.us(),
+                .type = .surface_close,
+                .surface_handle = surface.*,
+              };
+              event_list.push(close_event);
+            },
+            .configure_bounds => |xdg_toplevel_configure_bounds| {
+              const config_bounds = xdg_toplevel_configure_bounds;
+              _ = config_bounds;
+              // config_bounds has: i32 width, height.
+            },
+            .wm_capabilities => |xdg_toplevel_wm_capabilities| {
+              const wm_capabilites: []const XdgToplevel.Enum.WmCapabilities = @alignCast(@ptrCast(
+                xdg_toplevel_wm_capabilities.capabilities
+              ));
+              _ = wm_capabilites;
+              // array of Toplevel.Enum.WmCapabilities
+              // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
+            },
           }
+        },
+        .zwp_linux_dmabuf_feedback_v1 => |linux_dmabuf_feedback_event| {
+          switch (linux_dmabuf_feedback_event) {
+            .format_table => |format_table| {
+              const fd = format_table.fd;
+              const size = format_table.size;
+              defer _ = linux.close(fd);
 
-          const rc = linux.mmap(
-            null,
-            size,
-            .{ .READ = true },
-            .{ .TYPE = .PRIVATE },
-            fd,
-            0,
-          );
+              log.debug(
+                "received format table, fd={}, size={}",
+                .{ fd, size },
+              );
 
-          const rc_signed = @as(isize, @bitCast(rc));
-          if (rc_signed < 0 and rc_signed >= -4095) {
-              const errno = @as(linux.E, @enumFromInt(@as(usize, @intCast(-rc_signed))));
-              log.err("mmap FAILED: errno={} ({})", .{-rc_signed, errno});
-              _ = linux.close(fd);
-              @panic("mmap failed!!");
-          }
-          log.debug(
-            "rc: {}, signed: {}",
-            .{ rc, rc_signed },
-          );
-          const bytes: [*]const u8 = @ptrFromInt(rc);
-          defer _ = linux.munmap(bytes, size);
+              // Also try to get file size via seeking
+              const size_from_seek = linux.lseek(fd, 0, linux.SEEK.END);
+              log.debug("lseek END returned: {}", .{size_from_seek});
 
-          var iter = std.mem.window(u8, bytes[0..size], 16, 16);
-          const first_byte = bytes[0];
-          log.debug("first_byte :: {}", .{first_byte});
-          var format: Drm.Format = .invalid;
-          var modifier: Drm.Modifier = .linear;
-          while (iter.next()) |entry_bytes| {
-            @memcpy(
-              @as([*]u8, @alignCast(@ptrCast(&format)))[0..4],
-              entry_bytes[0..4],
-            );
-            @memcpy(
-              @as([*]u8, @alignCast(@ptrCast(&modifier)))[0..8],
-              entry_bytes[8..16],
-            );
-            // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
-            // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
-            std.debug.print(
-              "format({s}), mod({s})",
-              .{
-                @tagName(format),
-                @tagName(modifier),
-              },
-            );
+              if (size_from_seek > 0) {
+                  _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
+              }
+
+              const rc = linux.mmap(
+                null,
+                size,
+                .{ .READ = true },
+                .{ .TYPE = .PRIVATE },
+                fd,
+                0,
+              );
+
+              const rc_signed = @as(isize, @bitCast(rc));
+              if (rc_signed < 0 and rc_signed >= -4095) {
+                  const errno = @as(linux.E, @enumFromInt(@as(usize, @intCast(-rc_signed))));
+                  log.err("mmap FAILED: errno={} ({})", .{-rc_signed, errno});
+                  _ = linux.close(fd);
+                  @panic("mmap failed!!");
+              }
+              log.debug(
+                "rc: {}, signed: {}",
+                .{ rc, rc_signed },
+              );
+              const bytes: [*]const u8 = @ptrFromInt(rc);
+              defer _ = linux.munmap(bytes, size);
+
+              var iter = std.mem.window(u8, bytes[0..size], 16, 16);
+              const first_byte = bytes[0];
+              log.debug("first_byte :: {}", .{first_byte});
+              var format: Drm.Format = .invalid;
+              var modifier: Drm.Modifier = .linear;
+              while (iter.next()) |entry_bytes| {
+                @memcpy(
+                  @as([*]u8, @alignCast(@ptrCast(&format)))[0..4],
+                  entry_bytes[0..4],
+                );
+                @memcpy(
+                  @as([*]u8, @alignCast(@ptrCast(&modifier)))[0..8],
+                  entry_bytes[8..16],
+                );
+                // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
+                // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
+                std.debug.print(
+                  "format({s}), mod({s})",
+                  .{
+                    @tagName(format),
+                    @tagName(modifier),
+                  },
+                );
+              }
+            },
+            else => warn_unhandled_event(linux_dmabuf_feedback_event),
           }
         },
         else => |wl_event| {
@@ -446,19 +481,19 @@ pub const Connection = struct {
     var conn_proxy = conn.proxy();
     const wl_surface = conn.client_state.compositor.create_surface(
       &conn_proxy,
-    );
+    ) catch unreachable;
     const xdg_surface = conn.client_state.xdg_wm_base.get_xdg_surface(
       &conn_proxy,
-      wl_surface,
-    );
-    const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy);
+      .{ .surface = wl_surface },
+    ) catch unreachable;
+    const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy) catch unreachable;
 
-    xdg_toplevel.set_title(&conn_proxy, title);
+    xdg_toplevel.set_title(&conn_proxy, .{ .title = title }) catch unreachable;
     // xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
     // xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
     //   catch unreachable;
 
-    wl_surface.commit(&conn_proxy);
+    wl_surface.commit(&conn_proxy) catch unreachable;
 
     // _ = conn.client_state.display.sync(&conn_proxy) catch unreachable;
 
@@ -483,8 +518,8 @@ pub const Connection = struct {
     var conn_proxy = conn.proxy();
     _ = conn.client_state.linux_dmabuf.get_surface_feedback(
       &conn_proxy,
-      surface.wl_surface,
-    );
+      .{.surface = surface.wl_surface}
+    ) catch unreachable;
     // conn.client_state.linux_dmabuf.get_default_feedback(
     //   &conn_proxy,
     // ) catch unreachable;
@@ -494,12 +529,12 @@ pub const Connection = struct {
   pub fn wl_buffer(
     conn: *Connection,
     buf: platform.OffscreenBuffer
-  ) WaylandBuffer {
+  ) Wayland.Buffer {
     var conn_proxy = conn.proxy();
     conn.flush() catch unreachable;
     const params = conn.client_state.linux_dmabuf.create_params(
       &conn_proxy,
-    );
+    ) catch unreachable;
 
     std.log.debug(
       "trying to create buffer {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
@@ -513,24 +548,28 @@ pub const Connection = struct {
     );
     params.add(
       &conn_proxy,
-      buf.memory_fd,
-      0,
-      buf.offset,
-      buf.stride,
-      buf.drm_modifier.hi(),
-      buf.drm_modifier.lo(),
-    );
+      .{
+        .fd = buf.memory_fd,
+        .plane_idx = 0,
+        .offset = buf.offset,
+        .stride = buf.stride,
+        .modifier_hi = buf.drm_modifier.hi(),
+        .modifier_lo = buf.drm_modifier.lo(),
+      },
+    ) catch unreachable;
 
     defer conn.flush() catch unreachable;
-    defer params.destroy(&conn_proxy);
+    defer params.destroy(&conn_proxy) catch unreachable;
 
     return params.create_immed(
       &conn_proxy,
-      @intCast(buf.width),
-      @intCast(buf.height),
-      gfx.Drm.Format.abgr8888.toInt(),
-      .{},
-    );
+      .{
+        .width = @intCast(buf.width),
+        .height = @intCast(buf.height),
+        .format = gfx.Drm.Format.abgr8888.toInt(),
+        .flags = .{},
+      },
+    ) catch unreachable;
     // return .fromInt(conn.client_state.object_pool.next_object_id());
   }
 
@@ -720,15 +759,15 @@ pub const Connection = struct {
       }
 
       const relevant_object = conn.client_state.object_pool.get(header.id);
-      const wayland_event = relevant_object.message_decode(
+      const wayland_event = relevant_object.parse_msg(
         &conn_proxy,
         header.op,
         data_bytes,
-      );
-      if (wayland_event == .wl_callback_done)
+      ) catch unreachable;
+      if (wayland_event == .wl_callback)
         log.debug(
           "received response on callback object of id: {}",
-          .{@as(*const u32, @alignCast(@ptrCast(&relevant_object))).*},
+          .{@as(*const u32, @alignCast(@ptrCast(relevant_object.ptr))).*},
         );
 
       break :wayland_event wayland_event;
@@ -777,7 +816,7 @@ pub const Connection = struct {
      conn.in.read +%= header.len;
   }
 
-  pub fn flush(conn: *Connection) !void {
+  pub fn flush(conn: *Connection) wl_protocols.WriteError!void {
     const out_read = conn.out.mask(conn.out.read);
     const out_write = conn.out.mask(conn.out.write);
 
@@ -901,16 +940,16 @@ pub const Connection = struct {
     return .{
       .ctx = conn,
       .vtable = .{
-        .message_decode = msg_decode,
-        .message_encode = msg_encode,
-        .get_id = next_id,
-        .put_object = obj_push,
-        .destroy_object = obj_destroy,
+        .msg_parse_fn = msg_parse,
+        .msg_write_fn = msg_write,
+        .next_id_fn = next_id,
+        .obj_push_fn = obj_push,
+        .obj_destroy_fn = obj_destroy,
       },
     };
   }
 
-  fn msg_decode(noalias ctx: *anyopaque, args_out: []MessageArg, noalias data: []const u8) void {
+  fn msg_parse(noalias ctx: *anyopaque, args_out: []MessageArg, data: []const u8) !void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
     var offset: u32 = 0;
 
@@ -956,7 +995,7 @@ pub const Connection = struct {
     }
   }
 
-  fn msg_encode(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) void {
+  fn msg_write(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) wl_protocols.WriteError!void {
     const connection: *Connection = @ptrCast(@alignCast(ctx));
     var msg_len: u16 = @sizeOf(WireEventHeader);
     for (args) |arg_opt| {
@@ -973,6 +1012,7 @@ pub const Connection = struct {
     if (!connection.out.empty() and connection.out.size() < msg_len) {
       connection.flush() catch |err| {
         log.err("Connection flush failed due to err :: {s}", .{@errorName(err)});
+        return wl_protocols.WriteError.WriteFailed;
       };
     }
 
@@ -1030,6 +1070,7 @@ pub const Connection = struct {
   }
 
   fn next_fd(conn: *Connection) i32 {
+    // TODO
     var fd: i32 = -1;
     const read = conn.fd_in.mask(conn.fd_in.read);
     @memcpy(
@@ -1076,7 +1117,7 @@ pub const Surface = struct {
   pub fn attach_wl_buffer(
     surface: *Surface,
     conn: *Connection,
-    buffer: WaylandBuffer,
+    buffer: Wayland.Buffer,
     width: i32,
     height: i32,
   ) void {
@@ -1088,7 +1129,7 @@ pub const Surface = struct {
         .x = 0,
         .y = 0,
       },
-    );
+    ) catch unreachable;
 
     surface.wl_surface.damage(
       &proxy,
@@ -1098,9 +1139,9 @@ pub const Surface = struct {
         .width = width,
         .height = height,
       },
-    );
+    ) catch unreachable;
 
-    surface.wl_surface.commit(&proxy);
+    surface.wl_surface.commit(&proxy) catch unreachable;
   }
   pub const nil: Surface = .{
     .wl_surface = 0,
@@ -1124,7 +1165,7 @@ pub const ClientState = struct {
   object_pool: ObjectPool,
 
   seat_name: [512]u8 = undefined,
-  seat_capabilities: Seat.Capability = .{},
+  seat_capabilities: Seat.SeatEnum.Capability = .{},
 };
 
 pub const ObjectPool = struct {
@@ -1139,7 +1180,7 @@ pub const ObjectPool = struct {
   }
 
   pub fn push_object(op: *ObjectPool, object: Object) void {
-    const idx: *const u32 = @alignCast(@ptrCast(&object));
+    const idx: *const u32 = @alignCast(@ptrCast(object.ptr));
 
     op.objects[ id_to_idx(idx.*) ] = object;
   }
@@ -1190,7 +1231,7 @@ const FreeIdxList = struct {
 };
 
 pub const dma_buf = struct {
-  handle: WaylandBuffer,
+  handle: Wayland.Buffer,
   flags: Flags,
 
   pub const Flags = packed struct (u32) {
@@ -1205,21 +1246,20 @@ const WireEventHeader = packed struct {
   len: u16,
 };
 
-pub const WaylandBuffer = wl_protocols.wl_buffer;
-pub const WaylandSurface = wl_protocols.wl_surface;
-pub const XdgSurface = wl_protocols.xdg_surface;
-pub const XdgToplevel = wl_protocols.xdg_toplevel;
-pub const ShmPool = wl_protocols.wl_shm_pool;
+pub const WaylandSurface = Wayland.Surface;
+pub const XdgSurface = XdgShell.Surface;
+pub const XdgToplevel = XdgShell.Toplevel;
+pub const ShmPool = Wayland.ShmPool;
 
-pub const Shm = wl_protocols.wl_shm;
-pub const Seat = wl_protocols.wl_seat;
-pub const Display = wl_protocols.wl_display;
-pub const Registry = wl_protocols.wl_registry;
-pub const Compositor = wl_protocols.wl_compositor;
+pub const Shm = Wayland.Shm;
+pub const Seat = Wayland.Seat;
+pub const Display = Wayland.Display;
+pub const Registry = Wayland.Registry;
+pub const Compositor = Wayland.Compositor;
 
-pub const XdgWmBase = wl_protocols.xdg_wm_base;
+pub const XdgWmBase = XdgShell.WmBase;
 
-pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
+pub const LinuxDmabuf = LinuxDmabufV1.LinuxDmabufV1;
 
 const log = std.log.scoped(.wayland);
 const Arena = base.Arena;
@@ -1228,6 +1268,12 @@ const RingBuffer = base.RingBuffer;
 
 const linux = os.linux;
 const posix = os.posix;
+
+
+pub const Wayland = wl_protocols.Wayland;
+pub const XdgShell = wl_protocols.XdgShell;
+pub const LinuxDmabufV1 = wl_protocols.LinuxDmabufV1;
+pub const XdgDecoration = wl_protocols.XdgDecorationUnstableV1;
 
 pub const Proxy = wl_protocols.Proxy;
 pub const Object = wl_protocols.Object;

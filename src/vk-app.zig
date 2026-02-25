@@ -332,24 +332,20 @@ pub fn app(env: std.process.Environ) void {
       log.debug("attempting to attach buffer now!", .{});
       surface.handle.wl_surface.attach(
         &shm_pool.proxy,
-        .{
-          .buffer = buffer,
-          .x = 0,
-          .y = 0,
-        }
-      ) catch unreachable;
+        buffer,
+        0,
+        0,
+      );
       surface.handle.wl_surface.damage_buffer(
         &shm_pool.proxy,
-        .{
-          .x = 0,
-          .y = 0,
-          .width = surface.width,
-          .height = surface.height,
-        },
-      ) catch unreachable;
+        0,
+        0,
+        surface.width,
+        surface.height,
+      );
       surface.handle.wl_surface.commit(
         &shm_pool.proxy,
-      ) catch unreachable;
+      );
       attached = true;
     }
 
@@ -359,8 +355,8 @@ pub fn app(env: std.process.Environ) void {
       platform_conn.handle.flush() catch unreachable;
     }
 
-    surface.handle.wl_surface.damage(&shm_pool.proxy, .{ .x = 0, .y = 0, .width = surface.width, .height = surface.height }) catch unreachable;
-    surface.handle.wl_surface.commit(&shm_pool.proxy) catch unreachable;
+    surface.handle.wl_surface.damage(&shm_pool.proxy, 0, 0, surface.width, surface.height );
+    surface.handle.wl_surface.commit(&shm_pool.proxy);
     platform_conn.handle.flush() catch unreachable;
 
     update();
@@ -378,19 +374,17 @@ const ShmPool = struct {
     pool: *ShmPool,
     width: i32,
     height: i32,
-    format: platform.wayland.Shm.ShmEnum.Format,
-  ) platform.wayland.Wayland.Buffer {
+    format: platform.wayland.Shm.Format,
+  ) platform.wayland.WaylandBuffer {
     defer @memset(pool.buffer, 0xefefefef);
     return pool.wl_shm_pool.create_buffer(
       &pool.proxy,
-      .{
-        .offset = 0,
-        .width = width,
-        .height = height,
-        .stride = width*4,
-        .format = format,
-      },
-    ) catch unreachable;
+      0,
+      width,
+      height,
+      width*4,
+      format,
+    );
   }
 };
 
@@ -428,10 +422,11 @@ fn create_shm_pool(
   const ptr: []u8 = @as([*]u8, @ptrFromInt(rc))[0..@intCast(img_size)];
   const img_buffer: []u32 = @alignCast(@ptrCast(ptr));
 
-  const shm_pool = shm.create_pool(&proxy, .{
-    .fd = shm_fd,
-    .size = @intCast(img_size),
-  }) catch unreachable;
+  const shm_pool = shm.create_pool(
+    &proxy,
+    shm_fd,
+    @intCast(img_size),
+  );
 
   return .{
     .proxy = proxy,

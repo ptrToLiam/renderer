@@ -106,7 +106,7 @@ pub fn main(init: std.process.Init) !void {
     );
   }
 
-  // Write Combined Event Union
+  // Write Combined Enum Union
   {
     _ = try out_writer.write(CombinedEnumBeginMsg);
     protocol_opt = output.protocol_first;
@@ -157,6 +157,27 @@ pub fn main(init: std.process.Init) !void {
         );
       }
     }
+
+    _ = try out_writer.write(
+      \\
+      \\  pub fn message_decode(o: Object, proxy: *Proxy, op: u16, data: []const u8) Event {
+      \\    return switch (o) {
+      \\
+    );
+    protocol_opt = output.protocol_first;
+    while (protocol_opt) |protocol| : (protocol_opt = protocol.next) {
+      var interface_opt: ?*EntryNode = protocol.interface_first;
+      while (interface_opt) |interface| : (interface_opt = interface.next) {
+        if (interface.event_count > 0)
+          try out_writer.print("      .{s} => |interface_t| @TypeOf(interface_t).message_decode(proxy, op, data),\n", .{ interface.name });
+      }
+    }
+    _ = try out_writer.write(
+      \\      else => .invalid,
+      \\    };
+      \\  }
+      \\
+    );
     _ = try out_writer.write(CombinedInterfaceEndMsg);
   }
 
@@ -173,7 +194,7 @@ fn write_wl_interface(
 ) !void {
   try writer.print(
     InterfaceBeginFmt,
-    .{ wl_interface.name, wl_interface.name, wl_interface.name },
+    .{ wl_interface.name, wl_interface.name, wl_interface.name, wl_interface.name, wl_interface.name },
   );
 
   // write requests / events
@@ -189,9 +210,24 @@ fn write_wl_interface(
     }
 
 
-    message_opt = wl_interface.event_first;
-    while (message_opt) |wl_event| : (message_opt = wl_event.next) {
-      try write_wl_message(writer, allocator, wl_interface, wl_event);
+    if (wl_interface.event_count > 0) {
+
+      message_opt = wl_interface.event_first;
+      while (message_opt) |wl_event| : (message_opt = wl_event.next) {
+        try write_wl_message(writer, allocator, wl_interface, wl_event);
+      }
+
+      // write event parse
+      _ = try writer.write(MessageDecodeBeginMsg);
+      message_opt = wl_interface.event_first;
+      var opcode: u16 = 0;
+      while (message_opt) |wl_event| : (message_opt = wl_event.next) {
+        defer opcode += 1;
+        try writer.print("        {d} => {{\n", .{opcode});
+        try write_wl_message_decode(writer, allocator, wl_interface.name, wl_event);
+        try writer.print("        }},\n", .{});
+      }
+      _ = try writer.write(MessageDecodeEndMsg);
     }
 
     try writer.print(
@@ -325,7 +361,7 @@ fn write_wl_enum(
   else if (wl_enum.type == .@"enum")
     try writer.print(
       EnumEndFmt,
-      .{}
+      .{ wl_enum.identifier, wl_enum.identifier },
     );
 }
 
@@ -362,11 +398,21 @@ fn write_wl_args(
     .request => {
       var request_arg_opt: ?*EntryNode = wl_interface_entry.arg_first;
       while (request_arg_opt) |request_arg| : (request_arg_opt = request_arg.next) {
-        if (!(request_arg.data_type == .new_id))
+        if (request_arg.data_type == .new_id and request_arg.interface == null) {
+          try writer.print(
+            ClientEventEntryFmt,
+            .{ "InterfaceT", "type" },
+          );
+          try writer.print(
+            ClientEventEntryFmt,
+            .{ "version", "u32" },
+          );
+        } else if (request_arg.data_type != .new_id) {
           try writer.print(
             ClientEventEntryFmt,
             .{ request_arg.identifier, request_arg.arg_type.? },
           );
+        }
       }
     },
     .invalid, .file_name, .protocol, .interface, .arg => return error.InvalidNodeType,
@@ -385,20 +431,16 @@ fn write_wl_message_encode(
   while (arg_opt) |arg| : (arg_opt = arg.next) {
     switch (arg.data_type) {
       .uint => {
-        if (is_bind_fn and std.mem.eql(u8, "version", arg.identifier)) {
-
-          try writer.print(
-            \\        .{{ .string = InterfaceT.Name }},
-            \\        .{{ .uint = selected_version }},
-            \\        .{{ .new_id = result.toInt() }},
-            \\
-            , .{ }
-          );
-        } else if (arg.type == .@"enum") {
+        if (arg.type == .@"enum") {
           try writer.print(
             \\        .{{ .@"enum" = .{{ .{s} = {s} }} }},
             \\
             , .{ arg.arg_type.?, arg.identifier }
+          );
+        } else if (!std.mem.eql(u8, arg.arg_type.?, "u32")) {
+          try writer.print(
+            "        .{{ .uint = {s}.toInt() }},\n",
+            .{ arg.identifier }
           );
         } else {
           try writer.print(
@@ -416,7 +458,7 @@ fn write_wl_message_encode(
       },
       .object => {
         try writer.print(
-          \\        .{{ .object = {s} }},
+          \\        .{{ .object = {s}.toInt() }},
           \\
           , .{ arg.identifier }
         );
@@ -435,12 +477,22 @@ fn write_wl_message_encode(
           , .{ arg.identifier }
         );
       },
-      .new_id => if (!is_bind_fn) {
-        try writer.print(
-          \\        .{{ .new_id = result.toInt() }},
-          \\
-          , .{ }
-        );
+      .new_id => {
+        if (!is_bind_fn) {
+          try writer.print(
+            \\        .{{ .new_id = result.toInt() }},
+            \\
+            , .{ }
+          );
+        } else {
+          try writer.print(
+            \\        .{{ .string = InterfaceT.Name }},
+            \\        .{{ .uint = selected_version }},
+            \\        .{{ .new_id = result.toInt() }},
+            \\
+            , .{ }
+          );
+        }
       },
       .fd => {
         try writer.print(
@@ -464,32 +516,76 @@ fn write_wl_message_encode(
 
 fn write_wl_message_decode(
   writer: *Io.Writer,
+  allocator: std.mem.Allocator,
+  wl_interface_name: []const u8,
   wl_message: *EntryNode,
 ) !void {
-  _ = try writer.write(MessageDecodeBeginMsg);
+  _ = allocator;
   var arg_opt: ?*EntryNode = wl_message.arg_first;
+  _ = try writer.write(MessageDecodeArgsBeginMsg);
   while (arg_opt) |arg| : (arg_opt = arg.next) {
-
+    const arg_undef = switch (arg.type) {
+      else => "undefined",
+    };
+    _ = try writer.print(MessageDecodeArgsEntryFmt, .{ @tagName(arg.data_type), arg_undef });
   }
-  _ = try writer.write(MessageDecodeEndMsg);
+  _ = try writer.write(MessageDecodeArgsEndMsg);
+  _ = try writer.write("          proxy.message_decode(&args_in, data);\n");
+
+  _ = try writer.print("          break :event .{{\n", .{});
+  _ = try writer.print("            .{s}_{s} = ", .{ wl_interface_name, wl_message.name });
+  if (wl_message.arg_count == 0) {
+    _ = try writer.print("{{\n", .{});
+  } else {
+    _ = try writer.print(".{{\n", .{});
+    arg_opt = wl_message.arg_first;
+    var arg_no: u16 = 0;
+    while (arg_opt) |arg| : (arg_opt = arg.next) {
+      defer arg_no += 1;
+      if (arg.data_type == .uint and !std.mem.eql(u8, arg.arg_type.?, "u32")) {
+        _ = try writer.print("              .{s} = .fromInt(args_in[{d}].{s}),\n", .{ arg.name, arg_no, @tagName(arg.data_type) });
+      } else if (arg.data_type == .object and arg.interface != null) {
+        _ = try writer.print("              .{s} = .fromInt(args_in[{d}].{s}),\n", .{ arg.name, arg_no, @tagName(arg.data_type) });
+      } else {
+        _ = try writer.print("              .{s} = args_in[{d}].{s},\n", .{ arg.name, arg_no, @tagName(arg.data_type) });
+      }
+    }
+  }
+  _ = try writer.print("            }}\n", .{});
+  _ = try writer.print("          }};\n", .{});
 }
 
-const MessageDecodeBeingMsg =
-\\  pub fn event(
+const MessageDecodeBeginMsg =
+\\
+\\  pub fn message_decode(
 \\    proxy: *Proxy,
 \\    opcode: u16,
 \\    data: []const u8
 \\  ) Event {
-\\    const event_in = event: {
+\\    return event: {
+\\      switch (opcode) {
+\\
+;
+const MessageDecodeArgsBeginMsg =
+\\          var args_in = [_]MessageArg{
+\\
+;
+const MessageDecodeArgsEntryFmt =
+\\            .{{ .{s} = {s} }},
+\\
+;
+const MessageDecodeArgsEndMsg =
+\\          };
 \\
 ;
 const MessageDecodeEndMsg =
+\\        else => @panic("Invalid Opcode"),
+\\      }
 \\    };
-\\
-\\    return event_in;
 \\  }
 \\
 ;
+
 fn generate_protocol_code(
   io: Io,
   arena: std.mem.Allocator,
@@ -597,31 +693,10 @@ fn generate_protocol_code(
         try fetch_entry_data(arena, arg, request_arg, .@"arg");
         if (arg.data_type == .new_id) {
           if (arg.interface == null) {
-            arg.arg_type = "type";
-            arg.identifier = "comptime InterfaceT";
             request.arg_type = "InterfaceT";
-            sll_push_front(
-              arg,
-              &request.arg_first,
-              &request.arg_last,
-              &request.arg_count,
-            );
-            const interface_version = try arena.create(EntryNode);
-            interface_version.* = .{
-              .name = "version",
-              .identifier = "version",
-              .data_type = .uint,
-              .arg_type = "u32",
-            };
-            sll_push_end(
-              interface_version,
-              &request.arg_first,
-              &request.arg_last,
-              &request.arg_count,
-            );
-            continue;
+          } else {
+            request.arg_type = arg.interface;
           }
-          request.arg_type = arg.interface;
         }
         sll_push_end(
           arg,
@@ -672,11 +747,23 @@ fn fetch_entry_data(
 
   const entry_arg_type, const entry_data_type = arg_type: {
     if (element.getAttribute("type")) |typ| {
+      const enum_t = element.getAttribute("enum");
+      const bitfield = if (enum_t) |_|
+        if (element.getAttribute("bitfield")) |_|
+          true
+        else
+          false
+        else false;
+
+      _ = bitfield;
+
       const data_type = std.meta.stringToEnum(DataType, typ).?;
       break :arg_type
       .{
         if (data_type == .object and entry_interface != null)
           entry_interface
+        else if (data_type == .uint and enum_t != null)
+          try toIdentifier(arena, enum_t.?, .@"enum")
         else
           data_type.zigTypeString(),
         data_type,
@@ -795,7 +882,7 @@ const WaylandGeneralTypesCodePaste =
 \\  noalias ctx: *anyopaque,
 \\  id: u32,
 \\  opcode: u16,
-\\  noalias args: []?MessageArg,
+\\  noalias args: []const ?MessageArg,
 \\) void;
 \\
 \\pub const GetIdFn = *const fn (
@@ -813,7 +900,7 @@ const WaylandGeneralTypesCodePaste =
 \\) void;
 \\
 \\pub fn BitfieldMixin(comptime T: type) type {
-\\  const int_type = T.@"struct".backing_int.?;
+\\  const int_type = @typeInfo(T).@"struct".backing_integer.?;
 \\
 \\  return struct {
 \\    pub fn toInt(self: T) Int {
@@ -886,6 +973,10 @@ const InterfaceBeginFmt =
 \\
 \\pub const {s} = enum (u32) {{
 \\  _,
+\\
+\\  pub fn object(self: {s}) Object {{
+\\    return .{{ .{s} = self }};
+\\  }}
 \\
 \\  pub fn toInt(self: {s}) u32 {{
 \\    return @intFromEnum(self);
@@ -993,7 +1084,7 @@ const BitfieldEntryFmt =
 ;
 const BitfieldEndFmt =
 \\
-\\    __reserved_bits: u{},
+\\    __reserved_bits: u{} = 0,
 \\
 \\    pub const toInt = Mixin.toInt;
 \\    pub const fromInt = Mixin.fromInt;
@@ -1022,6 +1113,13 @@ const EnumEntryNoValueFmt =
 \\
 ;
 const EnumEndFmt =
+\\
+\\    pub fn toInt(self: {s}) u32 {{
+\\      return @intFromEnum(self);
+\\    }}
+\\    pub fn fromInt(int: u32) {s} {{
+\\      return @enumFromInt(int);
+\\    }}
 \\  }};
 \\
 ;
@@ -1054,6 +1152,7 @@ const CombinedInterfaceEndMsg =
 
 const CombinedEventBeginMsg =
 \\pub const Event = union (enum) {
+\\  invalid: void,
 \\
 ;
 const CombinedEventEntryFmt =
@@ -1067,6 +1166,7 @@ const CombinedEventEndMsg =
 
 const CombinedEnumBeginMsg =
 \\pub const Enum = union (enum) {
+\\  invalid: void,
 \\
 ;
 const CombinedEnumEntryFmt =
@@ -1231,8 +1331,7 @@ pub fn toIdentifier(
   std.debug.assert(string.len > 0);
 
   if (entry_type == .@"enum" or entry_type == .bitfield) {
-    const name = try allocator.dupe(u8, string);
-    name[0] = std.ascii.toUpper(name[0]);
+    const name = try snake_to_pascal(allocator, string);
     return name;
   }
 
@@ -1242,6 +1341,55 @@ pub fn toIdentifier(
 
   return string;
 }
+
+fn snake_to_pascal(allocator: std.mem.Allocator, str: []const u8) ![]const u8 {
+
+  const underscore_count, const namespace_end = uc_ne: {
+    var n_end: usize = 0;
+    var count: u32 = 0;
+    for (str, 0..) |char, idx| {
+      if (char == '_') count += 1;
+      if (n_end == 0 and char == '.') { n_end = idx; count = 0; }
+    }
+    break :uc_ne .{ count, if (n_end > 0) n_end else null  };
+  };
+
+  var out_str = try allocator.alloc(u8, str.len - underscore_count);
+  var next_is_upper = true;
+  var out_idx: u32 = 0;
+
+  for (str) |char| {
+    if (namespace_end) |ne| {
+      if (out_idx > ne) {
+        if (char == '_') {
+          next_is_upper = true;
+        } else {
+          defer out_idx += 1;
+          if (next_is_upper) {
+            next_is_upper = false;
+            out_str[out_idx] = std.ascii.toUpper(char);
+          } else out_str[out_idx] = char;
+        }
+      } else {
+        defer out_idx += 1;
+        out_str[out_idx] = char;
+      }
+    } else {
+      if (char == '_') {
+        next_is_upper = true;
+      } else {
+        defer out_idx += 1;
+        if (next_is_upper) {
+          next_is_upper = false;
+          out_str[out_idx] = std.ascii.toUpper(char);
+        } else out_str[out_idx] = char;
+      }
+    }
+  }
+
+  return out_str;
+}
+
 const Io = std.Io;
 const Keywords = std.zig.Token.keywords;
 
