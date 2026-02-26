@@ -313,19 +313,19 @@ pub const Connection = struct {
         },
         .xdg_surface_configure => |xdg_surface_configure| {
           const config = xdg_surface_configure;
-          log.debug(
-            "received xdg_surface::configure :: serial={}",
-            .{config.serial},
-          );
+          // log.debug(
+          //   "received xdg_surface::configure :: serial={}",
+          //   .{config.serial},
+          // );
           surface.xdg_surface.ack_configure(&conn_proxy, config.serial);
           surface.is_ready = true;
         },
         .xdg_toplevel_configure => |xdg_toplevel_configure| {
           const config = xdg_toplevel_configure;
-          log.debug(
-            "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
-            .{ config.width, config.height },
-          );
+          // log.debug(
+          //   "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
+          //   .{ config.width, config.height },
+          // );
           const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
           if (platform_surface.flags.resize) {
             log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
@@ -355,6 +355,9 @@ pub const Connection = struct {
           _ = wm_capabilites;
           // array of Toplevel.Enum.WmCapabilities
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
+        },
+        .xdg_wm_base_ping => |ping| {
+          conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
           const fd = format_table.fd;
@@ -439,9 +442,9 @@ pub const Connection = struct {
     class: [:0]const u8,
     width: i32,
     height: i32,
+    flags: platform.Surface.Flags,
   ) platform.Surface {
     _ = arena;
-    _ = class;
 
     var conn_proxy = conn.proxy();
     const wl_surface = conn.client_state.compositor.create_surface(
@@ -454,9 +457,11 @@ pub const Connection = struct {
     const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy);
 
     xdg_toplevel.set_title(&conn_proxy, title);
-    // xdg_toplevel.set_app_id(&conn_proxy, .{ .app_id = class }) catch unreachable;
-    // xdg_toplevel.set_min_size(&conn_proxy, .{ .width = width, .height = height})
-    //   catch unreachable;
+    xdg_toplevel.set_app_id(&conn_proxy, class);
+    if (!flags.resize) {
+      xdg_toplevel.set_min_size(&conn_proxy, width, height);
+      xdg_toplevel.set_max_size(&conn_proxy, width, height);
+    }
 
     wl_surface.commit(&conn_proxy);
 
@@ -471,6 +476,7 @@ pub const Connection = struct {
       },
       .width = width,
       .height = height,
+      .flags = flags,
     };
   }
 

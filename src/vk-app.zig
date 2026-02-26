@@ -309,8 +309,10 @@ pub fn app(env: std.process.Environ) void {
   var want_attach = false;
   var attached = false;
 
+  const time_target = time.us_per_s / 120;
   _ = &want_exit;
   while (!want_exit) {
+    const frame_time_start = time.us();
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
     defer frame_scratch.end();
     const frame_arena = frame_scratch.arena;
@@ -361,6 +363,12 @@ pub fn app(env: std.process.Environ) void {
 
     update();
     draw();
+
+    const frame_time_end = time.us();
+    const frame_elapsed_us = frame_time_end - frame_time_start;
+    if (frame_elapsed_us < time_target) {
+      Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
+    }
   }
 }
 

@@ -28,6 +28,7 @@ pub const Connection = struct {
       class: [:0]const u8,
       width: i32,
       height: i32,
+      flags: Surface.Flags = .{},
     },
   ) Surface {
     return conn.handle.acquire_surface(
@@ -36,6 +37,7 @@ pub const Connection = struct {
       params.class,
       params.width,
       params.height,
+      params.flags,
     );
   }
 

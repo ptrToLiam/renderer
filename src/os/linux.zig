@@ -70,7 +70,7 @@ pub inline fn mem_commit_large(bytes: []align(page_size_min) u8) bool {
 pub fn sleep(ns: u64) void {
   const ns_per_s = 1000000000;
 
-  const seconds = @divFloor(ns, ns_per_s);
+  const seconds = ns / ns_per_s;
   const nanoseconds = ns % ns_per_s;
 
   var req: timespec = .{
@@ -79,9 +79,13 @@ pub fn sleep(ns: u64) void {
   };
   var rem: timespec = .{ .sec = 0, .nsec = 0 };
   var res: usize = @bitCast(@as(isize, -1));
-  while (res != 0) : (res = nanosleep(&req, &rem)) {
-    req = rem;
+
+  while (res != 0) {
+    res = nanosleep(&req, &rem);
+
     if (errno(res) != .INTR) break;
+
+    req = rem;
   }
 }
 //------------------------------------------------------------------------------
