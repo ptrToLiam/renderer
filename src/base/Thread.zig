@@ -64,7 +64,7 @@ pub inline fn lane_sync() void {
   Context.lane_barrier_wait(0, 0, 0);
 }
 pub inline fn lane_sync_u64(comptime T: type, broadcast_ptr: *T, src_lane_idx: u64) void {
-  Context.lane_barrier_wait(@intFromPtr(broadcast_ptr), @sizeOf(T), src_lane_idx);
+  Context.lane_barrier_wait(cast(usize, broadcast_ptr), @sizeOf(T), src_lane_idx);
 }
 // micro-second precision timed lane sync
 pub inline fn lane_sync_us_timed() void {
@@ -117,18 +117,30 @@ pub const Context = struct {
   }
 
   pub fn lane_barrier_wait(broadcast_ptr: usize, broadcast_size: u64, broadcast_src_lane_idx: u64) void {
-  const broadcast_size_clamped = @min(broadcast_size, @sizeOf(@TypeOf(tctx.lane_ctx.broadcast_memory.*)));
+  const broadcast_size_clamped = @min(
+    broadcast_size,
+    @sizeOf(@TypeOf(tctx.lane_ctx.broadcast_memory.*))
+  );
+
   if (broadcast_ptr != 0 and lane_idx() == broadcast_src_lane_idx) {
-    const ptr: [*]u8 = @ptrFromInt(broadcast_ptr);
-    const broadcast_memory_ptr: [*]u8 = @alignCast(@ptrCast(tctx.lane_ctx.broadcast_memory));
+    const ptr = transmute(
+      [*]u8,
+      broadcast_ptr,
+    );
+    const broadcast_memory_ptr = transmute(
+      [*]u8, tctx.lane_ctx.broadcast_memory,
+    );
     @memcpy(broadcast_memory_ptr[0..broadcast_size_clamped], ptr[0..broadcast_size_clamped]);
   }
 
   tctx.lane_ctx.barrier.wait();
 
   if (broadcast_ptr != 0 and lane_idx() != broadcast_src_lane_idx) {
-    const ptr: [*]u8 = @ptrFromInt(broadcast_ptr);
-    const broadcast_memory_ptr: [*]u8 = @alignCast(@ptrCast(tctx.lane_ctx.broadcast_memory));
+    const ptr = transmute([*]u8, broadcast_ptr);
+    const broadcast_memory_ptr = transmute(
+      [*]u8,
+      tctx.lane_ctx.broadcast_memory,
+    );
     @memcpy(ptr[0..broadcast_size_clamped], broadcast_memory_ptr[0..broadcast_size_clamped]);
   }
 
@@ -180,7 +192,7 @@ const Impl = struct {
   pub fn set_name(name: []const u8) void {
     switch (TargetOs.tag) {
       .linux => {
-        _ = linux.prctl(@intFromEnum(linux.PR.SET_NAME), @intFromPtr(name.ptr), 0, 0, 0);
+        _ = linux.prctl(cast(i32, linux.PR.SET_NAME), cast(usize, name.ptr), 0, 0, 0);
       },
       else => @compileError("Thread::set_name unsupported target -- " ++ @tagName(TargetOs.tag)),
     }
@@ -227,6 +239,9 @@ const Impl = struct {
   const TargetOs = builtin.target.os;
 };
 
+const cast = casts.cast;
+const transmute = casts.transmute;
+
 const linux = os.linux;
 const log = std.log.scoped(.Thread);
 
@@ -234,6 +249,7 @@ const log = std.log.scoped(.Thread);
 const Arena = @import("Arena.zig");
 const entry = @import("entry.zig");
 const math = @import("math.zig");
+const casts = @import("casts.zig");
 
 // Internal Module Imports
 const os = @import("os");

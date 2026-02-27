@@ -1,6 +1,6 @@
 /// Microsecond timestamp
 pub fn microTimestamp() u64 {
-  return @intCast(@divFloor(timestamp_ns(), time.ns_per_us));
+  return timestamp_ns() / time.ns_per_us;
 }
 
 /// Microseconds since program start
@@ -21,7 +21,7 @@ fn timestamp_ns() u64 {
     },
     else => {
       const ts = (time.Instant.now() catch unreachable).timestamp;
-      break :ts @intCast((ts.sec * time.ns_per_s) + ts.nsec);
+      break :ts cast(u64, (ts.sec * time.ns_per_s) + ts.nsec);
     },
   }};
   return ns;
@@ -60,7 +60,11 @@ pub const s_per_week = s_per_day * 7;
 /// Time of program start -- assumed initialized in entry.primary
 pub var program_start: u64 = undefined;
 
+const cast = casts.cast;
+const transmute = casts.transmute;
+
 const base = @import("base.zig");
+const casts = @import("casts.zig");
 
 const time = @import("std").time;
 const builtin = @import("builtin");

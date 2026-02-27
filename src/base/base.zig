@@ -8,6 +8,7 @@ pub const Thread = @import("Thread.zig");
 pub const entry = @import("entry.zig");
 pub const math = @import("math.zig");
 pub const time = @import("time.zig");
+pub const casts = @import("casts.zig");
 
 //-----------------------------------------------------------------------------
 
@@ -80,6 +81,9 @@ pub const RingBuffer = struct {
   const MAX_SIZE = math.maxInt(u31);
 };
 
+test "Ringbuffer" {
+}
+
 pub const ShiftBuffer = struct {
   buf: []u8,
   read: u32 = 0,
@@ -128,72 +132,82 @@ pub inline fn DebugAssert(cond: bool, msg: []const u8) void {
   }
 }
 
-pub inline fn u32_(v: anytype) u32 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int => @intCast(v),
-    .comptime_int => @as(u32, v),
-    .float, .comptime_float => @intFromFloat(v),
-    .@"struct" => |struct_t| v: {
-      if (struct_t.layout == .@"packed" and struct_t.backing_integer == u32)
-        break :v @bitCast(v);
-    },
-    else => @compileError("Invalid type for u32"),
-  };
+//-----------------------------------------------------------------------------
+// Value-preserving cast quick helpers
+//-----------------------------------------------------------------------------
+
+pub inline fn u8_(v: anytype) u8 {
+  return cast(u8, v);
 }
 
-pub inline fn u64_(v: anytype) u64 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int => @intCast(v),
-    .comptime_int => @as(u64, v),
-    .float, .comptime_float => @intFromFloat(v),
-    .@"struct" => |struct_t| v: {
-      if (struct_t.layout == .@"packed" and struct_t.backing_integer == u64)
-        break :v @bitCast(v);
-    },
-    .@"enum" => v: {
-      break :v @intFromEnum(v);
-    },
-    else => @compileError("Invalid type for u64"),
-  };
+pub inline fn i8_(v: anytype) i8 {
+  return cast(i8, v);
+}
+
+pub inline fn u16_(v: anytype) u16 {
+  return cast(u16, v);
+}
+
+pub inline fn i16_(v: anytype) i16 {
+  return cast(i16, v);
+}
+
+pub inline fn u32_(v: anytype) u32 {
+  return cast(u32, v);
 }
 
 pub inline fn i32_(v: anytype) i32 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int => @intCast(v),
-    .comptime_int => @as(i32, v),
-    .float, .comptime_float => @intFromFloat(v),
-    else => @compileError("Invalid type for i32"),
-  };
+  return cast(i32, v);
+}
+
+pub inline fn u64_(v: anytype) u64 {
+  return cast(u64, v);
 }
 
 pub inline fn i64_(v: anytype) i64 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int => @intCast(v),
-    .comptime_int => @as(i64, v),
-    .float, .comptime_float => @intFromFloat(v),
-    else => @compileError("Invalid type for i64"),
-  };
+  return cast(i64, v);
+}
+
+pub inline fn u128_(v: anytype) u128 {
+  return cast(u128, v);
+}
+
+pub inline fn i128_(v: anytype) i128 {
+  return cast(i128, v);
+}
+
+pub inline fn usize_(v: anytype) usize {
+  return cast(usize, v);
+}
+
+pub inline fn isize_(v: anytype) isize {
+  return cast(isize, v);
 }
 
 pub inline fn f32_(v: anytype) f32 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int, .comptime_int => @floatFromInt(v),
-    .float => @floatCast(v),
-    .comptime_float => @as(f32, v),
-    else => @compileError("Invalid type for f32"),
-  };
+  return cast(f32, v);
 }
 
 pub inline fn f64_(v: anytype) f64 {
-  return switch (@typeInfo(@TypeOf(v))) {
-    .int, .comptime_int => @floatFromInt(v),
-    .float => @floatCast(v),
-    .comptime_float => @as(f64, v),
-    else => @compileError("Invalid type for f64"),
-  };
+  return cast(f64, v);
 }
 
 //-----------------------------------------------------------------------------
+
+comptime {
+  // _ = @import("Arena.zig"); // should write some of my own tests for this
+  _ = @import("Thread.zig");
+
+  _ = @import("entry.zig");
+  _ = @import("math.zig");
+  _ = @import("time.zig");
+  _ = @import("casts.zig");
+
+  // @import("std").testing.refAllDecls(@This());
+}
+
+const cast = casts.cast;
+const transmute = casts.transmute;
 
 const os = @import("os");
 const builtin = @import("builtin");

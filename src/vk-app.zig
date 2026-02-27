@@ -228,7 +228,7 @@ pub fn app(env: std.process.Environ) void {
 
       for (queue_families, 0..) |queue_family_props, index| {
         if (queue_family_props.queue_flags.graphics_bit) {
-          break :qfi base.u32_(index);
+          break :qfi u32_(index);
         }
       }
       @panic("Unable to find suitable graphics queue for device!");
@@ -248,7 +248,7 @@ pub fn app(env: std.process.Environ) void {
       .queue_create_info_count = 1,
       .p_enabled_features = null,
 
-      .enabled_extension_count = @intCast(vk_required_device_extensions.len),
+      .enabled_extension_count = u32_(vk_required_device_extensions.len),
       .pp_enabled_extension_names = &vk_required_device_extensions,
     };
 
@@ -416,24 +416,25 @@ fn create_shm_pool(
 
   const rc = os.linux.mmap(
     null,
-    @intCast(img_size),
+    base.usize_(img_size),
     .{ .READ = true, .WRITE = true },
     .{ .TYPE = .SHARED },
     shm_fd,
     0
   );
 
-  if (@as(isize, @bitCast(rc)) < 0) {
+  const irc = transmute(isize, rc);
+  if (irc < 0) {
     log.err("failed to map in shmfile memory!", .{});
   }
 
-  const ptr: []u8 = @as([*]u8, @ptrFromInt(rc))[0..@intCast(img_size)];
-  const img_buffer: []u32 = @alignCast(@ptrCast(ptr));
+  const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
+  const img_buffer = transmute([]u32, ptr);
 
   const shm_pool = shm.create_pool(
     &proxy,
     shm_fd,
-    @intCast(img_size),
+    img_size,
   );
 
   return .{
@@ -452,7 +453,7 @@ fn open_shmfile(arena: *Arena) c_int {
   var name = arena.push(u8, name_template.len + 1);
   @memcpy(name[0..name.len-1], name_template);
   for (name[(name.len - 7)..][0..6]) |*byte| {
-    byte.* = @intCast((
+    byte.* = base.u8_((
       'A' + (timestamp & 15) + ((timestamp & 16) * 2)
     ));
   }
@@ -460,7 +461,7 @@ fn open_shmfile(arena: *Arena) c_int {
   log.debug("opening shmfile with name {s}", .{name});
 
   const fd = linux.open(
-    @ptrCast(name.ptr),
+    transmute(CString, name),
     .{
       .ACCMODE = .RDWR,
       .CREAT = true,
@@ -470,9 +471,9 @@ fn open_shmfile(arena: *Arena) c_int {
     0o600,
   );
 
-  log.debug("shmfile handle :: {}", .{@as(isize, @bitCast(fd))});
-  _ = linux.unlink(@ptrCast(name.ptr));
-  return @intCast(@as(isize, @bitCast(fd)));
+  log.debug("shmfile handle :: {}", .{transmute(isize, fd)});
+  _ = linux.unlink(transmute(CString, name));
+  return base.i32_(transmute(isize, fd));
 }
 
 fn update() void {
@@ -494,11 +495,16 @@ const AppClass = "Liam.Games.vkRender";
 const Swapchain = struct {
 };
 
+const cast = base.casts.cast;
+const transmute = base.casts.transmute;
+
 const u32_ = base.u32_;
 const u64_ = base.u64_;
 
 const f32_ = base.f32_;
 const f64_ = base.f64_;
+
+const CString = [*:0]const u8;
 
 const Arena = base.Arena;
 const Thread = base.Thread;

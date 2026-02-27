@@ -53,7 +53,7 @@ pub fn init(params: InitParams) *Arena {
     break :base ptr;
   };
 
-  const arena: *Arena = @ptrCast(base);
+  const arena = transmute(*Arena, base);
 
   arena.* = .{
     .flags = flags,
@@ -72,14 +72,14 @@ pub fn init(params: InitParams) *Arena {
 
 pub fn push_no_zero(arena: *Arena, comptime T: type, count: usize) []T {
   const data: []u8 = arena._push_impl((@sizeOf(T) * count), @max(8, @alignOf(T)));
-  const res: [*]T = @ptrCast(@alignCast(data));
+  const res = transmute([*]T, data);
 
   return (res[0..count]);
 }
 
 pub inline fn push(arena: *Arena, comptime T: type, count: usize) []T {
   const bytes = arena.push_no_zero(T, count);
-  const raw_bytes: []u8 = @ptrCast(@alignCast(bytes));
+  const raw_bytes = transmute([]u8, bytes);
   @memset(raw_bytes[0 .. count * @sizeOf(T)], 0);
 
   return bytes;
@@ -88,7 +88,7 @@ pub inline fn push(arena: *Arena, comptime T: type, count: usize) []T {
 pub fn create(arena: *Arena, comptime T: type) *T {
   const data = arena.push(T, 1);
 
-  return @ptrCast(@alignCast(data));
+  return transmute(*T, data);
 }
 
 pub fn release(arena: *Arena) void {
@@ -96,7 +96,10 @@ pub fn release(arena: *Arena) void {
   var prev: ?*Arena = null;
   while (next) |n| : (next = prev) {
     prev = n.prev;
-    const ptr: [*]align(std.heap.page_size_min) u8 = @ptrCast(@alignCast(n));
+    const ptr = transmute(
+      [*]align(std.heap.page_size_min) u8,
+      n,
+    );
     os.mem_release(ptr[0..n.res]);
   }
 }
@@ -115,7 +118,10 @@ pub fn pop_to(arena: *Arena, _pos: usize) void {
 
   while (cur.base_pos >= big_pos) {
     prev_opt = cur.prev;
-    const ptr: [*]align(std.heap.page_size_min) const u8 = @ptrCast(@alignCast(cur));
+    const ptr = transmute(
+      [*]align(std.heap.page_size_min) const u8,
+      cur,
+    );
     os.mem_release(ptr[0..cur.res]);
 
     if (prev_opt) |prev| {
@@ -145,7 +151,7 @@ pub fn clear(arena: *Arena) void {
 
 pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
   var cur: *Arena = arena.cur;
-  var pos_pre: usize = @intCast(align_pow2(cur._pos, @"align"));
+  var pos_pre = cast(usize, align_pow2(cur._pos, @"align"));
   var pos_pst: usize = pos_pre + size;
 
   // chain if needed
@@ -178,13 +184,17 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
 
   // commit new pages if needed
   if (cur.cmt < pos_pst) {
-    var cmt_pst_aligned: usize = pos_pst + @as(usize, cur.cmt_size - 1);
-    cmt_pst_aligned -= cmt_pst_aligned % @as(usize, cur.cmt_size);
+    var cmt_pst_aligned: usize = pos_pst + cur.cmt_size - 1;
+    cmt_pst_aligned -= cmt_pst_aligned % cur.cmt_size;
 
     const cmt_pst_clamped: usize = @min(cmt_pst_aligned, cur.res);
     const cmt_size = cmt_pst_clamped - cur.cmt;
 
-    const ptr: [*]align(std.heap.page_size_min) u8 = @ptrCast(@alignCast(cur));
+    const ptr = transmute(
+      [*]align(std.heap.page_size_min) u8,
+      cur,
+    );
+
     const cmt_range = ptr[cur.cmt .. cur.cmt + cmt_size];
     if (cur.flags.large_pages) {
       if (!os.mem_commit_large(@alignCast(cmt_range)))
@@ -205,7 +215,10 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
 
   const result: []u8 = if (cur.cmt >= pos_pst) result: {
     cur._pos = pos_pst;
-    const ptr: [*]u8 = @ptrCast(@alignCast(cur));
+    const ptr = transmute(
+      [*]u8,
+      cur,
+    );
     break :result ptr[pos_pre .. pos_pre + pos_pst];
   } else unreachable;
 
@@ -225,22 +238,22 @@ pub const Flags = packed struct {
   no_chain: bool,
   large_pages: bool,
 
-  pub const default: @This() = .{
+  pub const default: Flags = .{
     .no_chain = false,
     .large_pages = false,
   };
 
-  pub const largepage: @This() = .{
+  pub const largepage: Flags = .{
     .no_chain = false,
     .large_pages = true,
   };
 
-  pub const nochain: @This() = .{
+  pub const nochain: Flags = .{
     .no_chain = true,
     .large_pages = false,
   };
 
-  pub const large_nochain: @This() = .{
+  pub const large_nochain: Flags = .{
     .no_chain = true,
     .large_pages = true,
   };
@@ -252,14 +265,14 @@ pub const InitParams = struct {
   commit_size: usize,
   backing_buffer: ?[]align(std.heap.page_size_min) u8,
 
-  pub const default: @This() = .{
+  pub const default: InitParams = .{
     .flags = .default,
     .reserve_size = std.heap.page_size_min,
     .commit_size = std.heap.page_size_min,
     .backing_buffer = null,
   };
 
-  pub const large_pages: @This() = .{
+  pub const large_pages: InitParams = .{
     .flags = .largepage,
     .reserve_size = math.Units.MB(2),
     .commit_size = math.Units.MB(2),
@@ -283,19 +296,19 @@ pub fn allocator(arena: *Arena) std.mem.Allocator {
 }
 
 fn alloc(ctx: *anyopaque, n: usize, @"align": mem.Alignment, ret_addr: usize) ?[*]u8 {
-  const arena: *Arena = @ptrCast(@alignCast(ctx));
+  const arena = transmute(*Arena, ctx);
   _ = ret_addr;
   const ptr_align = @as(usize, 1) << @as(std.math.Log2Int(usize), @intCast(@"align".toByteUnits()));
   return @ptrCast(arena._push_impl(n, ptr_align));
 }
 
 fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: mem.Alignment, new_len: usize, ret_addr: usize) bool {
-  const arena: *Arena = @ptrCast(@alignCast(ctx));
+  const arena = transmute(*Arena, ctx);
   const current = arena.cur;
   _ = log2_buf_align;
   _ = ret_addr;
 
-  if (@intFromPtr(buf.ptr) != (@intFromPtr(current) + current.pos()) - buf.len) {
+  if (cast(usize, buf.ptr) != (cast(usize, current) + current.pos()) - buf.len) {
     return new_len <= buf.len;
   }
 
@@ -328,6 +341,7 @@ fn free(ctx: *anyopaque, buf: []u8, pow2_buf_align: mem.Alignment, ret_addr: usi
   // TODO: Implement a free list in arena
   _ = buf;
 }
+
 //-----------------------------------------------------------------------------
 
 test "Normal Page Size" {
@@ -345,9 +359,10 @@ test "Normal Page Size" {
     const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
     while (alloced_bytes < total_size) {
       const size = random.intRangeAtMost(usize, 16, 256);
-      const alignment = 32;
+      const alignment: std.mem.Alignment = .@"32";
+
       const slice = try arena.allocator().alignedAlloc(u8, alignment, size);
-      try std.testing.expect(std.mem.isAligned(@intFromPtr(slice.ptr), alignment));
+      try std.testing.expect(std.mem.isAligned(cast(usize, slice.ptr), alignment.toByteUnits()));
       try std.testing.expectEqual(size, slice.len);
       alloced_bytes += slice.len;
     }
@@ -370,9 +385,9 @@ test "Large Page Reserve Fallback" {
     const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
     while (alloced_bytes < total_size) {
       const size = random.intRangeAtMost(usize, 16, 256);
-      const alignment = 32;
+      const alignment: std.mem.Alignment = .@"32";
       const slice = try arena.allocator().alignedAlloc(u8, alignment, size);
-      try std.testing.expect(std.mem.isAligned(@intFromPtr(slice.ptr), alignment));
+      try std.testing.expect(std.mem.isAligned(cast(usize, slice.ptr), alignment.toByteUnits()));
       try std.testing.expectEqual(size, slice.len);
       alloced_bytes += slice.len;
     }
@@ -397,9 +412,9 @@ test "Temp Arena" {
     const total_size: usize = random.intRangeAtMost(usize, 256, 16384);
     while (alloced_bytes < total_size) {
       const size = random.intRangeAtMost(usize, 16, 256);
-      const alignment = 32;
+      const alignment: std.mem.Alignment = .@"32";
       const slice = try scratch.arena.allocator().alignedAlloc(u8, alignment, size);
-      try std.testing.expect(std.mem.isAligned(@intFromPtr(slice.ptr), alignment));
+      try std.testing.expect(std.mem.isAligned(cast(usize, slice.ptr), alignment.toByteUnits()));
       try std.testing.expectEqual(size, slice.len);
       alloced_bytes += slice.len;
     }
@@ -420,8 +435,12 @@ const TargetOs = builtin.target.os;
 const mem = std.mem;
 const posix = std.posix;
 
+const cast = casts.cast;
+const transmute = casts.transmute;
+
 // File Imports
 const math = @import("math.zig");
+const casts = @import("casts.zig");
 
 // Internal Module Imports
 const os = @import("os");

@@ -90,9 +90,9 @@ pub const Connection = struct {
     const connect_rc = linux.connect(
       socket_fd,
       &socket_addr,
-      @intCast(@sizeOf(@TypeOf(socket_addr))),
+      base.u32_(@sizeOf(@TypeOf(socket_addr))),
     );
-    if (@as(isize, @bitCast(connect_rc)) < 0) {
+    if (transmute(isize, connect_rc) < 0) {
       @panic("Failed to connec to wayland socket!");
     }
 
@@ -141,7 +141,7 @@ pub const Connection = struct {
       __reserved_bits: u3 = 0,
 
       pub fn match(a: @This(), b: @This()) bool {
-        return @as(u8, @bitCast(a)) == @as(u8, @bitCast(b));
+        return transmute(u8, a) == transmute(u8, b);
       }
 
       pub const desired: @This() = .{
@@ -234,13 +234,17 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
 
     const ring_buffer_bytes_len = 4 * ring_buffer_size;
-    const ring_buffer_bytes: []align(os.page_size_min) u8 =
-      @alignCast(@ptrCast(conn.in.buf.ptr[0..ring_buffer_bytes_len]));
+    const ring_buffer_bytes = transmute(
+      []align(os.page_size_min) u8,
+      conn.in.buf.ptr[0..ring_buffer_bytes_len]
+    );
 
     os.mem_release(ring_buffer_bytes);
-    posix.close(conn.fd);
 
     //-------------------------------------------------------------------------
+
+    // Disconnect from compositor
+    posix.close(conn.fd);
   }
 
   /// Construct DLL queue of available platform events from received wayland events
@@ -326,7 +330,7 @@ pub const Connection = struct {
           //   "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
           //   .{ config.width, config.height },
           // );
-          const platform_surface: *platform.Surface = @alignCast(@fieldParentPtr("handle", surface));
+          const platform_surface: *platform.Surface = @fieldParentPtr("handle", surface);
           if (platform_surface.flags.resize) {
             log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
             platform_surface.width = config.width;
@@ -349,9 +353,10 @@ pub const Connection = struct {
           // config_bounds has: i32 width, height.
         },
         .xdg_toplevel_wm_capabilities => |xdg_toplevel_wm_capabilities| {
-          const wm_capabilites: []const XdgToplevel.WmCapabilities = @alignCast(@ptrCast(
-            xdg_toplevel_wm_capabilities.capabilities
-          ));
+          const wm_capabilites = transmute(
+            []const XdgToplevel.WmCapabilities,
+            xdg_toplevel_wm_capabilities.capabilities,
+          );
           _ = wm_capabilites;
           // array of Toplevel.Enum.WmCapabilities
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
@@ -386,9 +391,9 @@ pub const Connection = struct {
             0,
           );
 
-          const rc_signed = @as(isize, @bitCast(rc));
-          if (rc_signed < 0 and rc_signed >= -4095) {
-              const errno = @as(linux.E, @enumFromInt(@as(usize, @intCast(-rc_signed))));
+          const rc_signed = transmute(isize, rc);
+          if (rc_signed < 0) {
+              const errno = cast(linux.E, (-rc_signed));
               log.err("mmap FAILED: errno={} ({})", .{-rc_signed, errno});
               _ = linux.close(fd);
               @panic("mmap failed!!");
@@ -407,11 +412,11 @@ pub const Connection = struct {
           var modifier: Drm.Modifier = .linear;
           while (iter.next()) |entry_bytes| {
             @memcpy(
-              @as([*]u8, @alignCast(@ptrCast(&format)))[0..4],
+              transmute([*]u8, &format)[0..4],
               entry_bytes[0..4],
             );
             @memcpy(
-              @as([*]u8, @alignCast(@ptrCast(&modifier)))[0..8],
+              transmute([*]u8, &modifier)[0..8],
               entry_bytes[8..16],
             );
             // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
@@ -532,8 +537,8 @@ pub const Connection = struct {
 
     return params.create_immed(
       &conn_proxy,
-      @intCast(buf.width),
-      @intCast(buf.height),
+      base.i32_(buf.width),
+      base.i32_(buf.height),
       gfx.Drm.Format.abgr8888.toInt(),
       .{},
     );
@@ -604,7 +609,7 @@ pub const Connection = struct {
     }
 
     const err = linux.errno(rc);
-    const bytes_read = if (@as(isize, @bitCast(rc)) < 0)
+    const bytes_read = if (transmute(isize, rc) < 0)
       switch (err) {
         .SUCCESS => return,
         .AGAIN => return,
@@ -734,7 +739,7 @@ pub const Connection = struct {
       if (wayland_event == .wl_callback_done)
         log.debug(
           "received response on callback object of id: {}",
-          .{@as(*const u32, @alignCast(@ptrCast(&relevant_object))).*},
+          .{transmute(*const u32, relevant_object).*},
         );
 
       break :wayland_event wayland_event;
@@ -917,7 +922,7 @@ pub const Connection = struct {
   }
 
   fn msg_decode(noalias ctx: *anyopaque, args_out: []MessageArg, noalias data: []const u8) void {
-    const connection: *Connection = @ptrCast(@alignCast(ctx));
+    const connection = transmute(*Connection, ctx);
     var offset: u32 = 0;
 
     for (args_out) |*arg| {
@@ -934,14 +939,14 @@ pub const Connection = struct {
           offset += 4;
         },
         .@"enum" => |*enum_arg| {
-          const int_ptr: *u32 = @ptrCast(enum_arg);
+          const int_ptr = transmute(*u32, enum_arg);
           int_ptr.* = std.mem.bytesToValue(u32, data[offset..][0..4]);
           offset += 4;
         },
         .fixed => |*fixed_arg| {
           const int_val = std.mem.bytesToValue(i32, data[offset..][0..4]);
           offset += 4;
-          fixed_arg.* = @as(f32, @floatFromInt(int_val)) / 256;
+          fixed_arg.* = base.f32_(int_val) / 256;
         },
         .string => |*string_arg| {
           const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
@@ -963,7 +968,8 @@ pub const Connection = struct {
   }
 
   fn msg_encode(noalias ctx: *anyopaque, id: u32, op: u16, noalias args: []const ?MessageArg) void {
-    const connection: *Connection = @ptrCast(@alignCast(ctx));
+    const connection = transmute(*Connection, ctx);
+
     var msg_len: u16 = @sizeOf(WireEventHeader);
     for (args) |arg_opt| {
       if (arg_opt) |arg| switch (arg) {
@@ -995,15 +1001,15 @@ pub const Connection = struct {
           connection.out.put(std.mem.asBytes(&uint_arg));
         },
         .int => |int_arg| {
-          continue :arg .{ .uint = @bitCast(int_arg) };
+          continue :arg .{ .uint = transmute(u32, int_arg) };
         },
         .@"enum" => |*enum_arg| {
-          const u32_val: *const u32 = @ptrCast(enum_arg);
+          const u32_val = transmute(*const u32, enum_arg);
           continue :arg .{ .uint = u32_val.* };
         },
         .fixed => |float_arg| {
-          const val: i32 = @intFromFloat(float_arg * 256);
-          continue :arg .{ .uint = @bitCast(val) };
+          const val = transmute(i32, float_arg * 256);
+          continue :arg .{ .uint = transmute(u32, val) };
         },
         .string => |string_arg| {
           continue :arg .{ .array = string_arg[0 .. string_arg.len + 1] };
@@ -1011,8 +1017,8 @@ pub const Connection = struct {
         .array => |array_arg| {
           const padding_bytes: [4]u8 = @splat(0);
 
-          const write_len: u32 = @intCast(msg_arr_len(array_arg));
-          const len: u32 = @intCast(array_arg.len);
+          const write_len = base.u32_(msg_arr_len(array_arg));
+          const len = base.u32_(array_arg.len);
           const padding_bytes_needed = (write_len - @sizeOf(u32)) - len;
 
           connection.out.put(std.mem.asBytes(&len));
@@ -1030,7 +1036,7 @@ pub const Connection = struct {
   }
 
   fn next_id(noalias ctx: *anyopaque) u32 {
-    const conn: *Connection = @alignCast(@ptrCast(ctx));
+    const conn = transmute(*Connection, ctx);
     const idx = conn.client_state.object_pool.next_object_id();
     return idx;
   }
@@ -1048,12 +1054,12 @@ pub const Connection = struct {
   }
 
   fn obj_destroy(noalias ctx: *anyopaque, object_id: u32) void {
-    const conn: *Connection = @alignCast(@ptrCast(ctx));
+    const conn = transmute(*Connection, ctx);
     conn.client_state.object_pool.release_object(object_id);
   }
 
   fn obj_push(noalias ctx: *anyopaque, object: Object) void {
-    const conn: *Connection = @alignCast(@ptrCast(ctx));
+    const conn = transmute(*Connection, ctx);
     conn.client_state.object_pool.push_object(object);
   }
 
@@ -1062,7 +1068,7 @@ pub const Connection = struct {
   }
 
   inline fn msg_arr_len(arr: []const u8) u16 {
-    return @intCast(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
+    return base.u16_(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
   }
 
   const cmsg_buf_len = 32 * linux.cmsghdr.msg_len(@sizeOf(i32));
@@ -1145,7 +1151,7 @@ pub const ObjectPool = struct {
   }
 
   pub fn push_object(op: *ObjectPool, object: Object) void {
-    const idx: *const u32 = @alignCast(@ptrCast(&object));
+    const idx = transmute(*const u32, &object);
 
     op.objects[ id_to_idx(idx.*) ] = object;
   }
@@ -1242,6 +1248,9 @@ pub const MessageArg = wl_protocols.MessageArg;
 
 const Drm = gfx.Drm;
 const gfx = platform.gfx;
+
+const cast = base.casts.cast;
+const transmute = base.casts.transmute;
 
 const wl_protocols = @import("wayland-protocols");
 const platform = @import("platform.zig");

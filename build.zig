@@ -109,12 +109,21 @@ pub fn build(b: *std.Build) void {
     run_cmd.addArgs(args);
   }
 
+  const base_tests = b.addTest(.{
+    .root_module = base_mod,
+  });
+  const run_base_tests = b.addRunArtifact(base_tests);
+  const platform_tests = b.addTest(.{
+    .root_module = platform_mod,
+  });
+  const run_platform_tests = b.addRunArtifact(platform_tests);
   const exe_tests = b.addTest(.{
     .root_module = exe.root_module,
   });
-
   const run_exe_tests = b.addRunArtifact(exe_tests);
 
   const test_step = b.step("test", "Run tests");
+  test_step.dependOn(&run_platform_tests.step);
+  test_step.dependOn(&run_base_tests.step);
   test_step.dependOn(&run_exe_tests.step);
 }

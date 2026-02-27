@@ -215,10 +215,10 @@ pub const OffscreenBuffer = struct {
 
     var mem_image_type_idx: u32 = math.maxInt(u32);
     for (0..mem_props.memory_type_count) |i| {
-        if ((mem_reqs.memory_type_bits & (@as(u32, 1) << @intCast(i))) != 0 and
+        if ((mem_reqs.memory_type_bits & (base.u32_(1) << base.u32_(i))) != 0 and
             mem_props.memory_types[i].property_flags.device_local_bit) {
             // or host_visible for testing
-            mem_image_type_idx = @intCast(i);
+            mem_image_type_idx = base.u32_(i);
             break;
         }
     }
@@ -292,8 +292,8 @@ pub const OffscreenBuffer = struct {
       .width = width,
       .height = height,
       .format = format,
-      .stride = @intCast(layout.row_pitch),
-      .offset = @intCast(layout.offset),
+      .stride = base.i32_(layout.row_pitch),
+      .offset = base.i32_(layout.offset),
     };
   }
 };
