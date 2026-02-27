@@ -51,9 +51,9 @@ pub fn transmute(comptime T: type, src: anytype) T {
         @compileError("Transmute to optional types not yet implemented");
       },
       .@"struct" => |struct_t| {
-        if (struct_t.backing_integer) |_| {
+        if (struct_t.layout == .@"packed") {
           if (SourceTypeInfo == .@"struct" and
-              SourceTypeInfo.@"struct".backing_integer == null)
+              SourceTypeInfo.@"struct".layout == .@"packed")
           {
             @compileError(
               "Cannot transmute from non-packed struct type " ++
@@ -77,7 +77,7 @@ pub fn transmute(comptime T: type, src: anytype) T {
           "."
         );
       },
-      .int, .float, .bool => {
+      .int, .float => {
         if (@sizeOf(SourceType) != @sizeOf(T))
           @compileError(
             "Cannot transmute type " ++
@@ -193,17 +193,22 @@ pub fn cast(comptime T: type, src: anytype) T {
       .@"enum" => {
         if (SourceTypeInfo == .int) break :res @enumFromInt(src);
         if (SourceTypeInfo == .@"enum") break :res @enumFromInt(@intFromEnum(src));
-        if (SourceTypeInfo == .@"struct")  break :res transmute(T, src);
+        if (SourceTypeInfo == .@"struct")
+          if (SourceTypeInfo.@"struct".backing_integer) |int_t|
+            break :res @enumFromInt(transmute(int_t, src));
       },
       .pointer => {
         break :res transmute(T, src);
       },
       .@"struct" => |struct_t| {
-        if (struct_t.backing_integer != null) {
+        if (struct_t.layout == .@"packed") {
           if (SourceTypeInfo == .int) break :res transmute(T, src);
           if (SourceTypeInfo == .@"enum") break :res transmute(T, @intFromEnum(src));
           if (SourceTypeInfo == .@"struct") break :res transmute(T, src);
         }
+      },
+      .bool => {
+        if (SourceTypeInfo == .int) break :res src != 0;
       },
       else => @compileError(
         "Unsupported cast target type: " ++
@@ -211,27 +216,13 @@ pub fn cast(comptime T: type, src: anytype) T {
       ),
     }
     @compileError(
-      "No conversion path from source type " ++
+      "No cast available from source type " ++
       SourceTypeName ++ " to target type " ++
-      TargetTypeName
+      TargetTypeName ++ "."
     );
   };
 
   return result;
-}
-
-test "cast: enum_t -> enum_t" {
-  const enum_a_t = enum { one, two, three };
-  const enum_b_t = enum { a, b, c };
-
-  const one: enum_a_t = .one;
-  const b: enum_b_t = .b;
-
-  const expected_enum_b: enum_b_t = @enumFromInt(@intFromEnum(one));
-  const expected_enum_a: enum_a_t = @enumFromInt(@intFromEnum(b));
-
-  try testing.expect(cast(enum_b_t, one) == expected_enum_b);
-  try testing.expect(cast(enum_a_t, b) == expected_enum_a);
 }
 
 test "cast: ints and floats" {
@@ -250,14 +241,35 @@ test "cast: ints and floats" {
 
 test "cast: ints and enums" {
   const enum_t = enum { one, two, three, four };
+  const enum_t1 = enum { a, b, c, d };
+
   const four: enum_t = .four;
   const uint: u32 = 2;
 
   const expected_uint: u32 = @intFromEnum(four);
   const expected_enum_t: enum_t = @enumFromInt(uint);
+  const expected_enum_t1: enum_t1 = @enumFromInt(@intFromEnum(four));
 
   try testing.expect(cast(u32, four) == expected_uint);
   try testing.expect(cast(enum_t, uint) == expected_enum_t);
+  try testing.expect(cast(enum_t1, four) == expected_enum_t1);
+}
+
+test "cast: enums and packed structs" {
+  const pack_t = packed struct (u32) { a: u16, b: u16 };
+  const enum_t = enum (u32) { one, two, three, _ };
+
+  const str: pack_t = .{ .a = 0, .b = 2 };
+  const one: enum_t = .one;
+
+  const expected_pack_t: pack_t = @bitCast(@intFromEnum(one));
+  const expected_enum_t: enum_t = @enumFromInt(@as(u32, @bitCast(str)));
+
+  try testing.expect(
+    @as(u32, @bitCast(cast(pack_t, one))) ==
+    @as(u32, @bitCast(expected_pack_t))
+  );
+  try testing.expect(cast(enum_t, str) == expected_enum_t);
 }
 
 const testing = @import("std").testing;
