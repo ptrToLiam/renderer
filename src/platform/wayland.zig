@@ -70,7 +70,7 @@ pub const Connection = struct {
       break :socket_path joint_path_bytes;
     };
 
-    const socket_fd = base.i32_(linux.socket(
+    const socket_fd = i32_(linux.socket(
       posix.AF.UNIX,
       posix.SOCK.STREAM | posix.SOCK.CLOEXEC | 0,
       0,
@@ -90,7 +90,7 @@ pub const Connection = struct {
     const connect_rc = linux.connect(
       socket_fd,
       &socket_addr,
-      base.u32_(@sizeOf(@TypeOf(socket_addr))),
+      u32_(@sizeOf(@TypeOf(socket_addr))),
     );
     if (transmute(isize, connect_rc) < 0) {
       @panic("Failed to connec to wayland socket!");
@@ -341,7 +341,7 @@ pub const Connection = struct {
           // TODO: Push close event to event queue
           const close_event = arena.create(platform.Event);
           close_event.* = .{
-            .timestamp_us = base.time.us(),
+            .timestamp_us = time.us(),
             .type = .surface_close,
             .surface_handle = surface.*,
           };
@@ -537,8 +537,8 @@ pub const Connection = struct {
 
     return params.create_immed(
       &conn_proxy,
-      base.i32_(buf.width),
-      base.i32_(buf.height),
+      i32_(buf.width),
+      i32_(buf.height),
       gfx.Drm.Format.abgr8888.toInt(),
       .{},
     );
@@ -618,7 +618,7 @@ pub const Connection = struct {
         else => |e| {log.err("socket read failed with err :: {s}", .{@tagName(e)}); @panic("unknown err"); },
       }
     else
-      base.u32_(rc);
+      u32_(rc);
 
     // log.debug("read {} bytes from socket!", .{ bytes_read });
     defer conn.in.write +%= bytes_read;
@@ -697,13 +697,13 @@ pub const Connection = struct {
         break :wayland_event null;
 
       // bump read idx to event data begin
-      conn.in.read +%= base.u32_(@sizeOf(WireEventHeader));
+      conn.in.read +%= u32_(@sizeOf(WireEventHeader));
 
       const data_len = header.len - @sizeOf(WireEventHeader);
       const data_read_idx = conn.in.mask(conn.in.read);
       const data_contiguous_bytes = conn.in.buf[data_read_idx..];
 
-      defer conn.in.read -%= base.u32_(@sizeOf(WireEventHeader));
+      defer conn.in.read -%= u32_(@sizeOf(WireEventHeader));
 
       const scratch = Thread.Context.get_scratch(1, .{arena}).?;
 
@@ -803,12 +803,12 @@ pub const Connection = struct {
       const iov_buf = conn.out.buf[out_read..out_write];
       iov[0].base = iov_buf.ptr;
       iov[0].len = iov_buf.len;
-      conn.out.read +%= base.u32_(iov_buf.len);
+      conn.out.read +%= u32_(iov_buf.len);
     } else if (out_read == 0) {
       const iov_buf = conn.out.buf[out_read..];
       iov[0].base = iov_buf.ptr;
       iov[0].len = iov_buf.len;
-      conn.out.read +%= base.u32_(iov_buf.len);
+      conn.out.read +%= u32_(iov_buf.len);
     } else {
       const iov_buf_0 = conn.out.buf[out_read..];
       iov[0].base = iov_buf_0.ptr;
@@ -819,7 +819,7 @@ pub const Connection = struct {
       iov[1].len = iov_buf_1.len;
       iov_len = 2;
 
-      conn.out.read +%= base.u32_(iov_buf_0.len + iov_buf_1.len);
+      conn.out.read +%= u32_(iov_buf_0.len + iov_buf_1.len);
     }
 
     //-------------------------------------------------------------------------
@@ -858,7 +858,7 @@ pub const Connection = struct {
         std.mem.asBytes(&control_msg),
       );
 
-      conn.fd_out.read +%= base.u32_(c_int_size);
+      conn.fd_out.read +%= u32_(c_int_size);
       cmsg_len += ctrlmsg_size;
     }
 
@@ -946,7 +946,7 @@ pub const Connection = struct {
         .fixed => |*fixed_arg| {
           const int_val = std.mem.bytesToValue(i32, data[offset..][0..4]);
           offset += 4;
-          fixed_arg.* = base.f32_(int_val) / 256;
+          fixed_arg.* = f32_(int_val) / 256;
         },
         .string => |*string_arg| {
           const str_len = std.mem.bytesToValue(u32, data[offset..][0..4]);
@@ -1017,8 +1017,8 @@ pub const Connection = struct {
         .array => |array_arg| {
           const padding_bytes: [4]u8 = @splat(0);
 
-          const write_len = base.u32_(msg_arr_len(array_arg));
-          const len = base.u32_(array_arg.len);
+          const write_len = u32_(msg_arr_len(array_arg));
+          const len = u32_(array_arg.len);
           const padding_bytes_needed = (write_len - @sizeOf(u32)) - len;
 
           connection.out.put(std.mem.asBytes(&len));
@@ -1068,7 +1068,7 @@ pub const Connection = struct {
   }
 
   inline fn msg_arr_len(arr: []const u8) u16 {
-    return base.u16_(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
+    return u16_(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
   }
 
   const cmsg_buf_len = 32 * linux.cmsghdr.msg_len(@sizeOf(i32));
@@ -1172,12 +1172,12 @@ const FreeIdxList = struct {
 
   pub fn init_backing(buf: []u32) FreeIdxList {
     for (buf, 0..) |*index, i| {
-      index.* = base.u32_(buf.len - i);
+      index.* = u32_(buf.len - i);
     }
 
     return .{
       .indices = buf,
-      .index_available = base.u32_(buf.len),
+      .index_available = u32_(buf.len),
     };
   }
 
@@ -1211,7 +1211,7 @@ pub const dma_buf = struct {
   };
 };
 
-const WireEventHeader = packed struct {
+const WireEventHeader = packed struct (u64) {
   id: u32,
   op: u16,
   len: u16,
@@ -1233,29 +1233,36 @@ pub const XdgWmBase = wl_protocols.xdg_wm_base;
 
 pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
 
-const log = std.log.scoped(.wayland);
 const Arena = base.Arena;
 const Thread = base.Thread;
 const RingBuffer = base.RingBuffer;
-
-const linux = os.linux;
-const posix = os.posix;
 
 pub const Proxy = wl_protocols.Proxy;
 pub const Object = wl_protocols.Object;
 pub const Event = wl_protocols.Event;
 pub const MessageArg = wl_protocols.MessageArg;
 
+const log = std.log.scoped(.wayland);
+
 const Drm = gfx.Drm;
 const gfx = platform.gfx;
-
-const cast = base.casts.cast;
-const transmute = base.casts.transmute;
 
 const wl_protocols = @import("wayland-protocols");
 const platform = @import("platform.zig");
 
+const u16_ = base.u16_;
+const u32_ = base.u32_;
+const i32_ = base.i32_;
+const f32_ = base.f32_;
+
+const cast = base.casts.cast;
+const transmute = base.casts.transmute;
+
+const time = base.time;
 const math = base.math;
+
+const linux = os.linux;
+const posix = os.posix;
 
 const os = @import("os");
 const base = @import("base");
