@@ -405,7 +405,7 @@ pub const Connection = struct {
           // var format: Drm.Format = .invalid;
           // var modifier: Drm.Modifier = .linear;
           while (iter.next()) |entry_bytes| {
-            const format = tranmute(u32, entry_bytes[0..4]);
+            const format = transmute(u32, entry_bytes[0..4]);
             const mod = transmute(u64, entry_bytes[8..][0..8]);
             @memcpy(
               transmute([*]u8, &format)[0..4],
