@@ -46,7 +46,7 @@ pub fn app(env: std.process.Environ) void {
   _ = &vkd;
 
   defer vkd.destroyDevice(vk_dev, null);
-  var ofb: OffscreenBuffer = undefined;
+  var ofb: [2]OffscreenBuffer = undefined;
 
   //---------------------------------------------------------------------------
   // END VULKAN STATE INIT
@@ -98,25 +98,14 @@ pub fn app(env: std.process.Environ) void {
   var events: platform.EventList = .empty;
   var want_exit = false;
 
-  var shm_pool = create_shm_pool(
-    &platform_conn.handle,
-    platform_conn.handle.client_state.wl_shm,
-    surface.width,
-    surface.height,
-  );
-  const shm_buffer = shm_pool.create_buffer(
-    surface.width,
-    surface.height,
-    .xrgb8888,
-  );
-
   platform_conn.handle.flush() catch unreachable;
 
-  var ofb_wlbuf: platform.wayland.WaylandBuffer = undefined;
+  var ofb_wlbuf: [2]platform.wayland.WaylandBuffer = undefined;
   var want_attach = false;
-  var attached = false;
 
   const time_target = time.us_per_s / 120;
+  var buf_idx: u32 = 0;
+  _ = &buf_idx;
   while (!want_exit) {
     var wl_connection_proxy = platform_conn.handle.proxy();
     const frame_time_start = time.us();
@@ -137,38 +126,11 @@ pub fn app(env: std.process.Environ) void {
       }
     }
 
-    if (want_attach and attached) {
-      // log.debug("attempting to attach GPUmem buffer now!", .{});
-      // surface.handle.wl_surface.attach(
-      //   &wl_connection_proxy,
-      //   ofb_wlbuf,
-      //   0,
-      //   0,
-      // );
-      // surface.handle.wl_surface.damage_buffer(
-      //   &wl_connection_proxy,
-      //   0,
-      //   0,
-      //   surface.width,
-      //   surface.height,
-      // );
-    }
-    if (want_attach and !attached) {
-      attached = true;
-    }
-
-    if (!want_attach and surface.handle.ready()) {
-      _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
-        &wl_connection_proxy,
-        surface.handle.wl_surface,
-      );
-      _ = &ofb;
-
-      log.debug("surface ready :: setting want_attach to true", .{});
-      want_attach = true;
+    if (want_attach) {
+      log.debug("attaching buffer :: {} (wl_object_id={}, fd={})", .{ buf_idx, u32_(ofb_wlbuf[buf_idx]), ofb[buf_idx].memory_fd});
       surface.handle.wl_surface.attach(
         &wl_connection_proxy,
-        shm_buffer,
+        ofb_wlbuf[buf_idx],
         0,
         0,
       );
@@ -179,12 +141,37 @@ pub fn app(env: std.process.Environ) void {
         surface.width,
         surface.height,
       );
-      surface.handle.wl_surface.commit(
+      // platform_conn.handle.flush() catch unreachable;
+      // const drm_mod = selectWaylandModFromFmt(&platform_conn.handle, .rgba32);
+
+      // ofb[1] = .create(
+      //     vkd,
+      //     vk_dev,
+      //     vki,
+      //     vk_pdev.*,
+      //     u32_(surface.width),
+      //     u32_(surface.height),
+      //     .rgba32,
+      //     drm_mod,
+      //   );
+      //   ofb_wlbuf[1] = platform_conn.handle.wl_buffer(
+      //     ofb[1],
+      //   );
+      // _ = &buf_idx;
+      // buf_idx += 1;
+      // buf_idx %= 2;
+    }
+
+    if (!want_attach and surface.handle.ready()) {
+      _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
         &wl_connection_proxy,
+        surface.handle.wl_surface,
       );
-      _ = &vk_dev; _ = &queue_family_index;
-      _ = &vkd;
-      if (platform_conn.handle.client_state.dmabuf_feedback.main_device == 0) {
+
+      log.debug("surface ready :: setting want_attach to true", .{});
+      want_attach = true;
+
+      if (!platform_conn.handle.client_state.dmabuf_feedback.done) {
         want_attach = false;
       } else {
         vk_dev, queue_family_index = selectWaylandVkDevice(
@@ -197,27 +184,25 @@ pub fn app(env: std.process.Environ) void {
           vk_dev,
           vki.dispatch.vkGetDeviceProcAddr.?,
         );
-        ofb = .create(
+        const drm_mod = selectWaylandModFromFmt(&platform_conn.handle, .rgba32);
+        ofb[0] = .create(
           vkd,
           vk_dev,
           vki,
           vk_pdev.*,
           u32_(surface.width),
           u32_(surface.height),
-          .b8g8r8a8_unorm,
-          .invalid,
+          .rgba32,
+          drm_mod,
         );
-
-        _ = &ofb_wlbuf;
-        ofb_wlbuf = platform_conn.handle.wl_buffer(
-          ofb,
+        ofb_wlbuf[0] = platform_conn.handle.wl_buffer(
+          ofb[0],
         );
-        log.debug("ofb wlbuf id :: {}", .{u32_(ofb_wlbuf)});
       }
     }
 
-    surface.handle.wl_surface.damage(&wl_connection_proxy, 0, 0, surface.width, surface.height );
-    surface.handle.wl_surface.commit(&wl_connection_proxy);
+    if (surface.handle.ready()) surface.handle.wl_surface.commit(&wl_connection_proxy);
+    // surface.handle.wl_surface.damage(&wl_connection_proxy, 0, 0, surface.width, surface.height );
     platform_conn.handle.flush() catch unreachable;
 
     update();
@@ -546,6 +531,40 @@ fn minor(dev: u64) u64 {
     return ((dev & 0xff) | ((dev >> 12) & 0xffffff00));
 }
 
+fn selectWaylandModFromFmt(
+  connection: *platform.wayland.Connection,
+  format: gfx.Format,
+) Drm.Modifier {
+  const desired_fmt = u32_(format.toDrm());
+  const format_table = connection.client_state.dmabuf_feedback.fmt_table;
+  const res = os.linux.mmap(
+    null,
+    format_table.size,
+    .{ .READ = true },
+    .{ .TYPE = .PRIVATE },
+    format_table.fd,
+    0,
+  );
+
+  const rc = transmute(isize, res);
+  if (rc < 0) {
+    log.err("failed to map format table :: err={}", .{rc});
+    return .invalid;
+  }
+  const bytes = transmute([*]u8, res)[0..format_table.size];
+  defer _ = os.linux.munmap(
+    bytes.ptr,
+    bytes.len,
+  );
+
+  var iter = std.mem.window(u8, bytes, 16, 16);
+  while (iter.next()) |entry| {
+    const fmt = std.mem.bytesToValue(u32, entry[0..4]);
+    const mod = std.mem.bytesToValue(u64, entry[8..]);
+    if (fmt == desired_fmt) return cast(Drm.Modifier, mod);
+  }
+  return .invalid;
+}
 
 const vk_required_device_extensions = [_][*:0]const u8{
   vk.extensions.khr_external_memory.name,
@@ -583,7 +602,7 @@ const Thread = base.Thread;
 const math = base.math;
 const time = base.time;
 
-const drm = gfx.Drm;
+const Drm = gfx.Drm;
 const gfx = platform.gfx;
 
 const base = @import("base");

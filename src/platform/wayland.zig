@@ -149,7 +149,7 @@ pub const Connection = struct {
         .wl_compositor = true,
         .xdg_wm_base = true,
         .linux_dmabuf = true,
-        .wl_shm = true,
+        // .wl_shm = true,
       };
     };
 
@@ -160,6 +160,7 @@ pub const Connection = struct {
       switch (event) {
         .wl_registry_global => |registry_global| {
           defer connection.consume_event();
+
           if (std.mem.eql(u8, Seat.Name, registry_global.interface)) {
             connection.client_state.seat = connection.client_state.registry.bind(
               &conn_proxy,
@@ -192,15 +193,16 @@ pub const Connection = struct {
               registry_global.version,
             );
             globals_bound.linux_dmabuf = true;
-          } else if (std.mem.eql(u8, Shm.Name, registry_global.interface)) {
-            connection.client_state.wl_shm = connection.client_state.registry.bind(
-              &conn_proxy,
-              registry_global.name,
-              Shm,
-              registry_global.version
-            );
-            globals_bound.wl_shm = true;
           }
+          // else if (std.mem.eql(u8, Shm.Name, registry_global.interface)) {
+          //   connection.client_state.wl_shm = connection.client_state.registry.bind(
+          //     &conn_proxy,
+          //     registry_global.name,
+          //     Shm,
+          //     registry_global.version
+          //   );
+          //   globals_bound.wl_shm = true;
+          // }
         },
         .wl_display_error => |display_error| {
           defer connection.consume_event();
@@ -266,9 +268,8 @@ pub const Connection = struct {
             "Compositor Requested Delete ID :: {}",
             .{ delete_id.id },
           );
+          log.info("releasing object of ID: {}", .{delete_id.id});
           conn.client_state.object_pool.release_object(delete_id.id);
-          // conn.client_state.object_pool.get(delete_id.id).destroy()
-          //   catch unreachable;
         },
         .wl_registry_global => |registry_global| {
           log.debug(
@@ -325,7 +326,10 @@ pub const Connection = struct {
           const config = xdg_toplevel_configure;
 
           const platform_surface: *platform.Surface = @fieldParentPtr("handle", surface);
-          if (platform_surface.flags.resize and config.width > 0 and config.height > 0) {
+          if (platform_surface.flags.resize and
+              (config.width > 0 and config.height > 0) and
+              (config.width != platform_surface.width and config.height != platform_surface.height))
+          {
             log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
             platform_surface.width = config.width;
             platform_surface.height = config.height;
@@ -356,6 +360,7 @@ pub const Connection = struct {
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
         },
         .xdg_wm_base_ping => |ping| {
+          log.info("pinging serial {} on xdg_wm_base (id={})", .{ping.serial, u32_(conn.client_state.xdg_wm_base)});
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_done => {
@@ -437,14 +442,8 @@ pub const Connection = struct {
 
     xdg_toplevel.set_title(&conn_proxy, title);
     xdg_toplevel.set_app_id(&conn_proxy, class);
-    if (!flags.resize) {
-      xdg_toplevel.set_min_size(&conn_proxy, width, height);
-      xdg_toplevel.set_max_size(&conn_proxy, width, height);
-    }
 
     wl_surface.commit(&conn_proxy);
-
-    // _ = conn.client_state.display.sync(&conn_proxy) catch unreachable;
 
     conn.flush() catch unreachable;
     return .{
@@ -465,15 +464,13 @@ pub const Connection = struct {
     conn: *Connection,
     surface: Surface,
   ) void {
-    var conn_proxy = conn.proxy();
-    _ = conn.client_state.linux_dmabuf.get_surface_feedback(
-      &conn_proxy,
-      surface.wl_surface,
-    );
-    // conn.client_state.linux_dmabuf.get_default_feedback(
+    _ =  conn; _ = surface;
+    // var conn_proxy = conn.proxy();
+    // _ = conn.client_state.linux_dmabuf.get_surface_feedback(
     //   &conn_proxy,
-    // ) catch unreachable;
-    conn.flush() catch unreachable;
+    //   surface.wl_surface,
+    // );
+    // conn.flush() catch unreachable;
   }
 
   pub fn wl_buffer(
@@ -489,13 +486,12 @@ pub const Connection = struct {
     defer params.destroy(&conn_proxy);
 
     log.debug(
-      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod({s})= {{mod_hi={}, mod_lo={}}} }}",
+      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
       .{
         u32_(params),
         buf.memory_fd,
         buf.offset,
         buf.stride,
-        @tagName(buf.drm_modifier),
         buf.drm_modifier.hi(),
         buf.drm_modifier.lo(),
       },
@@ -511,20 +507,16 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
-    const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
-    // const ofb_wl_buffer = params.create_immed(
-    params.create(
+    const ofb_wl_buffer = params.create_immed(
+    // const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
+    // params.create(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
       u32_(buf.format.toDrm()),
       .{},
     );
-    comptime std.debug.assert(Drm.Format.argb8888.toInt() == 0x34325241);
-    log.info(
-      "Creating wl_buffer from offscreen VkBuffer with drm mod: {x}",
-      .{buf.drm_modifier.toInt()},
-    );
+
     return ofb_wl_buffer;
   }
 
@@ -604,7 +596,6 @@ pub const Connection = struct {
     else
       u32_(rc);
 
-    // log.debug("read {} bytes from socket!", .{ bytes_read });
     defer conn.in.write +%= bytes_read;
 
     //-------------------------------------------------------------------------
@@ -773,6 +764,8 @@ pub const Connection = struct {
   }
 
   pub fn flush(conn: *Connection) !void {
+    if (conn.out.read == conn.out.write) return;
+
     const out_read = conn.out.mask(conn.out.read);
     const out_write = conn.out.mask(conn.out.write);
 
@@ -783,12 +776,13 @@ pub const Connection = struct {
     var iov: [2]linux.iovec = undefined;
     var iov_len: usize = 1;
 
+
     if (out_read < out_write) {
       const iov_buf = conn.out.buf[out_read..out_write];
       iov[0].base = iov_buf.ptr;
       iov[0].len = iov_buf.len;
       conn.out.read +%= u32_(iov_buf.len);
-    } else if (out_read == 0) {
+    } else if (out_write == 0) {
       const iov_buf = conn.out.buf[out_read..];
       iov[0].base = iov_buf.ptr;
       iov[0].len = iov_buf.len;
@@ -828,7 +822,7 @@ pub const Connection = struct {
 
       @memcpy(
         fd_out_bytes[0..][0..c_int_size],
-        contiguous_bytes[fd_out_read..][0..c_int_size],
+        contiguous_bytes[0..c_int_size],
       );
 
       const control_msg: fd_cmsg_t = .init(
@@ -965,7 +959,6 @@ pub const Connection = struct {
         msg_len += @sizeOf(u32);
       }
     }
-
     if (!connection.out.empty() and connection.out.size() < msg_len) {
       connection.flush() catch |err| {
         log.err("Connection flush failed due to err :: {s}", .{@errorName(err)});
@@ -1069,6 +1062,7 @@ pub const Surface = struct {
   pub fn ready(surface: *Surface) bool {
     return surface.is_ready;
   }
+
   pub fn attach_wl_buffer(
     surface: *Surface,
     conn: *Connection,
@@ -1111,7 +1105,7 @@ pub const ClientState = struct {
 
   // Globals
   seat: Seat,
-  wl_shm: Shm,
+  // wl_shm: Shm,
   compositor: Compositor,
   xdg_wm_base: XdgWmBase,
   linux_dmabuf: LinuxDmabuf,

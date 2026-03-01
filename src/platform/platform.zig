@@ -178,8 +178,8 @@ pub const OffscreenBuffer = struct {
     };
     const ext: vk.ExternalMemoryImageCreateInfo = .{
       .handle_types = .{
-        // .dma_buf_bit_ext = true,
-        .opaque_fd_bit = true,
+        .dma_buf_bit_ext = true,
+        // .opaque_fd_bit = true,
       },
       .p_next = &ext2,
     };
@@ -217,6 +217,7 @@ pub const OffscreenBuffer = struct {
         .tiling = .drm_format_modifier_ext,
         .usage = .{
           .color_attachment_bit = true,
+          .transfer_src_bit = true,
         },
         .sharing_mode = .exclusive,
         .initial_layout = .undefined,
@@ -286,7 +287,6 @@ pub const OffscreenBuffer = struct {
     var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
       .drm_format_modifier = mod.toInt(),
     };
-    std.log.debug("expected drm_mod :: {}", .{mod});
 
     dev_wrapper.getImageDrmFormatModifierPropertiesEXT(
       dev,
@@ -299,7 +299,6 @@ pub const OffscreenBuffer = struct {
       );
       @panic("vkGetImageDrmFormatModifierPropertiesEXT Failed!");
     };
-    std.log.debug("actual drm_mod :: {}", .{cast(Drm.Modifier, mod_props.drm_format_modifier)});
 
     const layout = dev_wrapper.getImageSubresourceLayout(
       dev,
@@ -322,7 +321,7 @@ pub const OffscreenBuffer = struct {
           .b = .identity,
           .a = .identity,
         },
-        .format = format,
+        .format = format.toVk(),
         .subresource_range = .{
           .aspect_mask = .{ .color_bit = true },
           .base_mip_level = 0,
