@@ -1,699 +1,615 @@
-const AppName = "Renderer";
-
-pub var app_state: AppState = undefined;
-pub var allow_resize: bool = true;
-
-pub fn main_entry() !void {
+pub fn app(env: std.process.Environ) void {
   const app_name = "LmDev-" ++ AppName;
+  const app_class = "LmDev-" ++ AppClass;
+
   const arena: *Arena = .init(.default);
   defer arena.release();
+
+  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
+  defer vk_handle.close();
+  const vk_get_instance_proc_addr = vk_handle.lookup(
+    vk.PfnGetInstanceProcAddr,
+    "vkGetInstanceProcAddr",
+  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
 
   const initial_width = 540;
   const initial_height = 360;
 
-  var window: gfx.Window = try .create(
+  //---------------------------------------------------------------------------
+  // BEGIN PLATFORM STATE INIT
+  //---------------------------------------------------------------------------
+
+  const platform_init_start_us = time.us();
+  var platform_conn: platform.Connection = .open(arena, env);
+
+  defer platform_conn.close();
+
+  var surface = platform_conn.acquire_surface(
     arena,
     .{
       .title = app_name,
-      .class = "Liam.Games.Renderer",
+      .class = app_class,
       .width = initial_width,
       .height = initial_height,
+      .flags = .{ .resize = true },
     },
   );
-  defer window.destroy();
+  defer surface.release();
 
-  var swapchain: Wayland.ShmImageQueue = try .create(
-    window.handle.conn,
-    window.handle.shm,
-    2560,
-    1440,
+  const platform_init_end_us = time.us();
+  const platform_init_us = platform_init_end_us - platform_init_start_us;
+
+  //---------------------------------------------------------------------------
+  // END PLATFORM STATE INIT
+  //---------------------------------------------------------------------------
+
+  std.log.debug(
+    "platform state init complete in {d}us ({d:.2}ms)!",
+    .{ platform_init_us, base.f64_(platform_init_us) / base.f64_(time.us_per_ms) },
   );
 
-  try swapchain.resize(initial_width, initial_height);
-  defer swapchain.destroy() catch |err| {
-    app_log.err("failed to destroy shm_pool swapchain :: {s}", .{@errorName(err)});
-  };
+  const vk_state_init_start_us = time.us();
 
-  var wayland_state: WaylandState = .{
-    .connection = window.handle.conn,
-    .proxy = @constCast(&window.handle.conn.proxy()),
+  //---------------------------------------------------------------------------
+  // BEGIN VULKAN STATE INIT
+  //---------------------------------------------------------------------------
 
-    // globals
-    .display = window.handle.display,
-    .seat = window.handle.seat,
-    .shm = window.handle.shm,
-    .wm_base = window.handle.wm_base,
-
-    // objects
-    .wl_surface = window.handle.wl_surface,
-    .xdg_surface = window.handle.xdg_surface,
-    .xdg_toplevel = window.handle.xdg_toplevel,
-  };
-  app_state.wayland_state = &wayland_state;
-  app_state.swapchain = swapchain;
-
-  const thread_count = std.Thread.getCpuCount() catch 1;
-  app_log.info("available thread count :: {d}", .{thread_count});
-
-  sw_render_cmd_queue = .{
-    .buf = arena.push(gfx.Command, 512),
-    .write = 0,
-  };
-
-  var sw_render_threads = arena.push(Thread, thread_count);
-  var sw_render_thread_lctxs = arena.push(Thread.LaneContext, thread_count);
-  const sw_render_threads_barrier: *Thread.Barrier = arena.create(Thread.Barrier);
-  sw_render_threads_barrier.* = .init(@intCast(thread_count));
-  var sw_render_lane_broadcast_val: usize = 0;
-
-  for (0..thread_count) |idx| {
-    sw_render_thread_lctxs[idx] = .{
-      .lane_idx = idx,
-      .lane_count = thread_count,
-      .barrier = sw_render_threads_barrier,
-      .broadcast_memory = &sw_render_lane_broadcast_val,
+  const vkb: vk.BaseWrapper = .load(vk_get_instance_proc_addr);
+  var instance: vk.Instance = undefined;
+  var vki: vk.InstanceWrapper = undefined;
+  {
+    const app_info: vk.ApplicationInfo = .{
+      .p_application_name = app_name,
+      .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
+      .p_engine_name = "custom",
+      .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
+      .api_version = u32_(vk.API_VERSION_1_4),
     };
 
-    sw_render_threads[idx] = try .launch(sw_render_thread_entry, &sw_render_thread_lctxs[idx]);
-  }
-
-  while (!app_state.should_exit()) {
-    update();
-  }
-
-  for (sw_render_threads) |sw_render_thread| {
-    sw_render_thread.join();
-  }
-  app_log.info("Software render threads joined", .{});
-}
-
-var cur_draw_img_idx: u16 = 0;
-fn update() void {
-  const frame_scratch = Thread.Context.get_scratch(0, .{}) orelse
-    @panic("update() failed to acquire scratch arena");
-  const frame_arena = frame_scratch.arena;
-  defer frame_arena.clear();
-  const fixed_time_target = std.time.us_per_ms * 10;
-  const connection = app_state.wayland_state.connection;
-
-  const update_tick_begin_time = std.time.microTimestamp();
-
-  defer {
-    const update_tick_end_time = std.time.microTimestamp();
-    const elapsed_us = update_tick_end_time - update_tick_begin_time;
-    const elapsed_to_target_diff = fixed_time_target - elapsed_us;
-    if (elapsed_to_target_diff > 0) {
-      const sleep_target_ns = elapsed_to_target_diff * std.time.ns_per_us;
-      Thread.sleep(@intCast(sleep_target_ns));
-    }
-  }
-
-  // poll and handle events
-  {
-    connection.load_events() catch {};
-
-    while (connection.event()) |event| {
-      handle_wl_event(app_state.wayland_state, &event) catch |err| {
-        std.log.err("Failed to wayland event :: {s}", .{@errorName(err)});
-      };
-    }
-
-    app_state.wayland_state.connection.flush() catch |err| {
-      std.log.err("Failed to flush Wayland Event responses :: {s}", .{@errorName(err)});
-      app_state.signal_exit();
+    const instance_info: vk.InstanceCreateInfo = .{
+      .p_application_info = &app_info,
     };
+    instance = vkb.createInstance(&instance_info, null) catch @panic("uh oh!");
+    vki = .load(instance, vk_get_instance_proc_addr);
   }
+  defer vki.destroyInstance(instance, null);
 
-  // issue draw cmds
-  {
-    defer cur_draw_img_idx =
-      @intCast((cur_draw_img_idx+1) % app_state.swapchain.images.len);
+  // NEXT UP:
+  // - Create draw buffers (wl_buffer on wayland) with this memory for presentation to surface
 
-    sw_render_cmd_queue.push(.{
-      .renderpass_begin = .{
-        .image_view = .{
-          .image = app_state.swapchain.images[cur_draw_img_idx],
-          .width = app_state.swapchain.width,
-          .height = app_state.swapchain.height,
+  const vk_pdev: *vk.PhysicalDevice = arena.create(vk.PhysicalDevice);
+  var vkd: vk.DeviceWrapper = undefined;
+  var vk_dev: vk.Device = undefined;
+  var queue_family_index: u32 = undefined;
+  _ = &vk_dev; _ = &queue_family_index;
+  _ = &vkd;
+
+  defer vkd.destroyDevice(vk_dev, null);
+
+  // const vkd_queue = vkd.getDeviceQueue(
+  //   vk_dev,
+  //   queue_family_index,
+  //   0,
+  // );
+
+  // _ = vkd_queue;
+  var ofb: OffscreenBuffer = undefined;
+
+  // platform_conn.handle.check_surface_formats(surface.handle);
+
+  //---------------------------------------------------------------------------
+  // END VULKAN STATE INIT
+  //---------------------------------------------------------------------------
+
+  const vk_state_init_end_us = time.us();
+  const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
+  std.log.debug(
+    "vulkan state init complete in {d}us ({d}ms)!",
+    .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
+  );
+
+  var events: platform.EventList = .empty;
+  var want_exit = false;
+
+  var shm_pool = create_shm_pool(
+    &platform_conn.handle,
+    platform_conn.handle.client_state.wl_shm,
+    surface.width,
+    surface.height,
+  );
+  const shm_buffer = shm_pool.create_buffer(
+    surface.width,
+    surface.height,
+    .xrgb8888,
+  );
+
+  platform_conn.handle.flush() catch unreachable;
+
+  var ofb_wlbuf: platform.wayland.WaylandBuffer = undefined;
+  var want_attach = false;
+  var attached = false;
+
+  const time_target = time.us_per_s / 120;
+  while (!want_exit) {
+    var wl_connection_proxy = platform_conn.handle.proxy();
+    const frame_time_start = time.us();
+    var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
+    defer frame_scratch.end();
+    const frame_arena = frame_scratch.arena;
+    events = platform_conn.get_events(frame_arena, &surface);
+    var event_opt = events.first;
+    while (event_opt) |ev| : (event_opt = ev.next) {
+      // event handling loop
+      switch (ev.type) {
+        .surface_close => {
+          want_exit = true;
         },
-        .image_format = .abgr8888,
+        else => {
+          std.log.debug("app-level ev :: {any}", .{ev});
+        },
       }
-    });
+    }
 
-    sw_render_cmd_queue.push(.{ .temp_draw_tri = {} });
+    if (want_attach and attached) {
+      log.debug("attempting to attach GPUmem buffer now!", .{});
+      surface.handle.wl_surface.attach(
+        &wl_connection_proxy,
+        ofb_wlbuf,
+        0,
+        0,
+      );
+      surface.handle.wl_surface.damage_buffer(
+        &wl_connection_proxy,
+        0,
+        0,
+        surface.width,
+        surface.height,
+      );
+    }
+    if (want_attach and !attached) {
+      log.debug("attempting to attach CPUmem buffer now!", .{});
+      attached = true;
+    }
 
-    sw_render_cmd_queue.push(.{
-      .renderpass_end = {}
-    });
-  }
+    if (!want_attach and surface.handle.ready()) {
+      _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
+        &wl_connection_proxy,
+        surface.handle.wl_surface,
+      );
+      _ = &ofb;
+      // ofb = .create(
+      //   vkd,
+      //   vk_dev,
+      //   vki,
+      //   vk_pdev.*,
+      //   u32_(surface.width),
+      //   u32_(surface.height),
+      //   .r8g8b8a8_unorm,
+      //   .linear,
+      // );
 
-  // frame present
-  if (app_state.swapchain.present_idx) |active_frame_idx| {
-    const wl_surface = app_state.wayland_state.wl_surface;
-    const proxy = app_state.wayland_state.proxy;
-    const width = app_state.swapchain.width;
-    const height = app_state.swapchain.height;
+      _ = &ofb_wlbuf;
+      // ofb_wlbuf = platform_conn.handle.wl_buffer(
+      //   ofb,
+      // );
+      std.log.debug("ofb wlbuf id :: {}", .{u32_(ofb_wlbuf)});
 
-    // commit new frame for present
-    {
-      wl_surface.attach(proxy, .{
-        .buffer = app_state.swapchain.buffers[active_frame_idx],
-        .x = 0,
-        .y = 0,
-      }) catch unreachable;
+      log.debug("surface ready :: setting want_attach to true", .{});
+      want_attach = true;
+      surface.handle.wl_surface.attach(
+        &wl_connection_proxy,
+        shm_buffer,
+        0,
+        0,
+      );
+      surface.handle.wl_surface.damage_buffer(
+        &wl_connection_proxy,
+        0,
+        0,
+        surface.width,
+        surface.height,
+      );
+      surface.handle.wl_surface.commit(
+        &wl_connection_proxy,
+      );
+      _ = &vk_dev; _ = &queue_family_index;
+      _ = &vkd;
+      if (platform_conn.handle.client_state.main_device == 0) {
+        want_attach = false;
+      } else {
+        vk_dev, queue_family_index = selectWaylandVkDevice(
+          platform_conn.handle,
+          instance,
+          vki,
+          vk_pdev,
+        );
+        vkd = .load(
+          vk_dev,
+          vki.dispatch.vkGetDeviceProcAddr.?,
+        );
+      }
+    }
 
-      wl_surface.damage_buffer(proxy, .{
-        .x = 0,
-        .y = 0,
-        .width = @intCast(width),
-        .height = @intCast(height),
-      }) catch unreachable;
-      wl_surface.commit(proxy) catch unreachable;
+    surface.handle.wl_surface.damage(&wl_connection_proxy, 0, 0, surface.width, surface.height );
+    surface.handle.wl_surface.commit(&wl_connection_proxy);
+    platform_conn.handle.flush() catch unreachable;
 
-      app_state.wayland_state.connection.flush() catch |err| {
-        app_log.err("App quitting due to error :: {s}", .{
-          @errorName(err),
-        });
-        app_state.signal_exit();
-      };
+    update();
+    draw();
+
+    const frame_time_end = time.us();
+    const frame_elapsed_us = frame_time_end - frame_time_start;
+    if (frame_elapsed_us < time_target) {
+      Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
     }
   }
 }
 
-var sw_render_cmd_queue: gfx.CommandQueue = undefined;
+const ShmPool = struct {
+  proxy: platform.wayland.Proxy,
+  wl_shm_pool: platform.wayland.ShmPool,
+  buffer: []u32,
+  fd: c_int,
 
-/// 3D software render entry thread
-fn sw_render_thread_entry(lctx: *Thread.LaneContext) void {
-  Thread.ctx_init();
-  defer Thread.ctx_release();
-
-  Thread.lane_ctx(lctx.*);
-  Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
-
-  const target_frame_time_us: i64 = std.time.us_per_ms * 16;
-
-  const scratch = Thread.Context.get_scratch(0, .{}) orelse
-    @panic("Thread failed to access scratch arena");
-
-  var frame_idx: u32 = 0;
-  var cmd_queue_idx: u32 = 0;
-  var img: []gfx.Pixel = undefined;
-  var img_rng: math.Rng2u64 = .{ .min = 0, .max = 0 };
-  var img_width: i32 = 0;
-
-  while (true) : (frame_idx +%= 1) {
-    const frame_time_begin_us: i64 = std.time.microTimestamp();
-    defer {
-      scratch.arena.clear();
-      const frame_time_end_us: i64 = std.time.microTimestamp();
-      const frame_time_diff_us = frame_time_end_us - frame_time_begin_us;
-
-      const sleep_time: i64 = @max(target_frame_time_us - frame_time_diff_us, 0);
-      Thread.sleep(@intCast(sleep_time));
-    }
-    const mod_frame_idx = frame_idx % 3;
-
-    // render cmd handling
-    {
-      while (sw_render_cmd_queue.get_cmd(cmd_queue_idx)) |command| {
-        defer cmd_queue_idx +%= 1;
-
-        // Handle cmds
-        switch (command) {
-          .renderpass_begin => |renderpass| {
-            img = renderpass.image_view.image;
-            img_rng = Thread.lane_range(img.len);
-            img_width = app_state.swapchain.width;
-            @memset(img[img_rng.min..img_rng.max], @bitCast(gfx.Color.red));
-            Thread.lane_sync();
-          },
-          .renderpass_end => |renderpass| {
-            _ = &renderpass;
-          },
-          .temp_draw_tri => {
-            tri_fill_2d(
-              point0_2d,
-              point1_2d,
-              point2_2d,
-              img,
-              img_width,
-              .blue,
-            );
-          },
-          else => @panic("unsupported render cmd..."),
-        }
-      }
-    }
-    // Exit condition check
-    {
-      Thread.lane_sync();
-
-      var need_exit: bool = false;
-      if (Thread.lane_idx() == 0) {
-        need_exit = app_state.should_exit();
-      }
-
-      Thread.lane_sync_u64(bool, &need_exit, 0);
-      if (need_exit) {
-        break;
-      }
-
-      if (Thread.lane_idx() == 0) {
-        app_state.swapchain.active[mod_frame_idx] = true;
-        app_state.swapchain.present_idx = @intCast(mod_frame_idx);
-      }
-    }
-  }
-}
-
-pub var point0_2d: Vec2i32 = .{ .xy = .{ .x = 100, .y = 400 } };
-pub var point1_2d: Vec2i32 = .{ .xy = .{ .x = 200, .y = 100 } };
-pub var point2_2d: Vec2i32 = .{ .xy = .{ .x = 300, .y = 400 } };
-
-pub var Point0: Vec3f32 = .{ .xyz = .{ .x = -0.5, .y = -0.5, .z = 1.0 } };
-pub var Point1: Vec3f32 = .{ .xyz = .{ .x =  0.5, .y = -0.5, .z = 1.0 } };
-pub var Point2: Vec3f32 = .{ .xyz = .{ .x =  0.0, .y =  0.5, .z = 1.0 } };
-
-fn sw_render_thread_entry_2d(lctx: *Thread.LaneContext) void {
-  Thread.ctx_init();
-  defer Thread.ctx_release();
-
-  Thread.lane_ctx(lctx.*);
-  Thread.set_namef("render_lane_{d}", .{Thread.lane_idx()});
-
-  var img: []gfx.Pixel = undefined;
-  var frame_number: u32 = 0;
-  const target_frame_time_us: i64 = std.time.us_per_ms * 16;
-
-  while (true) : (frame_number +%= 1) {
-    const frame_time_begin_us: i64 = std.time.microTimestamp();
-    defer {
-      img = undefined;
-      const frame_time_end_us: i64 = std.time.microTimestamp();
-      const frame_time_diff_us = frame_time_end_us - frame_time_begin_us;
-
-      const sleep_time: i64 = @max(target_frame_time_us - frame_time_diff_us, 0);
-      Thread.sleep(@intCast(sleep_time));
-    }
-
-    const sc_len = app_state.swapchain.images.len;
-    const mod_frame_idx = frame_number % sc_len;
-
-    img = app_state.swapchain.images[mod_frame_idx];
-
-    const img_width = app_state.swapchain.width;
-    const img_height = app_state.swapchain.height;
-
-    const rng = Thread.lane_range(img.len);
-
-    // Clear screen
-    @memset(img[rng.min..rng.max], @bitCast(gfx.Color.black));
-    Thread.lane_sync();
-
-    tri_wireframe_2d(
-      point0_2d,
-      point1_2d,
-      point2_2d,
-      img,
-      img_width,
-      img_height,
-      @intCast(rng.min),
-      @intCast(rng.max),
-      .white,
+  pub fn create_buffer(
+    pool: *ShmPool,
+    width: i32,
+    height: i32,
+    format: platform.wayland.Shm.Format,
+  ) platform.wayland.WaylandBuffer {
+    @memset(pool.buffer, 0xefefefef);
+    return pool.wl_shm_pool.create_buffer(
+      &pool.proxy,
+      0,
+      width,
+      height,
+      width*4,
+      format,
     );
-
-    tri_fill_2d(
-      point0_2d,
-      point1_2d,
-      point2_2d,
-      img,
-      img_width,
-      .green,
-    );
-
-    Thread.lane_sync();
-
-    var need_exit: bool = false;
-    if (Thread.lane_idx() == 0) {
-      need_exit = app_state.should_exit();
-    }
-    Thread.lane_sync_u64(bool, &need_exit, 0);
-    if (need_exit) {
-      break;
-    }
-
-    if (Thread.lane_idx() == 0) {
-      app_state.swapchain.active[mod_frame_idx] = true;
-      app_state.swapchain.present_idx = @intCast(mod_frame_idx);
-    }
   }
-}
+};
 
-// 2D gfx section
-fn draw_line_2d(
-  p0: Vec2i32,
-  p1: Vec2i32,
-  img: []u32,
-  img_width: i32,
-  img_height: i32,
-  min_idx: u32,
-  max_idx: u32,
-  color: gfx.Color,
-  ) void
-{
-  const x0: i32 = @intCast(p0.xy.x);
-  const y0: i32 = @intCast(p0.xy.y);
-  const x1: i32 = @intCast(p1.xy.x);
-  const y1: i32 = @intCast(p1.xy.y);
+fn create_shm_pool(
+  conn: *platform.wayland.Connection,
+  shm: platform.wayland.Shm,
+  width: i32,
+  height:i32,
+) ShmPool {
+  const scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const shm_fd = open_shmfile(scratch.arena);
+  var proxy = conn.proxy();
 
-  const dx: i32 = @intCast(@abs(x1 - x0));
-  const dy: i32 = @intCast(@abs(y1 - y0));
-  var err: i64 = @as(i64, dx) - @as(i64, dy);
+  const img_stride = width * 4;
+  const img_size = height * img_stride;
+  _ = os.linux.ftruncate(
+    shm_fd,
+    img_size,
+  );
 
-  const sx: i32 = if (x0 < x1) 1 else -1;
-  const sy: i32 = if (y0 < y1) 1 else -1;
+  const rc = os.linux.mmap(
+    null,
+    base.usize_(img_size),
+    .{ .READ = true, .WRITE = true },
+    .{ .TYPE = .SHARED },
+    shm_fd,
+    0
+  );
 
-  var pix_x: i32 = x0;
-  var pix_y: i32 = y0;
-
-  while (true) {
-    if (pix_x >= 0 and pix_x < @as(i32, img_width) and pix_y >= 0 and pix_y < @as(i32, img_height)) {
-      const idx_calc: i64 = @as(i64, pix_y) * @as(i64, img_width) + @as(i64, pix_x);
-      const img_idx: usize = @intCast(idx_calc);
-      if (img_idx >= min_idx and img_idx < max_idx) {
-        img[img_idx] = @bitCast(color);
-      }
-    }
-
-    if (pix_x == x1 and pix_y == y1) break;
-
-    const e2: i64 = 2 * err;
-    if (e2 > -@as(i64, dy)) { err -= @as(i64, dy); pix_x += sx; }
-    if (e2 < @as(i64, dx)) { err += @as(i64, dx); pix_y += sy; }
+  const irc = transmute(isize, rc);
+  if (irc < 0) {
+    log.err("failed to map in shmfile memory!", .{});
   }
-}
 
-fn tri_wireframe_2d(
-  p0: Vec2i32,
-  p1: Vec2i32,
-  p2: Vec2i32,
-  img: []u32,
-  img_width: i32,
-  img_height: i32,
-  min_idx: u32,
-  max_idx: u32,
-  color: gfx.Color,
-) void
-{
-  draw_line_2d(
-    p0,
-    p1,
-    img,
-    img_width,
-    img_height,
-    min_idx,
-    max_idx,
-    color,
+  const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
+  const img_buffer = transmute([]u32, ptr);
+
+  const shm_pool = shm.create_pool(
+    &proxy,
+    shm_fd,
+    img_size,
   );
 
-  draw_line_2d(
-    p1,
-    p2,
-    img,
-    img_width,
-    img_height,
-    min_idx,
-    max_idx,
-    color,
-  );
-
-  draw_line_2d(
-    p2,
-    p0,
-    img,
-    img_width,
-    img_height,
-    min_idx,
-    max_idx,
-    color,
-  );
-}
-
-fn signed_tri_area_2d(p0: Vec2i32, p1: Vec2i32, p2: Vec2i32) f64 {
-  return f64_(0.5) * f64_(
-    (p1.xy.y - p0.xy.y) * (p1.xy.x + p0.xy.x) +
-    (p2.xy.y - p1.xy.y) * (p2.xy.x + p1.xy.x) +
-    (p0.xy.y - p2.xy.y) * (p0.xy.x + p2.xy.x)
-  );
-}
-
-pub fn tri_fill_2d(
-  p0: Vec2i32,
-  p1: Vec2i32,
-  p2: Vec2i32,
-  img: []u32,
-  img_width: i32,
-  color: gfx.Color,
-) void
-{
-  const bb_min_x = @min(@min(p0.xy.x, p1.xy.x), p2.xy.x);
-  const bb_min_y = @min(@min(p0.xy.y, p1.xy.y), p2.xy.y);
-  const bb_max_x = @max(@max(p0.xy.x, p1.xy.x), p2.xy.x);
-  const bb_max_y = @max(@max(p0.xy.y, p1.xy.y), p2.xy.y);
-
-  const total_area = signed_tri_area_2d(p0, p1, p2);
-  const x_rng = Thread.lane_range(@intCast(bb_max_x - bb_min_x + 1));
-
-  for (x_rng.min..x_rng.max) |x| {
-    const pix_x = @as(i32, @intCast(x)) + bb_min_x;
-    for (@intCast(bb_min_y)..@intCast(bb_max_y)) |pix_y| {
-      const p_cur: Vec2i32 = .{ .xy = .{ .x = @intCast(pix_x), .y = @intCast(pix_y) } };
-      const alpha = signed_tri_area_2d(
-        p_cur,
-        p1,
-        p2
-      ) / total_area;
-      const beta = signed_tri_area_2d(
-        p_cur,
-        p2,
-        p0,
-      ) / total_area;
-      const gamma = signed_tri_area_2d(
-        p_cur,
-        p0,
-        p1,
-      ) / total_area;
-
-      if (alpha < 0 or beta < 0 or gamma < 0) continue;
-      const idx_calc: i64 = (@as(i64, @intCast(pix_y)) * @as(i64, img_width)) + (@as(i64, @intCast(pix_x)));
-      const img_idx: usize = @intCast(idx_calc);
-      if (img_idx > img.len) {
-        @branchHint(.cold);
-        std.log.debug("[lane#{d}] exceeded buffer bounds with idx: {d}", .{ Thread.lane_idx(), img_idx });
-        continue;
-      }
-      img[img_idx] = @bitCast(color);
-    }
-  }
-}
-
-// 3D gfx section
-fn coord_to_screen(
-  point: Vec3f32,
-  screen_dims: Vec2f32,
-) Vec2f32
-{
   return .{
-    .x = (point.xyz.x + 1) / 2 * (screen_dims.xy.x),
-    .y = (point.xyz.y + 1) / 2 * (screen_dims.xy.y),
+    .proxy = proxy,
+    .fd = shm_fd,
+    .buffer = img_buffer,
+    .wl_shm_pool = shm_pool,
   };
 }
 
-fn tri_fill(
-  p0: Vec3f32,
-  p1: Vec3f32,
-  p2: Vec3f32,
-) void
-{
-  _ = p0; _ = p1; _ = p2;
-}
+fn open_shmfile(arena: *Arena) c_int {
+  const linux = os.linux;
+  const timestamp = time.us();
+  const name_template = "/var/tmp/vkRender-XXXXXX";
 
-// wayland event handling section
-
-pub fn handle_wl_event(noalias state: *WaylandState, noalias event: *const Wayland.Protocols.Event) !void {
-  switch (event.*) {
-    .wl_display => |display_event| switch (display_event) {
-      .@"error" => |err| {
-        event_log.debug("Display Error :: {{ .object_id={d}, .code={d}, .message=\"{s}\"", .{
-          err.object_id, err.code, err.message,
-        });
-      },
-      .delete_id => {},
-    },
-    .wl_registry => |registry_event| switch (registry_event) {
-      .global => |registry_global| {
-        event_log.debug(
-          "Registry Global :: {{ .interface={s}, .name={d}, .version = {d} }}",
-          .{ registry_global.interface, registry_global.name, registry_global.version, }
-        );
-      },
-      .global_remove => |global_remove| {
-        event_log.debug(
-          "Registry Global Remove :: {{ .name={d} }}",
-          .{ global_remove.name }
-        );
-      },
-    },
-    .wl_seat => |seat_event| switch (seat_event) {
-      .capabilities => |seat_capabilities| {
-        event_log.debug("wl_seat capabilities :: {{ .pointer={s}, .keyboard={s}, .touch={s} }}", .{
-          if (seat_capabilities.capabilities.pointer) "true" else "false",
-          if (seat_capabilities.capabilities.keyboard) "true" else "false",
-          if (seat_capabilities.capabilities.touch) "true" else "false",
-        });
-      },
-      .name => |seat_name| {
-        event_log.debug("wl_seat name :: {s}", .{seat_name.name});
-      },
-    },
-    .wl_surface => |surface_event| switch (surface_event) {
-      else => event_log.debug("wl_surface_event :: {any}", .{surface_event}),
-    },
-    .wl_buffer => |buffer_event| switch (buffer_event) {
-      .release => {},
-    },
-    .xdg_wm_base => |xdg_wm_base_event| switch (xdg_wm_base_event) {
-      .ping => |ping| {
-        try state.wm_base.pong(state.proxy, .{ .serial = ping.serial });
-      },
-    },
-    .xdg_surface => |xdg_surface_event| switch (xdg_surface_event) {
-      .configure => |configure| {
-        try state.xdg_surface.ack_configure(state.proxy, .{ .serial = configure.serial });
-      },
-    },
-    .xdg_toplevel => |xdg_toplevel_event| switch (xdg_toplevel_event) {
-      .configure => |configure| {
-        if (configure.width > 0 and allow_resize) {
-          try app_state.swapchain.resize(configure.width, configure.height);
-        }
-      },
-      .wm_capabilities => |wm_capabilities| {
-        const Capability = Wayland.Protocols.XdgShell.Toplevel.Enum.WmCapabilities;
-        var iter = std.mem.window(
-          u8,
-          wm_capabilities.capabilities,
-          @sizeOf(Capability),
-          @sizeOf(Capability),
-        );
-
-        while (iter.next()) |cap_bytes| {
-          const capability = std.mem.bytesToValue(Capability, cap_bytes);
-          event_log.debug("xdg_toplevel :: wm_capability :: {s}", .{
-            @tagName(capability),
-          });
-        }
-      },
-      .close => {
-        event_log.debug("xdg_toplevel :: received close event", .{});
-        app_state.signal_exit();
-      },
-      else => {
-        event_log.debug("xdg_toplevel :: unhandled event :: {any}", .{event});
-      },
-    },
-    else => {
-      event_log.debug("event :: {any}", .{event});
-    },
+  var name = arena.push(u8, name_template.len + 1);
+  @memcpy(name[0..name.len-1], name_template);
+  for (name[(name.len - 7)..][0..6]) |*byte| {
+    byte.* = base.u8_((
+      'A' + (timestamp & 15) + ((timestamp & 16) * 2)
+    ));
   }
+
+  log.debug("opening shmfile with name {s}", .{name});
+
+  const fd = linux.open(
+    transmute(CString, name),
+    .{
+      .ACCMODE = .RDWR,
+      .CREAT = true,
+      .EXCL = true,
+      .CLOEXEC = true,
+    },
+    0o600,
+  );
+
+  log.debug("shmfile handle :: {}", .{transmute(isize, fd)});
+  _ = linux.unlink(transmute(CString, name));
+  return base.i32_(transmute(isize, fd));
 }
 
-// cast helpers
+fn update() void {
+}
 
-fn f64_(v: anytype) f64 {
-   return switch (@typeInfo(@TypeOf(v))) {
-    .int, .comptime_int => @floatFromInt(v),
-    .float => @floatCast(v),
-    .comptime_float => @as(f64, v),
-    else => @compileError("Invalid type for f64"),
+fn draw() void {
+}
+
+fn selectWaylandVkDevice(
+  wayland_conn: platform.wayland.Connection,
+  instance: vk.Instance,
+  vki: vk.InstanceWrapper,
+  pdev: *vk.PhysicalDevice,
+) struct { vk.Device, u32 } {
+  // Physical Device Selection
+  var vk_pdev_count: u32 = 0;
+  _ = vki.enumeratePhysicalDevices(
+    instance,
+    &vk_pdev_count,
+    null,
+  ) catch unreachable;
+
+  var scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const vk_pdev_arena = scratch.arena;
+  var vk_pdevs = vk_pdev_arena.push(vk.PhysicalDevice, vk_pdev_count);
+
+  _ = vki.enumeratePhysicalDevices(
+    instance,
+    &vk_pdev_count,
+    vk_pdevs.ptr,
+  ) catch unreachable;
+  if (vk_pdevs.len == 0) @panic("no vk physical devices available")
+    else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
+
+  const main_device = wayland_conn.client_state.main_device;
+  // vk physical device enumeration
+  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
+  for (vk_pdevs) |vk_pdev_opt| {
+    var pdev_drm: vk.PhysicalDeviceDrmPropertiesEXT = .{
+      .has_primary = .false,
+      .has_render = .false,
+      .primary_major = 0,
+      .primary_minor = 0,
+      .render_major = 0,
+      .render_minor = 0,
+    };
+
+    var pdev_props13: vk.PhysicalDeviceVulkan13Properties = undefined;
+    pdev_props13.s_type = .physical_device_vulkan_1_3_properties;
+    pdev_props13.p_next = &pdev_drm;
+
+    var pdev_props2: vk.PhysicalDeviceProperties2 = .{
+      .p_next = &pdev_props13,
+      .properties = undefined,
+    };
+
+    _ = vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
+
+    var score: u32 = 0;
+    const props = pdev_props2.properties;
+    if (props.device_type == .discrete_gpu)
+      score += 1000;
+
+    score += props.limits.max_image_dimension_2d;
+
+    var vk_pdev_ext_prop_count: u32 = 0;
+    _ = vki.enumerateDeviceExtensionProperties(
+      vk_pdev_opt,
+      null,
+      &vk_pdev_ext_prop_count,
+      null,
+    ) catch unreachable;
+
+    const vk_pdev_ext_props = vk_pdev_arena.push(vk.ExtensionProperties, vk_pdev_ext_prop_count);
+
+    _ = vki.enumerateDeviceExtensionProperties(
+      vk_pdev_opt,
+      null,
+      &vk_pdev_ext_prop_count,
+      vk_pdev_ext_props.ptr,
+    ) catch unreachable;
+
+    const supports_desired_extensions = ext_support: {
+      for (vk_required_device_extensions) |ext| {
+        const found_ext = found: {
+          for (vk_pdev_ext_props) |ext_prop| {
+            const ext_prop_name = ext_prop_name: {
+              var name_end_idx: usize = 0;
+              while (ext_prop.extension_name[name_end_idx] != 0) {
+                name_end_idx += 1;
+              }
+              break :ext_prop_name ext_prop.extension_name[0..name_end_idx+1];
+            };
+
+            const ext_name = ext_name: {
+              var name_end_idx: usize = 0;
+              while (ext[name_end_idx] != 0) {
+                name_end_idx += 1;
+              }
+              break :ext_name ext[0..name_end_idx+1];
+            };
+
+            if (std.mem.eql(u8, ext_name, ext_prop_name)) {
+              break :found true;
+            }
+          }
+
+          break :found false;
+        };
+
+        if (!found_ext) break :ext_support false;
+      }
+      break :ext_support true;
+    };
+
+    std.log.debug("extension support : {}", .{supports_desired_extensions});
+    if (supports_desired_extensions and score > vk_pdev_candidate.score) {
+      if (pdev_drm.has_primary == .true) {
+        if (pdev_drm.primary_major == major(main_device) and pdev_drm.primary_minor == minor(main_device)) {
+          std.log.debug("correct GPU found!", .{});
+          vk_pdev_candidate = .{
+            .pdev = vk_pdev_opt,
+            .properties = pdev_props2.properties,
+            .score = score,
+          };
+        }
+      }
+
+      if (pdev_drm.has_render == .true) {
+        if (pdev_drm.render_major == major(main_device) and pdev_drm.render_minor == minor(main_device)) {
+          std.log.debug("correct GPU found!", .{});
+          vk_pdev_candidate = .{
+            .pdev = vk_pdev_opt,
+            .properties = pdev_props2.properties,
+            .score = score,
+          };
+        }
+      }
+    }
+  }
+
+  pdev.* = vk_pdev_candidate.pdev;
+
+
+  std.log.debug(
+    "Selected GPU: {s}",
+    .{
+      vk_pdev_candidate.properties.device_name,
+    },
+  );
+  const vk_dev_create_arena = scratch.arena;
+  // Logical Device Creation
+  const vk_dev, const queue_family_index = vk_dev: {
+    const queue_family_index = qfi: {
+      var queue_family_count: u32 = 0;
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        pdev.*,
+        &queue_family_count,
+        null,
+      );
+      const queue_families = vk_dev_create_arena.push(
+        vk.QueueFamilyProperties,
+        queue_family_count
+      );
+
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        pdev.*,
+        &queue_family_count,
+        queue_families.ptr,
+      );
+
+      for (queue_families, 0..) |queue_family_props, index| {
+        if (queue_family_props.queue_flags.graphics_bit) {
+          break :qfi u32_(index);
+        }
+      }
+      @panic("Unable to find suitable graphics queue for device!");
+    };
+
+    var queue_priority: f32 = 1;
+    const queue_info: vk.DeviceQueueCreateInfo = .{
+      .queue_family_index = queue_family_index,
+      .queue_count = 1,
+      .p_queue_priorities = @ptrCast(&queue_priority),
+    };
+
+    const device_info: vk.DeviceCreateInfo = .{
+      .p_queue_create_infos = &.{
+        queue_info,
+      },
+      .queue_create_info_count = 1,
+      .p_enabled_features = null,
+
+      .enabled_extension_count = u32_(vk_required_device_extensions.len),
+      .pp_enabled_extension_names = &vk_required_device_extensions,
+    };
+
+    break :vk_dev .{
+      vki.createDevice(
+        pdev.*,
+        &device_info,
+        null,
+      ) catch unreachable,
+      queue_family_index,
+    };
   };
+  return .{ vk_dev, queue_family_index };
 }
 
-// State tracking
+fn major(dev: u64) u64 {
+  return ((dev >> 8) & 0xfff);
+}
+fn minor(dev: u64) u64 {
+    return ((dev & 0xff) | ((dev >> 12) & 0xffffff00));
+}
 
-const AppState = struct {
-  wayland_state: *WaylandState,
-  swapchain: Wayland.ShmImageQueue,
-  frame_idx: u64 = 0,
-  exit_flag: u32 = 0,
 
-  pub fn should_exit(state: *AppState) bool {
-    return (@atomicLoad(u32, &state.exit_flag, .seq_cst) == 1);
-  }
-  pub fn signal_exit(state: *AppState) void {
-    @atomicStore(u32, &state.exit_flag, 1, .seq_cst);
-  }
+const vk_required_device_extensions = [_][*:0]const u8{
+  vk.extensions.khr_external_memory.name,
+  vk.extensions.khr_external_memory_fd.name,
+  vk.extensions.ext_external_memory_dma_buf.name,
+  vk.extensions.ext_image_drm_format_modifier.name,
 };
 
-const WaylandState = struct {
-  connection: *Wayland.Connection,
-  proxy: *Wayland.Protocols.Proxy,
-
-  // globals
-  display: Wayland.Protocols.Wayland.Display,
-  seat: Wayland.Protocols.Wayland.Seat,
-  shm: Wayland.Protocols.Wayland.Shm,
-  wm_base: Wayland.Protocols.XdgShell.WmBase,
-
-  // objects
-  wl_surface: Wayland.Protocols.Wayland.Surface,
-  xdg_surface: Wayland.Protocols.XdgShell.Surface,
-  xdg_toplevel: Wayland.Protocols.XdgShell.Toplevel,
+const VkDeviceCandidate = struct {
+  pdev: vk.PhysicalDevice,
+  properties: vk.PhysicalDeviceProperties,
+  score: u32,
 };
 
-// Vector types
-const Vec2i32 = packed union {
-  vec: @Vector(2, i32),
-  arr: [*]i32,
-  xy: packed struct (u64) { x: i32, y: i32 },
-};
-const Vec2f32 = packed union {
-  vec: @Vector(2, f32),
-  arr: [*]f32,
-  xy: packed struct (u64) { x: f32, y: f32 },
-};
-const Vec3i32 = packed union {
-  vec: @Vector(3, i32),
-  arr: [*]i32,
-  xyz: struct { x: i32, y: i32, z: i32 },
-};
-const Vec3f32 = packed union {
-  vec: @Vector(3, f32),
-  arr: [*]f32,
-  xyz: struct { x: f32, y: f32, z: f32 },
+const OffscreenBuffer = platform.OffscreenBuffer;
+
+const AppName = "vkRender";
+const AppClass = "Liam.Games.vkRender";
+const Swapchain = struct {
 };
 
-// Type constants
+const cast = base.casts.cast;
+const transmute = base.casts.transmute;
 
-const Light = gfx.Light;
-const Sphere = gfx.Sphere;
-const Wayland = gfx.Wayland;
+const u32_ = base.u32_;
+const u64_ = base.u64_;
+
+const f32_ = base.f32_;
+const f64_ = base.f64_;
+
+const CString = [*:0]const u8;
 
 const Arena = base.Arena;
 const Thread = base.Thread;
-
 const math = base.math;
+const time = base.time;
 
-const app_log = std.log.scoped(.App);
-const event_log = std.log.scoped(.Event);
+const drm = gfx.Drm;
+const gfx = platform.gfx;
 
-// File Imports
-const raytracer = @import("raytracer.zig");
-
-// Internal Module Imports
-const gfx = @import("gfx");
 const base = @import("base");
+const os = @import("os");
+const vk = @import("vulkan");
+const platform = @import("platform");
 
-// 3rd-Party Module Imports
+const log = std.log.scoped(.App);
+
 const std = @import("std");
 const builtin = @import("builtin");
