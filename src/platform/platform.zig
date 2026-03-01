@@ -157,7 +157,7 @@ pub const OffscreenBuffer = struct {
   drm_modifier: Drm.Modifier = .invalid,
   width: u32,
   height: u32,
-  format: vk.Format,
+  format: gfx.Format,
   stride: u32,
   offset: u32,
 
@@ -168,12 +168,12 @@ pub const OffscreenBuffer = struct {
     pdev: vk.PhysicalDevice,
     width: u32,
     height: u32,
-    format: vk.Format,
+    format: gfx.Format,
     mod: Drm.Modifier,
   ) OffscreenBuffer {
     const ext2: vk.ImageFormatListCreateInfo = .{
       .view_format_count = 1,
-      .p_view_formats = &.{ format },
+      .p_view_formats = &.{ format.toVk() },
       .p_next = null,
     };
     const ext: vk.ExternalMemoryImageCreateInfo = .{
@@ -205,7 +205,7 @@ pub const OffscreenBuffer = struct {
         .p_next = &drm_ext,
         .flags = .{},
         .image_type = .@"2d",
-        .format = format,
+        .format = format.toVk(),
         .extent = .{
           .width = width,
           .height = height,

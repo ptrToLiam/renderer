@@ -32,39 +32,55 @@ pub const Float4 = packed union {
 
 pub const Format = enum(u32) {
   invalid = 0,
-  argb8888,
-  abgr8888,
-  rgba8888,
+  xrgb32,   // no alpha, R in high bits memory order: [B,G,R,X]
+  xbgr32,   // no alpha, B in high bits memory order: [R,G,B,X]
+  rgbx32,   // no alpha, memory order: [X,B,G,R]
+  argb32,   // with alpha, memory order: [B,G,R,A]
+  abgr32,   // with alpha, memory order: [R,G,B,A]
+  rgba32,   // with alpha, memory order: [A,B,G,R]
 
-  pub fn fromDrmFormat(fmt: Drm.Format) Format {
+  pub fn fromDrm(fmt: Drm.Format) ?Format {
     return switch (fmt) {
-      .abgr8888 => .rgba8888,
-      .rgba8888 => .abgr8888,
-      else => @panic("Unhandled Drm -> Gfx Format Conversion"),
+      .xrgb8888 => .xrgb32,
+      .xbgr8888 => .xbgr32,
+      .rgbx8888 => .rgbx32,
+      .argb8888 => .argb32,
+      .abgr8888 => .abgr32,
+      .rgba8888 => .rgba32,
+      else      => null,
     };
   }
 
-  pub fn fromVkFormat(fmt: vk.Format) Format {
+  pub fn fromVk(fmt: vk.Format) ?Format {
     return switch (fmt) {
-      .r8g8b8a8_unorm => .rgba8888,
-      .b8g8r8a8_unorm => .argb8888,
-      else => @panic("Unhandled Vk -> Gfx Format Conversion"),
+      .b8g8r8a8_unorm  => .argb32,
+      .r8g8b8a8_unorm  => .abgr32,
+      .a8b8g8r8_unorm_pack32 => .rgba32,
+      else             => null,
     };
   }
 
-  pub fn toDrmFormat(fmt: Format) Drm.Format {
+  pub fn toDrm(fmt: Format) Drm.Format {
     return switch (fmt) {
-      .rgba8888 => .abgr8888,
-      .abgr8888 => .rgba8888,
-      else => @panic("Unhandled Gfx -> Drm Format Conversion"),
+      .invalid => .invalid,
+      .xrgb32  => .xrgb8888,
+      .xbgr32  => .xbgr8888,
+      .rgbx32  => .rgbx8888,
+      .argb32  => .argb8888,
+      .abgr32  => .abgr8888,
+      .rgba32  => .rgba8888,
     };
   }
 
-  pub fn toVkFormat(fmt: Format) vk.Format {
+  pub fn toVk(fmt: Format) vk.Format {
     return switch (fmt) {
-      .rgba8888 => .r8g8b8a8_unorm,
-      .argb8888 => .b8g8r8a8_unorm,
-      else => @panic("Unhandled Gfx -> Vk Format Conversion"),
+      .invalid => .undefined,
+      .xrgb32  => .b8g8r8a8_unorm,  // X treated as ignored alpha
+      .xbgr32  => .r8g8b8a8_unorm,
+      .rgbx32  => .a8b8g8r8_unorm_pack32,
+      .argb32  => .b8g8r8a8_unorm,
+      .abgr32  => .r8g8b8a8_unorm,
+      .rgba32  => .a8b8g8r8_unorm_pack32,
     };
   }
 };

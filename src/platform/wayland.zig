@@ -517,7 +517,7 @@ pub const Connection = struct {
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
-      Drm.Format.argb8888.toInt(),
+      u32_(buf.format.toDrm()),
       .{},
     );
     comptime std.debug.assert(Drm.Format.argb8888.toInt() == 0x34325241);
