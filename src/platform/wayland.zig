@@ -531,13 +531,15 @@ pub const Connection = struct {
     );
 
     const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
+    // const ofb_wl_buffer = params.create_immed(
     params.create(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
-      gfx.Drm.Format.argb8888.toInt(),
+      gfx.Drm.Format.xbgr8888.toInt(),
       .{},
     );
+    comptime std.debug.assert(gfx.Drm.Format.argb8888.toInt() == 0x34325241);
     log.info(
       "Creating wl_buffer from offscreen VkBuffer with drm mod: {s}",
       .{@tagName(buf.drm_modifier)},

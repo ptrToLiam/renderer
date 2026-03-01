@@ -171,13 +171,6 @@ pub const OffscreenBuffer = struct {
     format: vk.Format,
     mod: Drm.Modifier,
   ) OffscreenBuffer {
-    const drm_ext: vk.ImageDrmFormatModifierExplicitCreateInfoEXT = .{
-      .drm_format_modifier = mod.toInt(),
-      .drm_format_modifier_plane_count = 0,
-      .p_plane_layouts = &.{},
-      .p_next = null,
-    };
-    _ = &drm_ext;
     const ext2: vk.ImageFormatListCreateInfo = .{
       .view_format_count = 1,
       .p_view_formats = &.{ format },
@@ -191,10 +184,25 @@ pub const OffscreenBuffer = struct {
       .p_next = &ext2,
     };
 
+    var drm_ext: vk.ImageDrmFormatModifierExplicitCreateInfoEXT = .{
+      .drm_format_modifier = mod.toInt(),
+      .drm_format_modifier_plane_count = 1,
+      .p_plane_layouts = &.{
+        .{
+          .offset = 0,
+          .size = 0,
+          .row_pitch = 0,
+          .array_pitch = 0,
+          .depth_pitch = 0,
+        },
+      },
+      .p_next = &ext,
+    };
+    _ = &drm_ext;
     const image = dev_wrapper.createImage(
       dev,
       &.{
-        .p_next = &ext,
+        .p_next = &drm_ext,
         .flags = .{},
         .image_type = .@"2d",
         .format = format,
@@ -206,7 +214,7 @@ pub const OffscreenBuffer = struct {
         .mip_levels = 1,
         .array_layers = 1,
         .samples = .{ .@"1_bit" = true },
-        .tiling = .linear,
+        .tiling = .drm_format_modifier_ext,
         .usage = .{
           .color_attachment_bit = true,
         },
@@ -297,7 +305,7 @@ pub const OffscreenBuffer = struct {
       dev,
       image,
       &.{
-        .aspect_mask = .{ .color_bit = true },
+        .aspect_mask = .{ .memory_plane_0_bit_ext = true },
         .mip_level = 0,
         .array_layer = 0,
       },
