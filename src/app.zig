@@ -217,7 +217,7 @@ pub fn app(env: std.process.Environ) void {
           vk_pdev.*,
           u32_(surface.width),
           u32_(surface.height),
-          .r8g8b8a8_unorm,
+          .b8g8r8a8_unorm,
           .linear,
         );
 

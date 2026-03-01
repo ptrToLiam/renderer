@@ -405,7 +405,7 @@ pub const Connection = struct {
           while (iter.next()) |entry_bytes| {
             const format = std.mem.bytesToValue(u32, entry_bytes[0..4]);
             const mod = std.mem.bytesToValue(u64, entry_bytes[8..][0..8]);
-            
+
             std.debug.print(
               "format({s}), mod({s})\n",
               .{
@@ -530,14 +530,13 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
-
     const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
     params.create(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
-      gfx.Drm.Format.abgr8888.toInt(),
-      .fromInt(0),
+      gfx.Drm.Format.argb8888.toInt(),
+      .{},
     );
     log.info(
       "Creating wl_buffer from offscreen VkBuffer with drm mod: {s}",
