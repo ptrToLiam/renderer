@@ -70,6 +70,18 @@ pub const Format = enum (u32) {
   rgba1010102 = fourcc_code('R', 'A', '3', '0'),   // [31:0] R:G:B:A 10:10:10:2 little endian
   bgra1010102 = fourcc_code('B', 'A', '3', '0'),   // [31:0] B:G:R:A 10:10:10:2 little endian
 
+  // 64 bpp RGBA (16 bits per channel)
+  abgr16161616f = fourcc_code('A', 'B', '4', 'H'),  // 0x48344241 - float
+  abgr16161616  = fourcc_code('A', 'B', '4', '8'),  // 0x38344241 - uint
+  argb16161616f = fourcc_code('A', 'R', '4', 'H'),  // 0x48345241
+  argb16161616  = fourcc_code('A', 'R', '4', '8'),  // 0x38345241
+
+  // 64 bpp RGBX (16 bits per channel)
+  xbgr16161616f = fourcc_code('X', 'B', '4', 'H'),  // 0x48344258
+  xbgr16161616  = fourcc_code('X', 'B', '4', '8'),  // 0x38344258
+  xrgb16161616f = fourcc_code('X', 'R', '4', 'H'),  // 0x48345258
+  xrgb16161616  = fourcc_code('X', 'R', '4', '8'),  // 0x38345258
+
   // packed YCbCr
   yuyv = fourcc_code('Y', 'U', 'Y', 'V'),   // [31:0] Cr0:Y1:Cb0:Y0 8:8:8:8 little endian
   yvyu = fourcc_code('Y', 'V', 'Y', 'U'),   // [31:0] Cb0:Y1:Cr0:Y0 8:8:8:8 little endian
@@ -122,6 +134,28 @@ pub const Format = enum (u32) {
   yvu422 = fourcc_code('Y', 'V', '1', '6'),   // 2x1 subsampled Cr (1) and Cb (2) planes
   yuv444 = fourcc_code('Y', 'U', '2', '4'),   // non-subsampled Cb (1) and Cr (2) planes
   yvu444 = fourcc_code('Y', 'V', '2', '4'),   // non-subsampled Cr (1) and Cb (2) planes
+
+  // 10-bit single channel (from newer kernel drm_fourcc.h)
+  r10    = fourcc_code('R', '1', '0', '1'),
+  r100   = fourcc_code('R', '1', '0', '0'),
+  b101   = fourcc_code('B', '1', '0', '1'),
+  b100   = fourcc_code('B', '1', '0', '0'),
+
+  // [15:0] R 10 MSB in 16-bit word, little endian
+  r10_unorm       = fourcc_code('R', '1', '0', ' '),
+  b10_unorm       = fourcc_code('B', '1', '0', ' '),
+
+  // 10/12-bit YUV semi-planar
+  // Y plane + interleaved UV, 10 bits stored in 16-bit words
+  p010          = fourcc_code('P', '0', '1', '0'),
+  p012          = fourcc_code('P', '0', '1', '2'),
+  p210          = fourcc_code('P', '2', '1', '0'),
+
+  // HDR metadata (not for rendering)
+  hdr_static  = fourcc_code('H', 'D', '0', '1'),
+  uhd_dynamic = fourcc_code('U', 'H', 'D', '0'),
+
+  _,
 
   pub fn fromInt(n: u32) Format {
     return @enumFromInt(n);
@@ -473,6 +507,7 @@ pub const Modifier = enum (u64) {
   /// can be reduced if a whole superblock is a single color.
   afbc_sc = (1 <<  9),
 
+  _,
 
   pub fn fromInt(n: u64) Modifier {
     return @enumFromInt(n);

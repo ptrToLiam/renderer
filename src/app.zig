@@ -12,6 +12,53 @@ pub fn app(env: std.process.Environ) void {
     "vkGetInstanceProcAddr",
   ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
 
+  const vk_state_init_start_us = time.us();
+
+  //---------------------------------------------------------------------------
+  // BEGIN VULKAN STATE INIT
+  //---------------------------------------------------------------------------
+
+  const vkb: vk.BaseWrapper = .load(vk_get_instance_proc_addr);
+  var instance: vk.Instance = undefined;
+  var vki: vk.InstanceWrapper = undefined;
+  {
+    const app_info: vk.ApplicationInfo = .{
+      .p_application_name = app_name,
+      .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
+      .p_engine_name = "custom",
+      .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
+      .api_version = u32_(vk.API_VERSION_1_4),
+    };
+
+    const instance_info: vk.InstanceCreateInfo = .{
+      .p_application_info = &app_info,
+    };
+    instance = vkb.createInstance(&instance_info, null) catch @panic("uh oh!");
+    vki = .load(instance, vk_get_instance_proc_addr);
+  }
+  defer vki.destroyInstance(instance, null);
+
+  const vk_pdev: *vk.PhysicalDevice = arena.create(vk.PhysicalDevice);
+  var vkd: vk.DeviceWrapper = undefined;
+  var vk_dev: vk.Device = undefined;
+  var queue_family_index: u32 = undefined;
+  _ = &vk_dev; _ = &queue_family_index;
+  _ = &vkd;
+
+  defer vkd.destroyDevice(vk_dev, null);
+  var ofb: OffscreenBuffer = undefined;
+
+  //---------------------------------------------------------------------------
+  // END VULKAN STATE INIT
+  //---------------------------------------------------------------------------
+
+  const vk_state_init_end_us = time.us();
+  const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
+  log.debug(
+    "vulkan instance init complete in {d}us ({d}ms)!",
+    .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
+  );
+
   const initial_width = 540;
   const initial_height = 360;
 
@@ -46,66 +93,6 @@ pub fn app(env: std.process.Environ) void {
   log.debug(
     "platform state init complete in {d}us ({d:.2}ms)!",
     .{ platform_init_us, base.f64_(platform_init_us) / base.f64_(time.us_per_ms) },
-  );
-
-  const vk_state_init_start_us = time.us();
-
-  //---------------------------------------------------------------------------
-  // BEGIN VULKAN STATE INIT
-  //---------------------------------------------------------------------------
-
-  const vkb: vk.BaseWrapper = .load(vk_get_instance_proc_addr);
-  var instance: vk.Instance = undefined;
-  var vki: vk.InstanceWrapper = undefined;
-  {
-    const app_info: vk.ApplicationInfo = .{
-      .p_application_name = app_name,
-      .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
-      .p_engine_name = "custom",
-      .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
-      .api_version = u32_(vk.API_VERSION_1_4),
-    };
-
-    const instance_info: vk.InstanceCreateInfo = .{
-      .p_application_info = &app_info,
-    };
-    instance = vkb.createInstance(&instance_info, null) catch @panic("uh oh!");
-    vki = .load(instance, vk_get_instance_proc_addr);
-  }
-  defer vki.destroyInstance(instance, null);
-
-  // NEXT UP:
-  // - Create draw buffers (wl_buffer on wayland) with this memory for presentation to surface
-
-  const vk_pdev: *vk.PhysicalDevice = arena.create(vk.PhysicalDevice);
-  var vkd: vk.DeviceWrapper = undefined;
-  var vk_dev: vk.Device = undefined;
-  var queue_family_index: u32 = undefined;
-  _ = &vk_dev; _ = &queue_family_index;
-  _ = &vkd;
-
-  defer vkd.destroyDevice(vk_dev, null);
-
-  // const vkd_queue = vkd.getDeviceQueue(
-  //   vk_dev,
-  //   queue_family_index,
-  //   0,
-  // );
-
-  // _ = vkd_queue;
-  var ofb: OffscreenBuffer = undefined;
-
-  // platform_conn.handle.check_surface_formats(surface.handle);
-
-  //---------------------------------------------------------------------------
-  // END VULKAN STATE INIT
-  //---------------------------------------------------------------------------
-
-  const vk_state_init_end_us = time.us();
-  const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
-  log.debug(
-    "vulkan state init complete in {d}us ({d}ms)!",
-    .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
 
   var events: platform.EventList = .empty;
@@ -197,7 +184,7 @@ pub fn app(env: std.process.Environ) void {
       );
       _ = &vk_dev; _ = &queue_family_index;
       _ = &vkd;
-      if (platform_conn.handle.client_state.main_device == 0) {
+      if (platform_conn.handle.client_state.dmabuf_feedback.main_device == 0) {
         want_attach = false;
       } else {
         vk_dev, queue_family_index = selectWaylandVkDevice(
@@ -218,7 +205,7 @@ pub fn app(env: std.process.Environ) void {
           u32_(surface.width),
           u32_(surface.height),
           .b8g8r8a8_unorm,
-          .linear,
+          .invalid,
         );
 
         _ = &ofb_wlbuf;
@@ -378,7 +365,7 @@ fn selectWaylandVkDevice(
   if (vk_pdevs.len == 0) @panic("no vk physical devices available")
   else log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
 
-  const main_device = wayland_conn.client_state.main_device;
+  const main_device = wayland_conn.client_state.dmabuf_feedback.main_device;
   // vk physical device enumeration
   var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
   for (vk_pdevs) |vk_pdev_opt| {

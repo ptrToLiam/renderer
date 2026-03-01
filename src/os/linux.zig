@@ -126,7 +126,18 @@ const CmsgIterator = struct {
   idx: usize,
 
   const Iterator = @This();
+  pub fn next(iter: *Iterator) ?*const cmsghdr {
+    if (iter.buf[iter.idx..].len < @sizeOf(cmsghdr)) return null;
 
+    const hdr: *const cmsghdr = @ptrCast(@alignCast(iter.buf[iter.idx..].ptr));
+    if (hdr.len < @sizeOf(cmsghdr)) return null;
+
+    const aligned_len = cmsghdr.__msg_len(hdr);
+    iter.idx += aligned_len;
+    if (iter.idx > iter.buf.len) iter.idx = iter.buf.len;
+
+    return hdr;
+  }
   pub fn first(iter: *Iterator) ?cmsghdr {
     const result: ?cmsghdr = if (iter.buf[iter.idx..].len > @sizeOf(cmsghdr))
       std.mem.bytesToValue(cmsghdr, iter.buf[iter.idx..][0..@sizeOf(cmsghdr)])
@@ -136,19 +147,19 @@ const CmsgIterator = struct {
     return result;
   }
 
-  pub fn next(iter: *Iterator) ?cmsghdr {
-    const result: ?cmsghdr = if (iter.buf[iter.idx..].len > @sizeOf(cmsghdr)) hdr: {
-      const hdr = std.mem.bytesToValue(cmsghdr, iter.buf[iter.idx..][0..@sizeOf(cmsghdr)]);
-      iter.idx += cmsghdr.__msg_len(&hdr);
+  // pub fn next(iter: *Iterator) ?cmsghdr {
+  //   const result: ?cmsghdr = if (iter.buf[iter.idx..].len > @sizeOf(cmsghdr)) hdr: {
+  //     const hdr = std.mem.bytesToValue(cmsghdr, iter.buf[iter.idx..][0..@sizeOf(cmsghdr)]);
+  //     iter.idx += cmsghdr.__msg_len(&hdr);
 
-      if (iter.idx >= iter.buf.len)
-        iter.idx = iter.buf.len - 1;
+  //     if (iter.idx >= iter.buf.len)
+  //       iter.idx = iter.buf.len - 1;
 
-      break :hdr hdr;
-    } else null;
+  //     break :hdr hdr;
+  //   } else null;
 
-    return result;
-  }
+  //   return result;
+  // }
 
   pub fn reset(iter: *Iterator) void {
     iter.idx = 0;
@@ -222,6 +233,7 @@ pub const mprotect = linux.mprotect;
 pub const socket = linux.socket;
 pub const nanosleep = linux.nanosleep;
 pub const pread = linux.pread;
+pub const read = linux.read;
 pub const close = linux.close;
 pub const msync = linux.msync;
 pub const lseek = linux.lseek;
@@ -229,24 +241,28 @@ pub const open = linux.open;
 pub const unlink = linux.unlink;
 pub const ftruncate = linux.ftruncate;
 pub const connect = linux.connect;
+pub const statx = linux.statx;
 pub const errno = std.posix.errno;
 
 // Type aliases
+pub const STATX = linux.STATX;
+pub const Statx = linux.Statx;
 pub const timespec = linux.timespec;
 pub const iovec = std.posix.iovec;
 pub const msghdr = std.posix.msghdr;
 pub const msghdr_const = std.posix.msghdr_const;
 
 // Constant/Namespace aliases
+pub const E = linux.E;
 pub const PR = linux.PR;
+pub const MS = linux.MS;
+pub const AT = linux.AT;
 pub const MSG = linux.MSG;
 pub const MAP = linux.MAP;
-pub const MS = linux.MS;
+pub const SOL = linux.SOL;
 pub const PROT = linux.PROT;
 pub const MADV = linux.MADV;
-pub const SOL = linux.SOL;
 pub const SEEK = linux.SEEK;
-pub const E = linux.E;
 
 pub const SCM_RIGHTS = 0x01;
 pub const SCM_CREDENTIALS = 0x02;

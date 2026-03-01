@@ -358,68 +358,49 @@ pub const Connection = struct {
         .xdg_wm_base_ping => |ping| {
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
+        .zwp_linux_dmabuf_feedback_v1_done => {
+          conn.client_state.dmabuf_feedback.done = true;
+          log.info("dmabuf feedback done", .{});
+        },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
-          const fd = format_table.fd;
-          const size = format_table.size;
-          defer _ = linux.close(fd);
-
-          log.debug(
-            "received format table, fd={}, size={}",
-            .{ fd, size },
+          conn.client_state.dmabuf_feedback.fmt_table = format_table;
+          log.info(
+            "dmabuf feedback format table received :: {{ fd={}, size={} }}",
+            .{ format_table.fd, format_table.size },
           );
-
-          // Also try to get file size via seeking
-          const size_from_seek = transmute(isize, linux.lseek(fd, 0, linux.SEEK.END));
-          log.debug("lseek END returned: {}", .{size_from_seek});
-
-          if (size_from_seek > 0) {
-              _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
-          } else continue;
-
-          const rc = linux.mmap(
-            null,
-            size,
-            .{ .READ = true },
-            .{ .TYPE = .PRIVATE },
-            fd,
-            0,
-          );
-
-          const rc_signed = transmute(isize, rc);
-          if (rc_signed < 0) {
-              const errno = cast(linux.E, (-rc_signed));
-              log.err("mmap FAILED: errno={} ({})", .{-rc_signed, errno});
-              _ = linux.close(fd);
-              @panic("mmap failed!!");
-          }
-          log.debug(
-            "rc: {}, signed: {}",
-            .{ rc, rc_signed },
-          );
-          const bytes: [*]const u8 = @ptrFromInt(rc);
-          defer _ = linux.munmap(bytes, size);
-
-          var iter = std.mem.window(u8, bytes[0..size], 16, 16);
-          const first_byte = bytes[0];
-          log.debug("first_byte :: {}", .{first_byte});
-          while (iter.next()) |entry_bytes| {
-            const format = std.mem.bytesToValue(u32, entry_bytes[0..4]);
-            const mod = std.mem.bytesToValue(u64, entry_bytes[8..][0..8]);
-
-            std.debug.print(
-              "format({s}), mod({s})\n",
-              .{
-                @tagName(cast(Drm.Format, format)),
-                @tagName(cast(Drm.Modifier, mod)),
-              },
-            );
-          }
         },
         .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
-          conn.client_state.main_device = std.mem.bytesToValue(u64, main_device.device);
+          conn.client_state.dmabuf_feedback.main_device = std.mem.bytesToValue(
+            u64,
+            main_device.device
+          );
+          log.info(
+            "dmabuf feedback main device: 0x{x}",
+            .{ conn.client_state.dmabuf_feedback.main_device },
+          );
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_done => {
+          conn.client_state.dmabuf_feedback.tranche_done = true;
+          log.info("dmabuf feedback tranche done", .{});
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_target_device => |tranche_target| {
+          const tranche_target_device = std.mem.bytesToValue(u64, tranche_target.device);
+          log.info(
+            "dmabuf feedback tranche target device: 0x{x}",
+            .{ tranche_target_device },
+          );
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_formats => |tranche_formats| {
+          log.info(
+            "dmabuf feedback tranche formats :: [{}]u16",
+            .{ tranche_formats.indices.len / 2 },
+          );
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_flags => |tranche_flags| {
+          log.info("dmabuf feedback tranche flags :: {}", .{ tranche_flags.flags });
         },
         .zwp_linux_buffer_params_v1_created => |created| {
-          log.debug("created dma-buf :: {}", .{created.buffer});
+          log.debug("dma-buf creation returned ID :: {}", .{created.buffer});
         },
         .zwp_linux_buffer_params_v1_failed => {
           log.debug("dma-buf creation failed!", .{});
@@ -536,13 +517,13 @@ pub const Connection = struct {
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
-      gfx.Drm.Format.xbgr8888.toInt(),
+      Drm.Format.argb8888.toInt(),
       .{},
     );
-    comptime std.debug.assert(gfx.Drm.Format.argb8888.toInt() == 0x34325241);
+    comptime std.debug.assert(Drm.Format.argb8888.toInt() == 0x34325241);
     log.info(
-      "Creating wl_buffer from offscreen VkBuffer with drm mod: {s}",
-      .{@tagName(buf.drm_modifier)},
+      "Creating wl_buffer from offscreen VkBuffer with drm mod: {x}",
+      .{buf.drm_modifier.toInt()},
     );
     return ofb_wl_buffer;
   }
@@ -586,7 +567,7 @@ pub const Connection = struct {
     // Read Into Buffer(s)
     //-------------------------------------------------------------------------
 
-    var cmsg_buf: [cmsg_buf_len]u8 = @splat(0);
+    var cmsg_buf: [cmsg_buf_len] u8 align(@alignOf(linux.cmsghdr)) = @splat(0);
     var msg: linux.msghdr = .{
       .name = null,
       .namelen = 0,
@@ -636,7 +617,7 @@ pub const Connection = struct {
     while (cmsg_iter.next()) |cmsg_header| {
       if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM_RIGHTS) {
         const fd = cmsg_header.data(c_int).*;
-        log.debug("event loading, pushing fd ({}) into ringbuffer", .{fd});
+        log.debug("received SCM_RIGHTS fd :: {}", .{fd});
         conn.fd_in.put(std.mem.asBytes(&fd));
       }
     }
@@ -1138,9 +1119,33 @@ pub const ClientState = struct {
   // Objects
   object_pool: ObjectPool,
 
+  // Runtime Compositor Data
   seat_name: [512]u8 = undefined,
   seat_capabilities: Seat.Capability = .{},
-  main_device: u64 = 0,
+  dmabuf_feedback: DmabufFeedback,
+
+  const DmabufFeedback = struct {
+    fmt_table: LinuxDmabufFeedback.format_table,
+    main_device: u64,
+    tranche_target_device: u64,
+    tranche_formats: []u16,
+    tranche_flags: LinuxDmabufFeedback.TrancheFlags,
+    tranche_done: bool,
+    done: bool,
+
+    pub const nil: DmabufFeedback = .{
+      .fmt_table = .{
+        .fd = -1,
+        .size = 0,
+      },
+      .main_device = 0,
+      .tranche_target_device = 0,
+      .tranche_formats = .{},
+      .tranche_flags = .{},
+      .tranche_done = false,
+      .done = false,
+    };
+  };
 };
 
 pub const ObjectPool = struct {
@@ -1236,6 +1241,7 @@ pub const Compositor = wl_protocols.wl_compositor;
 pub const XdgWmBase = wl_protocols.xdg_wm_base;
 
 pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
+pub const LinuxDmabufFeedback = wl_protocols.zwp_linux_dmabuf_feedback_v1;
 
 const Arena = base.Arena;
 const Thread = base.Thread;

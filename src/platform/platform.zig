@@ -178,7 +178,7 @@ pub const OffscreenBuffer = struct {
     };
     const ext: vk.ExternalMemoryImageCreateInfo = .{
       .handle_types = .{
-        .dma_buf_bit_ext = true,
+        // .dma_buf_bit_ext = true,
         .opaque_fd_bit = true,
       },
       .p_next = &ext2,
