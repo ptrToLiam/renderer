@@ -420,8 +420,8 @@ pub const Connection = struct {
             std.debug.print(
               "format({s}), mod({s})\n",
               .{
-                @tagName(transmute(Drm.Format, format)),
-                @tagName(transmute(Drm.Modifier, mod)),
+                @tagName(cast(Drm.Format, format)),
+                @tagName(cast(Drm.Modifier, mod)),
               },
             );
           }
