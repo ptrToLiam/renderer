@@ -402,21 +402,10 @@ pub const Connection = struct {
           var iter = std.mem.window(u8, bytes[0..size], 16, 16);
           const first_byte = bytes[0];
           log.debug("first_byte :: {}", .{first_byte});
-          // var format: Drm.Format = .invalid;
-          // var modifier: Drm.Modifier = .linear;
           while (iter.next()) |entry_bytes| {
             const format = std.mem.bytesToValue(u32, entry_bytes[0..4]);
             const mod = std.mem.bytesToValue(u64, entry_bytes[8..][0..8]);
-            // @memcpy(
-            //   transmute([*]u8, &format)[0..4],
-            //   entry_bytes[0..4],
-            // );
-            // @memcpy(
-            //   transmute([*]u8, &modifier)[0..8],
-            //   entry_bytes[8..16],
-            // );
-            // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
-            // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
+            
             std.debug.print(
               "format({s}), mod({s})\n",
               .{

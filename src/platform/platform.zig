@@ -171,14 +171,22 @@ pub const OffscreenBuffer = struct {
     format: vk.Format,
     mod: Drm.Modifier,
   ) OffscreenBuffer {
-    const ext_mem_image_info: vk.ExternalMemoryImageCreateInfo = .{
-      .handle_types = .{ .dma_buf_bit_ext = true },
+    const ext2: vk.ImageFormatListCreateInfo = .{
+      .view_format_count = 1,
+      .p_view_formats = &.{ format },
+    };
+    const ext: vk.ExternalMemoryImageCreateInfo = .{
+      .handle_types = .{
+        // .dma_buf_bit_ext = true,
+        .opaque_fd_bit = true,
+      },
+      .p_next = &ext2,
     };
 
     const image = dev_wrapper.createImage(
       dev,
       &.{
-        .p_next = &ext_mem_image_info,
+        .p_next = &ext,
         .flags = .{},
         .image_type = .@"2d",
         .format = format,
@@ -193,7 +201,6 @@ pub const OffscreenBuffer = struct {
         .tiling = .linear,
         .usage = .{
           .color_attachment_bit = true,
-          .transfer_src_bit = true,
         },
         .sharing_mode = .exclusive,
         .initial_layout = .undefined,
