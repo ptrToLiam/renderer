@@ -307,7 +307,7 @@ pub const Connection = struct {
           conn.client_state.seat_name[seat_name.len] = 0;
         },
         .wl_shm_format => |fmt_event| {
-          log.debug("received wl_shm format event :: fmt={s}", .{@tagName(fmt_event.format)});
+          _ = fmt_event;
         },
         .wl_callback_done => |done| {
           log.debug(
@@ -318,7 +318,6 @@ pub const Connection = struct {
         .xdg_surface_configure => |xdg_surface_configure| {
           const config = xdg_surface_configure;
 
-          std.log.debug("xdg_surface is :: {}", .{u32_(surface.xdg_surface)});
           surface.xdg_surface.ack_configure(&conn_proxy, config.serial);
           surface.is_ready = true;
         },
@@ -326,7 +325,6 @@ pub const Connection = struct {
           const config = xdg_toplevel_configure;
 
           const platform_surface: *platform.Surface = @fieldParentPtr("handle", surface);
-          std.log.debug("surface :: {}", .{u32_(surface.wl_surface)});
           if (platform_surface.flags.resize and config.width > 0 and config.height > 0) {
             log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
             platform_surface.width = config.width;
@@ -358,7 +356,6 @@ pub const Connection = struct {
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
         },
         .xdg_wm_base_ping => |ping| {
-          std.log.debug("xdg_wm_base is :: {}", .{u32_(conn.client_state.xdg_wm_base)});
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
@@ -428,8 +425,13 @@ pub const Connection = struct {
           }
         },
         .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
-          std.log.debug("main_device :: len={}, data={any}", .{main_device.device.len, main_device.device});
           conn.client_state.main_device = std.mem.bytesToValue(u64, main_device.device);
+        },
+        .zwp_linux_buffer_params_v1_created => |created| {
+          log.debug("created dma-buf :: {}", .{created.buffer});
+        },
+        .zwp_linux_buffer_params_v1_failed => {
+          log.debug("dma-buf creation failed!", .{});
         },
         else => |wl_event| {
           warn_unhandled_event(wl_event);
@@ -507,7 +509,6 @@ pub const Connection = struct {
     buf: platform.OffscreenBuffer
   ) WaylandBuffer {
     var conn_proxy = conn.proxy();
-    std.log.debug("linux_dmabuf is :: {}", .{u32_(conn.client_state.linux_dmabuf)});
     const params = conn.client_state.linux_dmabuf.create_params(
       &conn_proxy,
     );
@@ -515,13 +516,14 @@ pub const Connection = struct {
     defer conn.flush() catch unreachable;
     defer params.destroy(&conn_proxy);
 
-    std.log.debug(
-      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
+    log.debug(
+      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod({s})= {{mod_hi={}, mod_lo={}}} }}",
       .{
         u32_(params),
         buf.memory_fd,
         buf.offset,
         buf.stride,
+        @tagName(buf.drm_modifier),
         buf.drm_modifier.hi(),
         buf.drm_modifier.lo(),
       },
@@ -537,12 +539,18 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
-    const ofb_wl_buffer = params.create_immed(
+
+    const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
+    params.create(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
       gfx.Drm.Format.abgr8888.toInt(),
       .fromInt(0),
+    );
+    log.info(
+      "Creating wl_buffer from offscreen VkBuffer with drm mod: {s}",
+      .{@tagName(buf.drm_modifier)},
     );
     return ofb_wl_buffer;
   }

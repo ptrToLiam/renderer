@@ -151,9 +151,10 @@ pub const Surface = struct {
 
 pub const OffscreenBuffer = struct {
   image: vk.Image,
+  image_view: vk.ImageView,
   device_memory: vk.DeviceMemory,
   memory_fd: i32,
-  drm_modifier: drm.Modifier = .fromInt(0),
+  drm_modifier: Drm.Modifier = .fromInt(0),
   width: u32,
   height: u32,
   format: vk.Format,
@@ -168,39 +169,40 @@ pub const OffscreenBuffer = struct {
     width: u32,
     height: u32,
     format: vk.Format,
-    mod: drm.Modifier,
+    mod: Drm.Modifier,
   ) OffscreenBuffer {
     const ext_mem_image_info: vk.ExternalMemoryImageCreateInfo = .{
       .handle_types = .{ .dma_buf_bit_ext = true },
     };
 
-    const image_info: vk.ImageCreateInfo = .{
-      .p_next = &ext_mem_image_info,
-      .flags = .{},
-      .image_type = .@"2d",
-      .format = format,
-      .extent = .{
-        .width = width,
-        .height = height,
-        .depth = 1,
-      },
-      .mip_levels = 1,
-      .array_layers = 1,
-      .samples = .{ .@"1_bit" = true },
-      .tiling = .optimal,
-      .usage = .{
-        .color_attachment_bit = true,
-        .transfer_src_bit = true,
-      },
-      .sharing_mode = .exclusive,
-      .initial_layout = .undefined,
-    };
-
     const image = dev_wrapper.createImage(
       dev,
-      &image_info,
+      &.{
+        .p_next = &ext_mem_image_info,
+        .flags = .{},
+        .image_type = .@"2d",
+        .format = format,
+        .extent = .{
+          .width = width,
+          .height = height,
+          .depth = 1,
+        },
+        .mip_levels = 1,
+        .array_layers = 1,
+        .samples = .{ .@"1_bit" = true },
+        .tiling = .linear,
+        .usage = .{
+          .color_attachment_bit = true,
+          .transfer_src_bit = true,
+        },
+        .sharing_mode = .exclusive,
+        .initial_layout = .undefined,
+      },
       null,
-    ) catch unreachable;
+    ) catch |err|{
+      std.log.err("vkImage create failed with error :: {s}", .{@errorName(err)});
+      @panic("vkImage creation failed");
+    };
 
     const mem_reqs = dev_wrapper.getImageMemoryRequirements(
       dev,
@@ -212,7 +214,6 @@ pub const OffscreenBuffer = struct {
     for (0..mem_props.memory_type_count) |i| {
         if ((mem_reqs.memory_type_bits & (base.u32_(1) << cast(u5, i))) != 0 and
             mem_props.memory_types[i].property_flags.device_local_bit) {
-            // or host_visible for testing
             mem_image_type_idx = base.u32_(i);
             break;
         }
@@ -226,11 +227,11 @@ pub const OffscreenBuffer = struct {
 
     const export_info: vk.ExportMemoryAllocateInfo = .{
       .handle_types = .{ .dma_buf_bit_ext = true },
-      .p_next = @ptrCast(&dedicated_alloc_info),
+      .p_next = &dedicated_alloc_info,
     };
 
     const alloc_info: vk.MemoryAllocateInfo = .{
-      .p_next = @ptrCast(&export_info),
+      .p_next = &export_info,
       .allocation_size = mem_reqs.size,
       .memory_type_index = mem_image_type_idx,
     };
@@ -239,7 +240,10 @@ pub const OffscreenBuffer = struct {
       dev,
       &alloc_info,
       null,
-    ) catch unreachable;
+    ) catch |err| {
+      std.log.err("vkDevice.allocateMemory failed :: {s}", .{@errorName(err)});
+      @panic("Failed to allocate device memory!");
+    };
 
     dev_wrapper.bindImageMemory(
       dev,
@@ -248,43 +252,71 @@ pub const OffscreenBuffer = struct {
       0,
     ) catch unreachable;
 
-    const fd_info: vk.MemoryGetFdInfoKHR = .{
-      .memory = device_mem,
-      .handle_type = .{ .dma_buf_bit_ext = true },
-    };
-
     const fd = dev_wrapper.getMemoryFdKHR(
       dev,
-      &fd_info,
+      &.{
+        .memory = device_mem,
+        .handle_type = .{ .dma_buf_bit_ext = true },
+      },
     ) catch unreachable;
 
-    // var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
-    //   .drm_format_modifier = mod.toInt(),
-    // };
-
-    // dev_wrapper.getImageDrmFormatModifierPropertiesEXT(
-    //   dev,
-    //   image,
-    //   &mod_props
-    // ) catch unreachable;
-
-    const sub: vk.ImageSubresource = .{
-      .aspect_mask = .{ .color_bit = true },
-      .mip_level = 0,
-      .array_layer = 0,
+    var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
+      .drm_format_modifier = mod.toInt(),
     };
-    
+    std.log.debug("expected drm_mod :: {}", .{mod});
+
+    dev_wrapper.getImageDrmFormatModifierPropertiesEXT(
+      dev,
+      image,
+      &mod_props
+    ) catch |err| {
+      std.log.err(
+        "Failed to get image drm format modifiers :: {s}",
+        .{ @errorName(err) },
+      );
+      @panic("vkGetImageDrmFormatModifierPropertiesEXT Failed!");
+    };
+    std.log.debug("actual drm_mod :: {}", .{cast(Drm.Modifier, mod_props.drm_format_modifier)});
+
     const layout = dev_wrapper.getImageSubresourceLayout(
       dev,
       image,
-      &sub,
+      &.{
+        .aspect_mask = .{ .color_bit = true },
+        .mip_level = 0,
+        .array_layer = 0,
+      },
     );
+
+    const image_view = dev_wrapper.createImageView(
+      dev,
+      &.{
+        .image = image,
+        .view_type = .@"2d",
+        .components = .{
+          .r = .identity,
+          .g = .identity,
+          .b = .identity,
+          .a = .identity,
+        },
+        .format = format,
+        .subresource_range = .{
+          .aspect_mask = .{ .color_bit = true },
+          .base_mip_level = 0,
+          .level_count = 1,
+          .base_array_layer = 0,
+          .layer_count = 1,
+        },
+      },
+      null,
+    ) catch unreachable;
 
     return .{
       .image = image,
+      .image_view = image_view,
       .device_memory = device_mem,
       .memory_fd = fd,
-      .drm_modifier = mod,
+      .drm_modifier = .fromInt(mod_props.drm_format_modifier),
       .width = width,
       .height = height,
       .format = format,
@@ -325,7 +357,7 @@ const tramsute = casts.transmute;
 const linux = os.linux;
 const casts = base.casts;
 const math = base.math;
-const drm = gfx.Drm;
+const Drm = gfx.Drm;
 
 pub const win32 = @import("win32.zig");
 pub const wayland = @import("wayland.zig");

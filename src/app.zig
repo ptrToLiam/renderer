@@ -43,7 +43,7 @@ pub fn app(env: std.process.Environ) void {
   // END PLATFORM STATE INIT
   //---------------------------------------------------------------------------
 
-  std.log.debug(
+  log.debug(
     "platform state init complete in {d}us ({d:.2}ms)!",
     .{ platform_init_us, base.f64_(platform_init_us) / base.f64_(time.us_per_ms) },
   );
@@ -103,7 +103,7 @@ pub fn app(env: std.process.Environ) void {
 
   const vk_state_init_end_us = time.us();
   const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
-  std.log.debug(
+  log.debug(
     "vulkan state init complete in {d}us ({d}ms)!",
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
@@ -145,29 +145,28 @@ pub fn app(env: std.process.Environ) void {
           want_exit = true;
         },
         else => {
-          std.log.debug("app-level ev :: {any}", .{ev});
+          log.debug("app-level ev :: {any}", .{ev});
         },
       }
     }
 
     if (want_attach and attached) {
-      log.debug("attempting to attach GPUmem buffer now!", .{});
-      surface.handle.wl_surface.attach(
-        &wl_connection_proxy,
-        ofb_wlbuf,
-        0,
-        0,
-      );
-      surface.handle.wl_surface.damage_buffer(
-        &wl_connection_proxy,
-        0,
-        0,
-        surface.width,
-        surface.height,
-      );
+      // log.debug("attempting to attach GPUmem buffer now!", .{});
+      // surface.handle.wl_surface.attach(
+      //   &wl_connection_proxy,
+      //   ofb_wlbuf,
+      //   0,
+      //   0,
+      // );
+      // surface.handle.wl_surface.damage_buffer(
+      //   &wl_connection_proxy,
+      //   0,
+      //   0,
+      //   surface.width,
+      //   surface.height,
+      // );
     }
     if (want_attach and !attached) {
-      log.debug("attempting to attach CPUmem buffer now!", .{});
       attached = true;
     }
 
@@ -177,22 +176,6 @@ pub fn app(env: std.process.Environ) void {
         surface.handle.wl_surface,
       );
       _ = &ofb;
-      // ofb = .create(
-      //   vkd,
-      //   vk_dev,
-      //   vki,
-      //   vk_pdev.*,
-      //   u32_(surface.width),
-      //   u32_(surface.height),
-      //   .r8g8b8a8_unorm,
-      //   .linear,
-      // );
-
-      _ = &ofb_wlbuf;
-      // ofb_wlbuf = platform_conn.handle.wl_buffer(
-      //   ofb,
-      // );
-      std.log.debug("ofb wlbuf id :: {}", .{u32_(ofb_wlbuf)});
 
       log.debug("surface ready :: setting want_attach to true", .{});
       want_attach = true;
@@ -227,6 +210,22 @@ pub fn app(env: std.process.Environ) void {
           vk_dev,
           vki.dispatch.vkGetDeviceProcAddr.?,
         );
+        ofb = .create(
+          vkd,
+          vk_dev,
+          vki,
+          vk_pdev.*,
+          u32_(surface.width),
+          u32_(surface.height),
+          .r8g8b8a8_unorm,
+          .linear,
+        );
+
+        _ = &ofb_wlbuf;
+        ofb_wlbuf = platform_conn.handle.wl_buffer(
+          ofb,
+        );
+        log.debug("ofb wlbuf id :: {}", .{u32_(ofb_wlbuf)});
       }
     }
 
@@ -331,8 +330,6 @@ fn open_shmfile(arena: *Arena) c_int {
     ));
   }
 
-  log.debug("opening shmfile with name {s}", .{name});
-
   const fd = linux.open(
     transmute(CString, name),
     .{
@@ -344,7 +341,6 @@ fn open_shmfile(arena: *Arena) c_int {
     0o600,
   );
 
-  log.debug("shmfile handle :: {}", .{transmute(isize, fd)});
   _ = linux.unlink(transmute(CString, name));
   return base.i32_(transmute(isize, fd));
 }
@@ -380,7 +376,7 @@ fn selectWaylandVkDevice(
     vk_pdevs.ptr,
   ) catch unreachable;
   if (vk_pdevs.len == 0) @panic("no vk physical devices available")
-    else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
+  else log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
 
   const main_device = wayland_conn.client_state.main_device;
   // vk physical device enumeration
@@ -463,11 +459,10 @@ fn selectWaylandVkDevice(
       break :ext_support true;
     };
 
-    std.log.debug("extension support : {}", .{supports_desired_extensions});
     if (supports_desired_extensions and score > vk_pdev_candidate.score) {
       if (pdev_drm.has_primary == .true) {
         if (pdev_drm.primary_major == major(main_device) and pdev_drm.primary_minor == minor(main_device)) {
-          std.log.debug("correct GPU found!", .{});
+          log.debug("correct GPU found (primary)!", .{});
           vk_pdev_candidate = .{
             .pdev = vk_pdev_opt,
             .properties = pdev_props2.properties,
@@ -478,7 +473,7 @@ fn selectWaylandVkDevice(
 
       if (pdev_drm.has_render == .true) {
         if (pdev_drm.render_major == major(main_device) and pdev_drm.render_minor == minor(main_device)) {
-          std.log.debug("correct GPU found!", .{});
+          log.debug("correct GPU found (render)!", .{});
           vk_pdev_candidate = .{
             .pdev = vk_pdev_opt,
             .properties = pdev_props2.properties,
@@ -492,7 +487,7 @@ fn selectWaylandVkDevice(
   pdev.* = vk_pdev_candidate.pdev;
 
 
-  std.log.debug(
+  log.debug(
     "Selected GPU: {s}",
     .{
       vk_pdev_candidate.properties.device_name,
