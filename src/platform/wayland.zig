@@ -317,21 +317,17 @@ pub const Connection = struct {
         },
         .xdg_surface_configure => |xdg_surface_configure| {
           const config = xdg_surface_configure;
-          // log.debug(
-          //   "received xdg_surface::configure :: serial={}",
-          //   .{config.serial},
-          // );
+
+          std.log.debug("xdg_surface is :: {}", .{u32_(surface.xdg_surface)});
           surface.xdg_surface.ack_configure(&conn_proxy, config.serial);
           surface.is_ready = true;
         },
         .xdg_toplevel_configure => |xdg_toplevel_configure| {
           const config = xdg_toplevel_configure;
-          // log.debug(
-          //   "received xdg_toplevel::configure :: {{ width: {}, height: {} }}",
-          //   .{ config.width, config.height },
-          // );
+
           const platform_surface: *platform.Surface = @fieldParentPtr("handle", surface);
-          if (platform_surface.flags.resize) {
+          std.log.debug("surface :: {}", .{u32_(surface.wl_surface)});
+          if (platform_surface.flags.resize and config.width > 0 and config.height > 0) {
             log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
             platform_surface.width = config.width;
             platform_surface.height = config.height;
@@ -362,6 +358,7 @@ pub const Connection = struct {
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
         },
         .xdg_wm_base_ping => |ping| {
+          std.log.debug("xdg_wm_base is :: {}", .{u32_(conn.client_state.xdg_wm_base)});
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
@@ -375,12 +372,12 @@ pub const Connection = struct {
           );
 
           // Also try to get file size via seeking
-          const size_from_seek = linux.lseek(fd, 0, linux.SEEK.END);
+          const size_from_seek = transmute(isize, linux.lseek(fd, 0, linux.SEEK.END));
           log.debug("lseek END returned: {}", .{size_from_seek});
 
           if (size_from_seek > 0) {
               _ = linux.lseek(fd, 0, linux.SEEK.SET); // reset to beginning
-          }
+          } else continue;
 
           const rc = linux.mmap(
             null,
@@ -430,11 +427,14 @@ pub const Connection = struct {
             );
           }
         },
+        .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
+          std.log.debug("main_device :: len={}, data={any}", .{main_device.device.len, main_device.device});
+          conn.client_state.main_device = std.mem.bytesToValue(u64, main_device.device);
+        },
         else => |wl_event| {
           warn_unhandled_event(wl_event);
         },
       }
-      _ = &event_list;
     }
     return event_list;
   }
@@ -507,14 +507,18 @@ pub const Connection = struct {
     buf: platform.OffscreenBuffer
   ) WaylandBuffer {
     var conn_proxy = conn.proxy();
-    conn.flush() catch unreachable;
+    std.log.debug("linux_dmabuf is :: {}", .{u32_(conn.client_state.linux_dmabuf)});
     const params = conn.client_state.linux_dmabuf.create_params(
       &conn_proxy,
     );
 
+    defer conn.flush() catch unreachable;
+    defer params.destroy(&conn_proxy);
+
     std.log.debug(
-      "trying to create buffer {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
+      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
       .{
+        u32_(params),
         buf.memory_fd,
         buf.offset,
         buf.stride,
@@ -522,6 +526,7 @@ pub const Connection = struct {
         buf.drm_modifier.lo(),
       },
     );
+
     params.add(
       &conn_proxy,
       buf.memory_fd,
@@ -532,21 +537,19 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
-    defer conn.flush() catch unreachable;
-    defer params.destroy(&conn_proxy);
-
-    return params.create_immed(
+    const ofb_wl_buffer = params.create_immed(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),
       gfx.Drm.Format.abgr8888.toInt(),
-      .{},
+      .fromInt(0),
     );
-    // return .fromInt(conn.client_state.object_pool.next_object_id());
+    return ofb_wl_buffer;
   }
 
   fn warn_unhandled_event(event: anytype) void {
-    log.warn("Unhandled {s} event", .{@tagName(event)});
+    _ = event;
+    // log.warn("Unhandled {s} event", .{@tagName(event)});
   }
 
   pub fn load_events(conn: *Connection) void {
@@ -878,7 +881,7 @@ pub const Connection = struct {
       .flags = 0,
     };
 
-      _ = linux.sendmsg(
+    _ = linux.sendmsg(
       conn.fd,
       &msg,
       0,
@@ -1137,6 +1140,7 @@ pub const ClientState = struct {
 
   seat_name: [512]u8 = undefined,
   seat_capabilities: Seat.Capability = .{},
+  main_device: u64 = 0,
 };
 
 pub const ObjectPool = struct {

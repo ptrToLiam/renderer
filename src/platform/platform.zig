@@ -174,11 +174,6 @@ pub const OffscreenBuffer = struct {
       .handle_types = .{ .dma_buf_bit_ext = true },
     };
 
-    // const drm_fmt_mod_list_info: vk.ImageDrmFormatModifierListCreateInfoExt = .{
-    //   .drm_format_modifier_count = 1,
-    //   .p_drm_format_modifers = @ptrCast(&mod.toInt()),
-    // };
-
     const image_info: vk.ImageCreateInfo = .{
       .p_next = &ext_mem_image_info,
       .flags = .{},
@@ -215,7 +210,7 @@ pub const OffscreenBuffer = struct {
 
     var mem_image_type_idx: u32 = math.maxInt(u32);
     for (0..mem_props.memory_type_count) |i| {
-        if ((mem_reqs.memory_type_bits & (base.u32_(1) << base.u32_(i))) != 0 and
+        if ((mem_reqs.memory_type_bits & (base.u32_(1) << cast(u5, i))) != 0 and
             mem_props.memory_types[i].property_flags.device_local_bit) {
             // or host_visible for testing
             mem_image_type_idx = base.u32_(i);
@@ -278,6 +273,7 @@ pub const OffscreenBuffer = struct {
       .mip_level = 0,
       .array_layer = 0,
     };
+    
     const layout = dev_wrapper.getImageSubresourceLayout(
       dev,
       image,
@@ -292,8 +288,8 @@ pub const OffscreenBuffer = struct {
       .width = width,
       .height = height,
       .format = format,
-      .stride = base.i32_(layout.row_pitch),
-      .offset = base.i32_(layout.offset),
+      .stride = base.u32_(layout.row_pitch),
+      .offset = base.u32_(layout.offset),
     };
   }
 };
@@ -323,7 +319,11 @@ const Impl = switch (Target) {
 
 const Arena = base.Arena;
 
+const cast = casts.cast;
+const tramsute = casts.transmute;
+
 const linux = os.linux;
+const casts = base.casts;
 const math = base.math;
 const drm = gfx.Drm;
 

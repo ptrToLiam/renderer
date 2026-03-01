@@ -24,7 +24,6 @@ pub fn app(env: std.process.Environ) void {
 
   defer platform_conn.close();
 
-  // TODO: Implement
   var surface = platform_conn.acquire_surface(
     arena,
     .{
@@ -32,6 +31,7 @@ pub fn app(env: std.process.Environ) void {
       .class = app_class,
       .width = initial_width,
       .height = initial_height,
+      .flags = .{ .resize = true },
     },
   );
   defer surface.release();
@@ -75,207 +75,27 @@ pub fn app(env: std.process.Environ) void {
   defer vki.destroyInstance(instance, null);
 
   // NEXT UP:
-  // - Allocate GPU memory through Vulkan
-  // - Get FileDescriptor of allocated GPU memory
-  // - Create Images backed by this memory
   // - Create draw buffers (wl_buffer on wayland) with this memory for presentation to surface
 
-  const vk_required_device_extensions = [_][*:0]const u8{
-    vk.extensions.khr_external_memory.name,
-    vk.extensions.khr_external_memory_fd.name,
-    vk.extensions.ext_external_memory_dma_buf.name,
-    vk.extensions.ext_image_drm_format_modifier.name,
-  };
   const vk_pdev: *vk.PhysicalDevice = arena.create(vk.PhysicalDevice);
+  var vkd: vk.DeviceWrapper = undefined;
+  var vk_dev: vk.Device = undefined;
+  var queue_family_index: u32 = undefined;
+  _ = &vk_dev; _ = &queue_family_index;
+  _ = &vkd;
 
-  // Physical Device Selection
-  var vk_pdev_count: u32 = 0;
-  _ = vki.enumeratePhysicalDevices(
-    instance,
-    &vk_pdev_count,
-    null,
-  ) catch unreachable;
-
-  var vk_pdev_selection_scratch = Thread.Context.get_scratch(1, .{arena}).?;
-  const vk_pdev_arena = vk_pdev_selection_scratch.arena;
-  var vk_pdevs = vk_pdev_arena.push(vk.PhysicalDevice, vk_pdev_count);
-
-  _ = vki.enumeratePhysicalDevices(
-    instance,
-    &vk_pdev_count,
-    vk_pdevs.ptr,
-  ) catch unreachable;
-  if (vk_pdevs.len == 0) @panic("no vk physical devices available")
-    else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
-
-
-  // vk physical device enumeration
-  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
-  for (vk_pdevs) |vk_pdev_opt| {
-
-    // NOTE: vk1.4 props => SIGSEGV from drivers on desktop and laptop
-    //       stick to vk1.3 properties
-    var pdev_props13: vk.PhysicalDeviceVulkan13Properties = undefined;
-    pdev_props13.s_type = .physical_device_vulkan_1_3_properties;
-    pdev_props13.p_next = null;
-
-    var pdev_props2: vk.PhysicalDeviceProperties2 = .{
-      .p_next = &pdev_props13,
-      .properties = undefined,
-    };
-
-    _ = vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
-
-    var score: u32 = 0;
-
-    const props = pdev_props2.properties;
-    if (props.device_type == .discrete_gpu)
-      score += 1000;
-
-    score += props.limits.max_image_dimension_2d;
-
-    var vk_pdev_ext_prop_count: u32 = 0;
-    _ = vki.enumerateDeviceExtensionProperties(
-      vk_pdev_opt,
-      null,
-      &vk_pdev_ext_prop_count,
-      null,
-    ) catch unreachable;
-
-    const vk_pdev_ext_props = vk_pdev_arena.push(vk.ExtensionProperties, vk_pdev_ext_prop_count);
-
-    _ = vki.enumerateDeviceExtensionProperties(
-      vk_pdev_opt,
-      null,
-      &vk_pdev_ext_prop_count,
-      vk_pdev_ext_props.ptr,
-    ) catch unreachable;
-
-    const supports_desired_extensions = ext_support: {
-      for (vk_required_device_extensions) |ext| {
-        const found_ext = found: {
-          for (vk_pdev_ext_props) |ext_prop| {
-            const ext_prop_name = ext_prop_name: {
-              var name_end_idx: usize = 0;
-              while (ext_prop.extension_name[name_end_idx] != 0) {
-                name_end_idx += 1;
-              }
-              break :ext_prop_name ext_prop.extension_name[0..name_end_idx+1];
-            };
-
-            const ext_name = ext_name: {
-              var name_end_idx: usize = 0;
-              while (ext[name_end_idx] != 0) {
-                name_end_idx += 1;
-              }
-              break :ext_name ext[0..name_end_idx+1];
-            };
-
-            if (std.mem.eql(u8, ext_name, ext_prop_name)) {
-              break :found true;
-            }
-          }
-
-          break :found false;
-        };
-
-        if (!found_ext) break :ext_support false;
-      }
-      break :ext_support true;
-    };
-
-    if (supports_desired_extensions and score > vk_pdev_candidate.score) {
-      vk_pdev_candidate = .{
-        .pdev = vk_pdev_opt,
-        .properties = pdev_props2.properties,
-        .score = score,
-      };
-    }
-  }
-
-  vk_pdev.* = vk_pdev_candidate.pdev;
-
-  vk_pdev_selection_scratch.end();
-
-  std.log.debug(
-    "Selected GPU: {s}, type: {s}",
-    .{
-      vk_pdev_candidate.properties.device_name,
-      @tagName(vk_pdev_candidate.properties.device_type),
-    },
-  );
-  var vk_dev_create_scratch = Thread.Context.get_scratch(1, .{arena}).?;
-  const vk_dev_create_arena = vk_dev_create_scratch.arena;
-  // Logical Device Creation
-  const vk_dev, const queue_family_index = vk_dev: {
-    const queue_family_index = qfi: {
-      var queue_family_count: u32 = 0;
-      vki.getPhysicalDeviceQueueFamilyProperties(
-        vk_pdev.*,
-        &queue_family_count,
-        null,
-      );
-      const queue_families = vk_dev_create_arena.push(
-        vk.QueueFamilyProperties,
-        queue_family_count
-      );
-
-      vki.getPhysicalDeviceQueueFamilyProperties(
-        vk_pdev.*,
-        &queue_family_count,
-        queue_families.ptr,
-      );
-
-      for (queue_families, 0..) |queue_family_props, index| {
-        if (queue_family_props.queue_flags.graphics_bit) {
-          break :qfi u32_(index);
-        }
-      }
-      @panic("Unable to find suitable graphics queue for device!");
-    };
-
-    var queue_priority: f32 = 1;
-    const queue_info: vk.DeviceQueueCreateInfo = .{
-      .queue_family_index = queue_family_index,
-      .queue_count = 1,
-      .p_queue_priorities = @ptrCast(&queue_priority),
-    };
-
-    const device_info: vk.DeviceCreateInfo = .{
-      .p_queue_create_infos = &.{
-        queue_info,
-      },
-      .queue_create_info_count = 1,
-      .p_enabled_features = null,
-
-      .enabled_extension_count = u32_(vk_required_device_extensions.len),
-      .pp_enabled_extension_names = &vk_required_device_extensions,
-    };
-
-    break :vk_dev .{
-      vki.createDevice(
-        vk_pdev.*,
-        &device_info,
-        null,
-      ) catch unreachable,
-      queue_family_index,
-    };
-  };
-
-  var vkd: vk.DeviceWrapper = .load(
-    vk_dev,
-    vki.dispatch.vkGetDeviceProcAddr.?,
-  );
   defer vkd.destroyDevice(vk_dev, null);
-  vk_dev_create_scratch.end();
 
-  const vkd_queue = vkd.getDeviceQueue(
-    vk_dev,
-    queue_family_index,
-    0,
-  );
+  // const vkd_queue = vkd.getDeviceQueue(
+  //   vk_dev,
+  //   queue_family_index,
+  //   0,
+  // );
 
-  _ = vkd_queue;
+  // _ = vkd_queue;
+  var ofb: OffscreenBuffer = undefined;
+
+  // platform_conn.handle.check_surface_formats(surface.handle);
 
   //---------------------------------------------------------------------------
   // END VULKAN STATE INIT
@@ -297,21 +117,21 @@ pub fn app(env: std.process.Environ) void {
     surface.width,
     surface.height,
   );
-
-  platform_conn.handle.flush() catch unreachable;
-
-  const buffer = shm_pool.create_buffer(
+  const shm_buffer = shm_pool.create_buffer(
     surface.width,
     surface.height,
     .xrgb8888,
   );
 
+  platform_conn.handle.flush() catch unreachable;
+
+  var ofb_wlbuf: platform.wayland.WaylandBuffer = undefined;
   var want_attach = false;
   var attached = false;
 
   const time_target = time.us_per_s / 120;
-  _ = &want_exit;
   while (!want_exit) {
+    var wl_connection_proxy = platform_conn.handle.proxy();
     const frame_time_start = time.us();
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
     defer frame_scratch.end();
@@ -330,35 +150,88 @@ pub fn app(env: std.process.Environ) void {
       }
     }
 
-    if (want_attach and !attached) {
-      log.debug("attempting to attach buffer now!", .{});
+    if (want_attach and attached) {
+      log.debug("attempting to attach GPUmem buffer now!", .{});
       surface.handle.wl_surface.attach(
-        &shm_pool.proxy,
-        buffer,
+        &wl_connection_proxy,
+        ofb_wlbuf,
         0,
         0,
       );
       surface.handle.wl_surface.damage_buffer(
-        &shm_pool.proxy,
+        &wl_connection_proxy,
+        0,
+        0,
+        surface.width,
+        surface.height,
+      );
+    }
+    if (want_attach and !attached) {
+      log.debug("attempting to attach CPUmem buffer now!", .{});
+      attached = true;
+    }
+
+    if (!want_attach and surface.handle.ready()) {
+      _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
+        &wl_connection_proxy,
+        surface.handle.wl_surface,
+      );
+      _ = &ofb;
+      // ofb = .create(
+      //   vkd,
+      //   vk_dev,
+      //   vki,
+      //   vk_pdev.*,
+      //   u32_(surface.width),
+      //   u32_(surface.height),
+      //   .r8g8b8a8_unorm,
+      //   .linear,
+      // );
+
+      _ = &ofb_wlbuf;
+      // ofb_wlbuf = platform_conn.handle.wl_buffer(
+      //   ofb,
+      // );
+      std.log.debug("ofb wlbuf id :: {}", .{u32_(ofb_wlbuf)});
+
+      log.debug("surface ready :: setting want_attach to true", .{});
+      want_attach = true;
+      surface.handle.wl_surface.attach(
+        &wl_connection_proxy,
+        shm_buffer,
+        0,
+        0,
+      );
+      surface.handle.wl_surface.damage_buffer(
+        &wl_connection_proxy,
         0,
         0,
         surface.width,
         surface.height,
       );
       surface.handle.wl_surface.commit(
-        &shm_pool.proxy,
+        &wl_connection_proxy,
       );
-      attached = true;
+      _ = &vk_dev; _ = &queue_family_index;
+      _ = &vkd;
+      if (platform_conn.handle.client_state.main_device == 0) {
+        want_attach = false;
+      } else {
+        vk_dev, queue_family_index = selectWaylandVkDevice(
+          platform_conn.handle,
+          instance,
+          vki,
+          vk_pdev,
+        );
+        vkd = .load(
+          vk_dev,
+          vki.dispatch.vkGetDeviceProcAddr.?,
+        );
+      }
     }
 
-    if (!want_attach and surface.handle.ready()) {
-      log.debug("surface ready :: setting want_attach to true", .{});
-      want_attach = true;
-      platform_conn.handle.flush() catch unreachable;
-    }
-
-    surface.handle.wl_surface.damage(&shm_pool.proxy, 0, 0, surface.width, surface.height );
-    surface.handle.wl_surface.commit(&shm_pool.proxy);
+    surface.handle.wl_surface.damage(&wl_connection_proxy, 0, 0, surface.width, surface.height );
+    surface.handle.wl_surface.commit(&wl_connection_proxy);
     platform_conn.handle.flush() catch unreachable;
 
     update();
@@ -384,7 +257,7 @@ const ShmPool = struct {
     height: i32,
     format: platform.wayland.Shm.Format,
   ) platform.wayland.WaylandBuffer {
-    defer @memset(pool.buffer, 0xefefefef);
+    @memset(pool.buffer, 0xefefefef);
     return pool.wl_shm_pool.create_buffer(
       &pool.proxy,
       0,
@@ -481,6 +354,223 @@ fn update() void {
 
 fn draw() void {
 }
+
+fn selectWaylandVkDevice(
+  wayland_conn: platform.wayland.Connection,
+  instance: vk.Instance,
+  vki: vk.InstanceWrapper,
+  pdev: *vk.PhysicalDevice,
+) struct { vk.Device, u32 } {
+  // Physical Device Selection
+  var vk_pdev_count: u32 = 0;
+  _ = vki.enumeratePhysicalDevices(
+    instance,
+    &vk_pdev_count,
+    null,
+  ) catch unreachable;
+
+  var scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const vk_pdev_arena = scratch.arena;
+  var vk_pdevs = vk_pdev_arena.push(vk.PhysicalDevice, vk_pdev_count);
+
+  _ = vki.enumeratePhysicalDevices(
+    instance,
+    &vk_pdev_count,
+    vk_pdevs.ptr,
+  ) catch unreachable;
+  if (vk_pdevs.len == 0) @panic("no vk physical devices available")
+    else std.log.debug("found {} vk physical devices!!", .{vk_pdevs.len});
+
+  const main_device = wayland_conn.client_state.main_device;
+  // vk physical device enumeration
+  var vk_pdev_candidate: VkDeviceCandidate = .{ .pdev = undefined, .properties = undefined, .score = 0 };
+  for (vk_pdevs) |vk_pdev_opt| {
+    var pdev_drm: vk.PhysicalDeviceDrmPropertiesEXT = .{
+      .has_primary = .false,
+      .has_render = .false,
+      .primary_major = 0,
+      .primary_minor = 0,
+      .render_major = 0,
+      .render_minor = 0,
+    };
+
+    var pdev_props13: vk.PhysicalDeviceVulkan13Properties = undefined;
+    pdev_props13.s_type = .physical_device_vulkan_1_3_properties;
+    pdev_props13.p_next = &pdev_drm;
+
+    var pdev_props2: vk.PhysicalDeviceProperties2 = .{
+      .p_next = &pdev_props13,
+      .properties = undefined,
+    };
+
+    _ = vki.getPhysicalDeviceProperties2(vk_pdev_opt, &pdev_props2);
+
+    var score: u32 = 0;
+    const props = pdev_props2.properties;
+    if (props.device_type == .discrete_gpu)
+      score += 1000;
+
+    score += props.limits.max_image_dimension_2d;
+
+    var vk_pdev_ext_prop_count: u32 = 0;
+    _ = vki.enumerateDeviceExtensionProperties(
+      vk_pdev_opt,
+      null,
+      &vk_pdev_ext_prop_count,
+      null,
+    ) catch unreachable;
+
+    const vk_pdev_ext_props = vk_pdev_arena.push(vk.ExtensionProperties, vk_pdev_ext_prop_count);
+
+    _ = vki.enumerateDeviceExtensionProperties(
+      vk_pdev_opt,
+      null,
+      &vk_pdev_ext_prop_count,
+      vk_pdev_ext_props.ptr,
+    ) catch unreachable;
+
+    const supports_desired_extensions = ext_support: {
+      for (vk_required_device_extensions) |ext| {
+        const found_ext = found: {
+          for (vk_pdev_ext_props) |ext_prop| {
+            const ext_prop_name = ext_prop_name: {
+              var name_end_idx: usize = 0;
+              while (ext_prop.extension_name[name_end_idx] != 0) {
+                name_end_idx += 1;
+              }
+              break :ext_prop_name ext_prop.extension_name[0..name_end_idx+1];
+            };
+
+            const ext_name = ext_name: {
+              var name_end_idx: usize = 0;
+              while (ext[name_end_idx] != 0) {
+                name_end_idx += 1;
+              }
+              break :ext_name ext[0..name_end_idx+1];
+            };
+
+            if (std.mem.eql(u8, ext_name, ext_prop_name)) {
+              break :found true;
+            }
+          }
+
+          break :found false;
+        };
+
+        if (!found_ext) break :ext_support false;
+      }
+      break :ext_support true;
+    };
+
+    std.log.debug("extension support : {}", .{supports_desired_extensions});
+    if (supports_desired_extensions and score > vk_pdev_candidate.score) {
+      if (pdev_drm.has_primary == .true) {
+        if (pdev_drm.primary_major == major(main_device) and pdev_drm.primary_minor == minor(main_device)) {
+          std.log.debug("correct GPU found!", .{});
+          vk_pdev_candidate = .{
+            .pdev = vk_pdev_opt,
+            .properties = pdev_props2.properties,
+            .score = score,
+          };
+        }
+      }
+
+      if (pdev_drm.has_render == .true) {
+        if (pdev_drm.render_major == major(main_device) and pdev_drm.render_minor == minor(main_device)) {
+          std.log.debug("correct GPU found!", .{});
+          vk_pdev_candidate = .{
+            .pdev = vk_pdev_opt,
+            .properties = pdev_props2.properties,
+            .score = score,
+          };
+        }
+      }
+    }
+  }
+
+  pdev.* = vk_pdev_candidate.pdev;
+
+
+  std.log.debug(
+    "Selected GPU: {s}",
+    .{
+      vk_pdev_candidate.properties.device_name,
+    },
+  );
+  const vk_dev_create_arena = scratch.arena;
+  // Logical Device Creation
+  const vk_dev, const queue_family_index = vk_dev: {
+    const queue_family_index = qfi: {
+      var queue_family_count: u32 = 0;
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        pdev.*,
+        &queue_family_count,
+        null,
+      );
+      const queue_families = vk_dev_create_arena.push(
+        vk.QueueFamilyProperties,
+        queue_family_count
+      );
+
+      vki.getPhysicalDeviceQueueFamilyProperties(
+        pdev.*,
+        &queue_family_count,
+        queue_families.ptr,
+      );
+
+      for (queue_families, 0..) |queue_family_props, index| {
+        if (queue_family_props.queue_flags.graphics_bit) {
+          break :qfi u32_(index);
+        }
+      }
+      @panic("Unable to find suitable graphics queue for device!");
+    };
+
+    var queue_priority: f32 = 1;
+    const queue_info: vk.DeviceQueueCreateInfo = .{
+      .queue_family_index = queue_family_index,
+      .queue_count = 1,
+      .p_queue_priorities = @ptrCast(&queue_priority),
+    };
+
+    const device_info: vk.DeviceCreateInfo = .{
+      .p_queue_create_infos = &.{
+        queue_info,
+      },
+      .queue_create_info_count = 1,
+      .p_enabled_features = null,
+
+      .enabled_extension_count = u32_(vk_required_device_extensions.len),
+      .pp_enabled_extension_names = &vk_required_device_extensions,
+    };
+
+    break :vk_dev .{
+      vki.createDevice(
+        pdev.*,
+        &device_info,
+        null,
+      ) catch unreachable,
+      queue_family_index,
+    };
+  };
+  return .{ vk_dev, queue_family_index };
+}
+
+fn major(dev: u64) u64 {
+  return ((dev >> 8) & 0xfff);
+}
+fn minor(dev: u64) u64 {
+    return ((dev & 0xff) | ((dev >> 12) & 0xffffff00));
+}
+
+
+const vk_required_device_extensions = [_][*:0]const u8{
+  vk.extensions.khr_external_memory.name,
+  vk.extensions.khr_external_memory_fd.name,
+  vk.extensions.ext_external_memory_dma_buf.name,
+  vk.extensions.ext_image_drm_format_modifier.name,
+};
 
 const VkDeviceCandidate = struct {
   pdev: vk.PhysicalDevice,

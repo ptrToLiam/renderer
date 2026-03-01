@@ -1,14 +1,11 @@
 # TODAY
 
-- [-] Platform event queue
+- [-] Platform event queue (as needed)
 - [x] Window on Screen (wl_shm first to test)
-- [ ] Allocate GPU memory for images
 - [ ] Set up initial Vulkan background clearing
+  - [ ] VkImage Allocation
+  - [ ] Present through compositor
+  - [ ] VkImage Swapchain
   - [ ] Basic screen clearing
   - [ ] Basic shader to load
-- [ ] Window on screen (buffer backed by GPU memory)
-
-
-# HOPEFULLY
-
-- [ ] First Triangle
+- [ ] The Triangle
