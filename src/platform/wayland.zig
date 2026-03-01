@@ -416,7 +416,7 @@ pub const Connection = struct {
             // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
             // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
             std.debug.print(
-              "format({s}), mod({s})",
+              "format({s}), mod({s})\n",
               .{
                 @tagName(format),
                 @tagName(modifier),
