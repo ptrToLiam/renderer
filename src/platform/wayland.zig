@@ -407,14 +407,14 @@ pub const Connection = struct {
           while (iter.next()) |entry_bytes| {
             const format = transmute(u32, entry_bytes[0..4]);
             const mod = transmute(u64, entry_bytes[8..][0..8]);
-            @memcpy(
-              transmute([*]u8, &format)[0..4],
-              entry_bytes[0..4],
-            );
-            @memcpy(
-              transmute([*]u8, &modifier)[0..8],
-              entry_bytes[8..16],
-            );
+            // @memcpy(
+            //   transmute([*]u8, &format)[0..4],
+            //   entry_bytes[0..4],
+            // );
+            // @memcpy(
+            //   transmute([*]u8, &modifier)[0..8],
+            //   entry_bytes[8..16],
+            // );
             // format = .fromInt(std.mem.bytesToValue(u32, entry_bytes[0..4]));
             // modifier = .fromInt(std.mem.bytesToValue(u64, entry_bytes[8..]));
             std.debug.print(
