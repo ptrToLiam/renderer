@@ -28,15 +28,15 @@ pub fn build(b: *std.Build) void {
   );
 
   const vulkan = b.dependency("vulkan_zig", .{
-    .registry = b.path("src/protocols/vulkan/vk.xml"),
+    .registry = b.path("src/vulkan-registry/vk.xml"),
   }).module("vulkan-zig");
 
   const wayland_protocol_specifications = [_]std.Build.LazyPath{
-    b.path("src/protocols/wayland/wayland.xml"),
-    b.path("src/protocols/wayland/xdg-shell.xml"),
-    b.path("src/protocols/wayland/xdg-decoration-unstable-v1.xml"),
-    b.path("src/protocols/wayland/linux-dmabuf-v1.xml"),
-    b.path("src/protocols/wayland/presentation-time.xml"),
+    b.path("src/wayland-protocols/wayland.xml"),
+    b.path("src/wayland-protocols/xdg-shell.xml"),
+    b.path("src/wayland-protocols/xdg-decoration-unstable-v1.xml"),
+    b.path("src/wayland-protocols/linux-dmabuf-v1.xml"),
+    b.path("src/wayland-protocols/presentation-time.xml"),
   };
 
   const wayland_protocols = b.dependency("wayland_protocol_codegen", .{
