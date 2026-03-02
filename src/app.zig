@@ -195,7 +195,7 @@ pub fn app(env: std.process.Environ) void {
           &vk_pipeline,
           vkd,
           vk_dev,
-          transmute([]const u32, slang_shader),
+          slang_shader,
           gfx.Format.rgba32.toVk(),
           u32_(surface.width),
           u32_(surface.height),
@@ -242,7 +242,8 @@ pub fn app(env: std.process.Environ) void {
       transition_image_layout(
         &ofb[buf_idx],
         vkd,
-        .undefined,
+        vk_cmdbuf,
+        undefined,
         .color_attachment_optimal,
         .{},
         .{ .color_attachment_write_bit = true },
@@ -250,14 +251,18 @@ pub fn app(env: std.process.Environ) void {
         .{ .color_attachment_output_bit = true },
       );
       // - set clearColor
-      const clear_color: vk.ClearColorValue = .{ .float = .{ 0.3, 0.1, 0.5, 1.0 } };
+      const clear_color: vk.ClearColorValue = .{
+        .float_32 = .{ 0, 0, 0, 1 },
+      };
       // - attachmentInfo setup
-      const attachment_info: vk.AttachmentInfo = .{
+      const attachment_info: vk.RenderingAttachmentInfo = .{
         .image_view = ofb[buf_idx].image_view,
         .image_layout = .color_attachment_optimal,
         .load_op = .clear,
         .store_op = .store,
-        .clear_value = clear_color,
+        .clear_value = .{ .color = clear_color },
+        .resolve_mode = .{},
+        .resolve_image_layout = .undefined,
       };
       // - renderingInfo setup
       const rendering_info: vk.RenderingInfo = .{
@@ -267,16 +272,77 @@ pub fn app(env: std.process.Environ) void {
         },
         .layer_count = 1,
         .color_attachment_count = 1,
-        .p_color_attachments = &attachment_info,
+        .view_mask = 0,
+        .p_color_attachments = transmute(
+          [*]const vk.RenderingAttachmentInfo,
+          &attachment_info,
+        ),
       };
       // - begin rendering
       vkd.cmdBeginRendering(vk_cmdbuf, &rendering_info);
       // - render commands
       vkd.cmdBindPipeline(vk_cmdbuf, .graphics, vk_pipeline);
-      // vkd.cmdSetViewport(vk_cmdbuf, 0, 1, );
+      vkd.cmdSetViewport(
+        vk_cmdbuf,
+        0,
+        1,
+        &.{
+          .{
+            .x = 0,
+            .y = 0,
+            .width = f32_(surface.width),
+            .height = f32_(surface.height),
+            .min_depth = 0,
+            .max_depth = 1,
+          },
+        },
+      );
+      vkd.cmdSetScissor(
+        vk_cmdbuf,
+        0,
+        1,
+        &.{
+          .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = .{ .width = u32_(surface.width), .height = u32_(surface.height) },
+          },
+        },
+      );
+      vkd.cmdDraw(vk_cmdbuf, 3, 1, 0, 0);
       // - end rendering
+      vkd.cmdEndRendering(vk_cmdbuf);
       // - transition_image_layout for present
+      transition_image_layout(
+        &ofb[buf_idx],
+        vkd,
+        vk_cmdbuf,
+        .color_attachment_optimal,
+        .present_src_khr,
+        .{ .color_attachment_write_bit = true },
+        .{},
+        .{ .color_attachment_output_bit = true },
+        .{ .bottom_of_pipe_bit = true },
+      );
       // - command_buffer_end
+      vkd.endCommandBuffer(vk_cmdbuf) catch unreachable;
+      const queue = vkd.getDeviceQueue(vk_dev, queue_family_index, 0);
+      vkd.queueSubmit2(
+        queue,
+        1,
+        &.{
+          .{
+            .command_buffer_info_count = 1,
+            .p_command_buffer_infos = &.{
+              .{
+                .device_mask = 0,
+                .command_buffer = vk_cmdbuf,
+              },
+            },
+          },
+        },
+        .null_handle,
+      ) catch @panic("Queue submit failed");
+      vkd.queueWaitIdle(queue) catch @panic("queue wait failed");
     }
 
     if (surface.handle.ready()) surface.handle.wl_surface.commit(&wl_connection_proxy);
@@ -336,7 +402,7 @@ fn createGraphicsPipeline(
   pipeline: *vk.Pipeline,
   devw: vk.DeviceWrapper,
   dev: vk.Device,
-  code: []const u32,
+  code: []const u8,
   format: vk.Format,
   width: u32,
   height: u32,
@@ -453,12 +519,12 @@ fn createGraphicsPipeline(
 fn createShaderModule(
   devw: vk.DeviceWrapper,
   dev: vk.Device,
-  code: []const u32,
+  code: []const u8,
 ) vk.ShaderModule {
   const createInfo: vk.ShaderModuleCreateInfo = .{
     .flags = .{},
     .code_size = code.len,
-    .p_code = code.ptr,
+    .p_code = transmute([*]u32, code.ptr),
   };
   const shader_module = devw.createShaderModule(
     dev,
