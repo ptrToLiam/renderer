@@ -265,7 +265,7 @@ pub const Connection = struct {
         },
         .wl_display_delete_id => |delete_id| {
           log.warn(
-            "Compositor Requested Delete ID :: {}",
+            "Compositor Acnowledges Delete ID :: {}",
             .{ delete_id.id },
           );
           log.info("releasing object of ID: {}", .{delete_id.id});
@@ -408,7 +408,7 @@ pub const Connection = struct {
           log.debug("dma-buf creation returned ID :: {}", .{created.buffer});
         },
         .zwp_linux_buffer_params_v1_failed => {
-          log.debug("dma-buf creation failed!", .{});
+          log.err("dma-buf creation failed!", .{});
         },
         else => |wl_event| {
           warn_unhandled_event(wl_event);
@@ -443,6 +443,11 @@ pub const Connection = struct {
     xdg_toplevel.set_title(&conn_proxy, title);
     xdg_toplevel.set_app_id(&conn_proxy, class);
 
+    if (!flags.resize) {
+      xdg_toplevel.set_min_size(&conn_proxy, width, height);
+      xdg_toplevel.set_max_size(&conn_proxy, width, height);
+    }
+
     wl_surface.commit(&conn_proxy);
 
     conn.flush() catch unreachable;
@@ -464,26 +469,29 @@ pub const Connection = struct {
     conn: *Connection,
     surface: Surface,
   ) void {
-    _ =  conn; _ = surface;
-    // var conn_proxy = conn.proxy();
-    // _ = conn.client_state.linux_dmabuf.get_surface_feedback(
-    //   &conn_proxy,
-    //   surface.wl_surface,
-    // );
-    // conn.flush() catch unreachable;
+    // _ =  conn; _ = surface;
+    var conn_proxy = conn.proxy();
+    _ = conn.client_state.linux_dmabuf.get_surface_feedback(
+      &conn_proxy,
+      surface.wl_surface,
+    );
+    conn.flush() catch unreachable;
   }
 
   pub fn wl_buffer(
     conn: *Connection,
-    buf: platform.OffscreenBuffer
+    buf: platform.OffscreenBuffer,
   ) WaylandBuffer {
     var conn_proxy = conn.proxy();
     const params = conn.client_state.linux_dmabuf.create_params(
       &conn_proxy,
     );
 
-    defer conn.flush() catch unreachable;
-    defer params.destroy(&conn_proxy);
+    defer {
+      params.destroy(&conn_proxy);
+      conn.flush() catch unreachable;
+      // _ = linux.close(buf.memory_fd);
+    }
 
     log.debug(
       "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
@@ -507,6 +515,15 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
+    var statx_buf: os.linux.Statx = undefined;
+    const rc = @as(isize, @bitCast(linux.statx(
+      buf.memory_fd, "", os.linux.AT.EMPTY_PATH,
+      .{ .TYPE = true, .SIZE = true },
+      &statx_buf,
+    )));
+    log.debug("fd={} statx rc={} mode=0o{o} size={}", .{
+    buf.memory_fd, rc, statx_buf.mode, statx_buf.size,
+});
     const ofb_wl_buffer = params.create_immed(
     // const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
     // params.create(
@@ -764,8 +781,6 @@ pub const Connection = struct {
   }
 
   pub fn flush(conn: *Connection) !void {
-    if (conn.out.read == conn.out.write) return;
-
     const out_read = conn.out.mask(conn.out.read);
     const out_write = conn.out.mask(conn.out.write);
 
@@ -777,7 +792,9 @@ pub const Connection = struct {
     var iov_len: usize = 1;
 
 
-    if (out_read < out_write) {
+    if (conn.out.read == conn.out.write) {
+      iov_len = 0;
+    } else if (out_read < out_write) {
       const iov_buf = conn.out.buf[out_read..out_write];
       iov[0].base = iov_buf.ptr;
       iov[0].len = iov_buf.len;
@@ -1184,9 +1201,9 @@ const FreeIdxList = struct {
     };
   }
 
-  pub fn peek(fil: *FreeIdxList) u32 {
-    return fil.indices[fil.index_available-1];
-  }
+  // pub fn peek(fil: *FreeIdxList) u32 {
+  //   return fil.indices[fil.index_available-1];
+  // }
 
   pub fn pull(fil: *FreeIdxList) u32 {
     fil.index_available -= 1;

@@ -31,7 +31,7 @@ pub const Connection = struct {
       flags: Surface.Flags = .{},
     },
   ) Surface {
-    return conn.handle.acquire_surface(
+    const surface = conn.handle.acquire_surface(
       arena,
       params.title,
       params.class,
@@ -39,6 +39,8 @@ pub const Connection = struct {
       params.height,
       params.flags,
     );
+    conn.handle.check_surface_formats(surface.handle);
+    return surface;
   }
 
   pub fn check_surface_formats(
@@ -176,33 +178,23 @@ pub const OffscreenBuffer = struct {
       .p_view_formats = &.{ format.toVk() },
       .p_next = null,
     };
+
     const ext: vk.ExternalMemoryImageCreateInfo = .{
       .handle_types = .{
         .dma_buf_bit_ext = true,
-        // .opaque_fd_bit = true,
       },
       .p_next = &ext2,
     };
 
-    var drm_ext: vk.ImageDrmFormatModifierExplicitCreateInfoEXT = .{
-      .drm_format_modifier = mod.toInt(),
-      .drm_format_modifier_plane_count = 1,
-      .p_plane_layouts = &.{
-        .{
-          .offset = 0,
-          .size = 0,
-          .row_pitch = 0,
-          .array_pitch = 0,
-          .depth_pitch = 0,
-        },
-      },
+    const drm_list_ext: vk.ImageDrmFormatModifierListCreateInfoEXT = .{
+      .drm_format_modifier_count = 1,
+      .p_drm_format_modifiers = &.{mod.toInt()},
       .p_next = &ext,
     };
-    _ = &drm_ext;
     const image = dev_wrapper.createImage(
       dev,
       &.{
-        .p_next = &drm_ext,
+        .p_next = &drm_list_ext,
         .flags = .{},
         .image_type = .@"2d",
         .format = format.toVk(),
@@ -283,6 +275,7 @@ pub const OffscreenBuffer = struct {
         .handle_type = .{ .dma_buf_bit_ext = true },
       },
     ) catch unreachable;
+    std.log.debug("exported fd={}", .{fd});
 
     var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
       .drm_format_modifier = mod.toInt(),

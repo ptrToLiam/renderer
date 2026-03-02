@@ -78,7 +78,6 @@ pub fn app(env: std.process.Environ) void {
       .class = app_class,
       .width = initial_width,
       .height = initial_height,
-      .flags = .{ .resize = true },
     },
   );
   defer surface.release();
@@ -127,7 +126,7 @@ pub fn app(env: std.process.Environ) void {
     }
 
     if (want_attach) {
-      log.debug("attaching buffer :: {} (wl_object_id={}, fd={})", .{ buf_idx, u32_(ofb_wlbuf[buf_idx]), ofb[buf_idx].memory_fd});
+      // log.debug("attaching buffer :: {} (wl_object_id={}, fd={})", .{ buf_idx, u32_(ofb_wlbuf[buf_idx]), ofb[buf_idx].memory_fd});
       surface.handle.wl_surface.attach(
         &wl_connection_proxy,
         ofb_wlbuf[buf_idx],
@@ -141,26 +140,10 @@ pub fn app(env: std.process.Environ) void {
         surface.width,
         surface.height,
       );
-      // platform_conn.handle.flush() catch unreachable;
-      // const drm_mod = selectWaylandModFromFmt(&platform_conn.handle, .rgba32);
+      _ = &buf_idx;
 
-      // ofb[1] = .create(
-      //     vkd,
-      //     vk_dev,
-      //     vki,
-      //     vk_pdev.*,
-      //     u32_(surface.width),
-      //     u32_(surface.height),
-      //     .rgba32,
-      //     drm_mod,
-      //   );
-      //   ofb_wlbuf[1] = platform_conn.handle.wl_buffer(
-      //     ofb[1],
-      //   );
-      // _ = &buf_idx;
-      // buf_idx += 1;
-      // buf_idx %= 2;
     }
+
 
     if (!want_attach and surface.handle.ready()) {
       _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
@@ -184,7 +167,9 @@ pub fn app(env: std.process.Environ) void {
           vk_dev,
           vki.dispatch.vkGetDeviceProcAddr.?,
         );
+
         const drm_mod = selectWaylandModFromFmt(&platform_conn.handle, .rgba32);
+        log.debug("drm modifier :: 0x{x}", .{drm_mod});
         ofb[0] = .create(
           vkd,
           vk_dev,
@@ -198,11 +183,25 @@ pub fn app(env: std.process.Environ) void {
         ofb_wlbuf[0] = platform_conn.handle.wl_buffer(
           ofb[0],
         );
+        
+        ofb[1] = .create(
+          vkd,
+          vk_dev,
+          vki,
+          vk_pdev.*,
+          u32_(surface.width),
+          u32_(surface.height),
+          .rgba32,
+          drm_mod,
+        );
+        ofb_wlbuf[1] = platform_conn.handle.wl_buffer(
+          ofb[1],
+        );
+        log.debug("second vkImage wl_buffer is ID :: {}", .{u32_(ofb_wlbuf[1])});
       }
     }
 
     if (surface.handle.ready()) surface.handle.wl_surface.commit(&wl_connection_proxy);
-    // surface.handle.wl_surface.damage(&wl_connection_proxy, 0, 0, surface.width, surface.height );
     platform_conn.handle.flush() catch unreachable;
 
     update();
@@ -458,7 +457,6 @@ fn selectWaylandVkDevice(
 
   pdev.* = vk_pdev_candidate.pdev;
 
-
   log.debug(
     "Selected GPU: {s}",
     .{
@@ -557,11 +555,24 @@ fn selectWaylandModFromFmt(
     bytes.len,
   );
 
+  log.debug("looking for format :: 0x{x} ({s})", .{ u32_(format.toDrm()), @tagName(format.toDrm()) });
   var iter = std.mem.window(u8, bytes, 16, 16);
   while (iter.next()) |entry| {
     const fmt = std.mem.bytesToValue(u32, entry[0..4]);
-    const mod = std.mem.bytesToValue(u64, entry[8..]);
-    if (fmt == desired_fmt) return cast(Drm.Modifier, mod);
+    const mod = cast(
+      Drm.Modifier,
+      std.mem.bytesToValue(u64, entry[8..]),
+    );
+    if (fmt == desired_fmt) {
+      if (mod != .invalid and mod != .linear)
+      {
+        log.debug(
+          "format ({}) is supported with mod ({})!",
+          .{ format.toDrm(), mod },
+        );
+        return mod;
+      }
+    }
   }
   return .invalid;
 }
