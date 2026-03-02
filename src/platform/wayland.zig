@@ -360,7 +360,6 @@ pub const Connection = struct {
           // { window_menu=1, maximize=2, fullscreen=3, minimize=4 }
         },
         .xdg_wm_base_ping => |ping| {
-          log.info("pinging serial {} on xdg_wm_base (id={})", .{ping.serial, u32_(conn.client_state.xdg_wm_base)});
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_done => {
@@ -490,20 +489,8 @@ pub const Connection = struct {
     defer {
       params.destroy(&conn_proxy);
       conn.flush() catch unreachable;
-      // _ = linux.close(buf.memory_fd);
+      _ = linux.close(buf.memory_fd);
     }
-
-    log.debug(
-      "trying to create buffer on params obj ({d}) {{ fd={}, offset={}, stride={}, mod_hi={}, mod_lo={} }}",
-      .{
-        u32_(params),
-        buf.memory_fd,
-        buf.offset,
-        buf.stride,
-        buf.drm_modifier.hi(),
-        buf.drm_modifier.lo(),
-      },
-    );
 
     params.add(
       &conn_proxy,
@@ -515,18 +502,7 @@ pub const Connection = struct {
       buf.drm_modifier.lo(),
     );
 
-    var statx_buf: os.linux.Statx = undefined;
-    const rc = @as(isize, @bitCast(linux.statx(
-      buf.memory_fd, "", os.linux.AT.EMPTY_PATH,
-      .{ .TYPE = true, .SIZE = true },
-      &statx_buf,
-    )));
-    log.debug("fd={} statx rc={} mode=0o{o} size={}", .{
-    buf.memory_fd, rc, statx_buf.mode, statx_buf.size,
-});
     const ofb_wl_buffer = params.create_immed(
-    // const ofb_wl_buffer: WaylandBuffer = .fromInt(conn_proxy.get_id());
-    // params.create(
       &conn_proxy,
       i32_(buf.width),
       i32_(buf.height),

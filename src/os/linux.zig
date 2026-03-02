@@ -196,7 +196,7 @@ pub const cmsghdr = packed struct {
   /// Macro Definition:
   /// #define CMSG_LEN(len)   (CMSG_ALIGN (sizeof (struct cmsghdr)) + (len))
   pub inline fn msg_len(len: usize) usize {
-    return msg_align(cmsghdr.Size + len);
+    return msg_align(cmsghdr.Size) + len;
   }
 
   pub inline fn __msg_len(msg: *const cmsghdr) usize {
@@ -242,6 +242,7 @@ pub const unlink = linux.unlink;
 pub const ftruncate = linux.ftruncate;
 pub const connect = linux.connect;
 pub const statx = linux.statx;
+pub const ioctl = linux.ioctl;
 pub const errno = std.posix.errno;
 
 // Type aliases

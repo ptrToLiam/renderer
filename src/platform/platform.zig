@@ -275,7 +275,6 @@ pub const OffscreenBuffer = struct {
         .handle_type = .{ .dma_buf_bit_ext = true },
       },
     ) catch unreachable;
-    std.log.debug("exported fd={}", .{fd});
 
     var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
       .drm_format_modifier = mod.toInt(),

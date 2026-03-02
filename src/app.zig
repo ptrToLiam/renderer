@@ -105,6 +105,8 @@ pub fn app(env: std.process.Environ) void {
   const time_target = time.us_per_s / 120;
   var buf_idx: u32 = 0;
   _ = &buf_idx;
+  var time_to_first_frame: u64 = 0;
+  var first_attach = true;
   while (!want_exit) {
     var wl_connection_proxy = platform_conn.handle.proxy();
     const frame_time_start = time.us();
@@ -126,7 +128,16 @@ pub fn app(env: std.process.Environ) void {
     }
 
     if (want_attach) {
-      // log.debug("attaching buffer :: {} (wl_object_id={}, fd={})", .{ buf_idx, u32_(ofb_wlbuf[buf_idx]), ofb[buf_idx].memory_fd});
+      if (first_attach) {
+        @branchHint(.cold);
+        time_to_first_frame = time.us();
+        first_attach = false;
+        log.debug(
+          "First frame attached at {}us ({}ms) from program start",
+          .{time_to_first_frame, time_to_first_frame / time.us_per_ms},
+        );
+      }
+
       surface.handle.wl_surface.attach(
         &wl_connection_proxy,
         ofb_wlbuf[buf_idx],
@@ -141,9 +152,8 @@ pub fn app(env: std.process.Environ) void {
         surface.height,
       );
       _ = &buf_idx;
-
+      buf_idx = (buf_idx + 1) % 2;
     }
-
 
     if (!want_attach and surface.handle.ready()) {
       _ = platform_conn.handle.client_state.linux_dmabuf.get_surface_feedback(
@@ -180,10 +190,6 @@ pub fn app(env: std.process.Environ) void {
           .rgba32,
           drm_mod,
         );
-        ofb_wlbuf[0] = platform_conn.handle.wl_buffer(
-          ofb[0],
-        );
-        
         ofb[1] = .create(
           vkd,
           vk_dev,
@@ -194,10 +200,13 @@ pub fn app(env: std.process.Environ) void {
           .rgba32,
           drm_mod,
         );
+
+        ofb_wlbuf[0] = platform_conn.handle.wl_buffer(
+          ofb[0],
+        );
         ofb_wlbuf[1] = platform_conn.handle.wl_buffer(
           ofb[1],
         );
-        log.debug("second vkImage wl_buffer is ID :: {}", .{u32_(ofb_wlbuf[1])});
       }
     }
 
