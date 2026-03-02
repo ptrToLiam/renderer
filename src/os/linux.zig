@@ -147,20 +147,6 @@ const CmsgIterator = struct {
     return result;
   }
 
-  // pub fn next(iter: *Iterator) ?cmsghdr {
-  //   const result: ?cmsghdr = if (iter.buf[iter.idx..].len > @sizeOf(cmsghdr)) hdr: {
-  //     const hdr = std.mem.bytesToValue(cmsghdr, iter.buf[iter.idx..][0..@sizeOf(cmsghdr)]);
-  //     iter.idx += cmsghdr.__msg_len(&hdr);
-
-  //     if (iter.idx >= iter.buf.len)
-  //       iter.idx = iter.buf.len - 1;
-
-  //     break :hdr hdr;
-  //   } else null;
-
-  //   return result;
-  // }
-
   pub fn reset(iter: *Iterator) void {
     iter.idx = 0;
   }

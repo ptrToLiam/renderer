@@ -1197,15 +1197,116 @@ const FreeIdxList = struct {
   }
 };
 
-pub const dma_buf = struct {
-  handle: WaylandBuffer,
-  flags: Flags,
+// pub const dma_buf = struct {
+//   handle: WaylandBuffer,
+//   flags: Flags,
 
-  pub const Flags = packed struct (u32) {
-    confirmed: bool = false,
-    __reserved_bits: u31 = 0,
-  };
+//   pub const Flags = packed struct (u32) {
+//     confirmed: bool = false,
+//     __reserved_bits: u31 = 0,
+//   };
+// };
+
+const ShmPool = struct {
+  proxy: Proxy,
+  wl_shm_pool: WaylandShmPool,
+  buffer: []u32,
+  fd: c_int,
+
+  pub fn create_buffer(
+    pool: *ShmPool,
+    width: i32,
+    height: i32,
+    format: Shm.Format,
+  ) WaylandBuffer {
+    @memset(pool.buffer, 0xefefefef);
+    return pool.wl_shm_pool.create_buffer(
+      &pool.proxy,
+      0,
+      width,
+      height,
+      width*4,
+      format,
+    );
+  }
 };
+
+fn create_shm_pool(
+  conn: *Connection,
+  shm: Shm,
+  width: i32,
+  height:i32,
+) ShmPool {
+  const scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const shm_fd = open_shmfile(scratch.arena);
+  var proxy = conn.proxy();
+
+  const img_stride = width * 4;
+  const img_size = height * img_stride;
+  _ = os.linux.ftruncate(
+    shm_fd,
+    img_size,
+  );
+
+  const rc = os.linux.mmap(
+    null,
+    base.usize_(img_size),
+    .{ .READ = true, .WRITE = true },
+    .{ .TYPE = .SHARED },
+    shm_fd,
+    0
+  );
+
+  const irc = transmute(isize, rc);
+  if (irc < 0) {
+    log.err("failed to map in shmfile memory!", .{});
+  }
+
+  const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
+  const img_buffer = transmute([]u32, ptr);
+
+  const shm_pool = shm.create_pool(
+    &proxy,
+    shm_fd,
+    img_size,
+  );
+
+  return .{
+    .proxy = proxy,
+    .fd = shm_fd,
+    .buffer = img_buffer,
+    .wl_shm_pool = shm_pool,
+  };
+}
+
+fn open_shmfile(arena: *Arena) c_int {
+  const timestamp = time.us();
+  const name_template = "/var/tmp/vkRender-XXXXXX";
+
+  var name = arena.push(u8, name_template.len + 1);
+  @memcpy(name[0..name.len-1], name_template);
+  for (name[(name.len - 7)..][0..6]) |*byte| {
+    byte.* = base.u8_((
+      'A' + (timestamp & 15) + ((timestamp & 16) * 2)
+    ));
+  }
+
+  const fd = linux.open(
+    transmute([*:0]const u8, name),
+    .{
+      .ACCMODE = .RDWR,
+      .CREAT = true,
+      .EXCL = true,
+      .CLOEXEC = true,
+    },
+    0o600,
+  );
+
+  _ = linux.unlink(transmute([*:0]const u8, name));
+  return base.i32_(transmute(isize, fd));
+}
+
 
 const WireEventHeader = packed struct (u64) {
   id: u32,
@@ -1217,7 +1318,7 @@ pub const WaylandBuffer = wl_protocols.wl_buffer;
 pub const WaylandSurface = wl_protocols.wl_surface;
 pub const XdgSurface = wl_protocols.xdg_surface;
 pub const XdgToplevel = wl_protocols.xdg_toplevel;
-pub const ShmPool = wl_protocols.wl_shm_pool;
+pub const WaylandShmPool = wl_protocols.wl_shm_pool;
 
 pub const Shm = wl_protocols.wl_shm;
 pub const Seat = wl_protocols.wl_seat;

@@ -42,6 +42,9 @@ pub fn app(env: std.process.Environ) void {
   var vkd: vk.DeviceWrapper = undefined;
   var vk_dev: vk.Device = undefined;
   var queue_family_index: u32 = undefined;
+  var vk_pipeline: vk.Pipeline = undefined;
+  var vk_cmdpool: vk.CommandPool = undefined;
+  var vk_cmdbuf: vk.CommandBuffer = undefined;
   _ = &vk_dev; _ = &queue_family_index;
   _ = &vkd;
 
@@ -59,8 +62,8 @@ pub fn app(env: std.process.Environ) void {
     .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
   );
 
-  const initial_width = 540;
-  const initial_height = 360;
+  const initial_width = 960;
+  const initial_height = 480;
 
   //---------------------------------------------------------------------------
   // BEGIN PLATFORM STATE INIT
@@ -100,13 +103,11 @@ pub fn app(env: std.process.Environ) void {
   platform_conn.handle.flush() catch unreachable;
 
   var ofb_wlbuf: [2]platform.wayland.WaylandBuffer = undefined;
+
   var want_attach = false;
+  var buf_idx: u32 = 0;
 
   const time_target = time.us_per_s / 120;
-  var buf_idx: u32 = 0;
-  _ = &buf_idx;
-  var time_to_first_frame: u64 = 0;
-  var first_attach = true;
   while (!want_exit) {
     var wl_connection_proxy = platform_conn.handle.proxy();
     const frame_time_start = time.us();
@@ -128,16 +129,6 @@ pub fn app(env: std.process.Environ) void {
     }
 
     if (want_attach) {
-      if (first_attach) {
-        @branchHint(.cold);
-        time_to_first_frame = time.us();
-        first_attach = false;
-        log.debug(
-          "First frame attached at {}us ({}ms) from program start",
-          .{time_to_first_frame, time_to_first_frame / time.us_per_ms},
-        );
-      }
-
       surface.handle.wl_surface.attach(
         &wl_connection_proxy,
         ofb_wlbuf[buf_idx],
@@ -200,6 +191,33 @@ pub fn app(env: std.process.Environ) void {
           .rgba32,
           drm_mod,
         );
+        createGraphicsPipeline(
+          &vk_pipeline,
+          vkd,
+          vk_dev,
+          transmute([]const u32, slang_shader),
+          gfx.Format.rgba32.toVk(),
+          u32_(surface.width),
+          u32_(surface.height),
+        );
+        vk_cmdpool = vkd.createCommandPool(
+          vk_dev,
+          &.{
+            .flags = .{ .reset_command_buffer_bit = true },
+            .queue_family_index = queue_family_index,
+          },
+          null,
+        ) catch unreachable;
+
+        vkd.allocateCommandBuffers(
+          vk_dev,
+          &.{
+            .command_pool = vk_cmdpool,
+            .level = .primary,
+            .command_buffer_count = 1
+          },
+          transmute([*]vk.CommandBuffer, &vk_cmdbuf),
+        ) catch @panic("failed to allocate cmdbuf from cmdpool");
 
         ofb_wlbuf[0] = platform_conn.handle.wl_buffer(
           ofb[0],
@@ -210,12 +228,59 @@ pub fn app(env: std.process.Environ) void {
       }
     }
 
-    if (surface.handle.ready()) surface.handle.wl_surface.commit(&wl_connection_proxy);
-    platform_conn.handle.flush() catch unreachable;
-
     update();
     draw();
 
+    // Draw Logic
+    if (want_attach) {
+      // - command_buffer_begin
+      vkd.beginCommandBuffer(
+        vk_cmdbuf,
+        &.{},
+      ) catch @panic("Failed to begin command buffer");
+      // - transition_image_layout for render
+      transition_image_layout(
+        &ofb[buf_idx],
+        vkd,
+        .undefined,
+        .color_attachment_optimal,
+        .{},
+        .{ .color_attachment_write_bit = true },
+        .{ .color_attachment_output_bit = true },
+        .{ .color_attachment_output_bit = true },
+      );
+      // - set clearColor
+      const clear_color: vk.ClearColorValue = .{ .float = .{ 0.3, 0.1, 0.5, 1.0 } };
+      // - attachmentInfo setup
+      const attachment_info: vk.AttachmentInfo = .{
+        .image_view = ofb[buf_idx].image_view,
+        .image_layout = .color_attachment_optimal,
+        .load_op = .clear,
+        .store_op = .store,
+        .clear_value = clear_color,
+      };
+      // - renderingInfo setup
+      const rendering_info: vk.RenderingInfo = .{
+        .render_area = .{
+          .offset = .{ .x = 0, .y = 0 },
+          .extent = .{ .width = u32_(surface.width), .height = u32_(surface.height) },
+        },
+        .layer_count = 1,
+        .color_attachment_count = 1,
+        .p_color_attachments = &attachment_info,
+      };
+      // - begin rendering
+      vkd.cmdBeginRendering(vk_cmdbuf, &rendering_info);
+      // - render commands
+      vkd.cmdBindPipeline(vk_cmdbuf, .graphics, vk_pipeline);
+      // vkd.cmdSetViewport(vk_cmdbuf, 0, 1, );
+      // - end rendering
+      // - transition_image_layout for present
+      // - command_buffer_end
+    }
+
+    if (surface.handle.ready()) surface.handle.wl_surface.commit(&wl_connection_proxy);
+    platform_conn.handle.flush() catch unreachable;
     const frame_time_end = time.us();
     const frame_elapsed_us = frame_time_end - frame_time_start;
     if (frame_elapsed_us < time_target) {
@@ -224,111 +289,183 @@ pub fn app(env: std.process.Environ) void {
   }
 }
 
-const ShmPool = struct {
-  proxy: platform.wayland.Proxy,
-  wl_shm_pool: platform.wayland.ShmPool,
-  buffer: []u32,
-  fd: c_int,
-
-  pub fn create_buffer(
-    pool: *ShmPool,
-    width: i32,
-    height: i32,
-    format: platform.wayland.Shm.Format,
-  ) platform.wayland.WaylandBuffer {
-    @memset(pool.buffer, 0xefefefef);
-    return pool.wl_shm_pool.create_buffer(
-      &pool.proxy,
-      0,
-      width,
-      height,
-      width*4,
-      format,
-    );
-  }
-};
-
-fn create_shm_pool(
-  conn: *platform.wayland.Connection,
-  shm: platform.wayland.Shm,
-  width: i32,
-  height:i32,
-) ShmPool {
-  const scratch = Thread.Context.get_scratch(0, .{}).?;
-  defer scratch.end();
-  const shm_fd = open_shmfile(scratch.arena);
-  var proxy = conn.proxy();
-
-  const img_stride = width * 4;
-  const img_size = height * img_stride;
-  _ = os.linux.ftruncate(
-    shm_fd,
-    img_size,
-  );
-
-  const rc = os.linux.mmap(
-    null,
-    base.usize_(img_size),
-    .{ .READ = true, .WRITE = true },
-    .{ .TYPE = .SHARED },
-    shm_fd,
-    0
-  );
-
-  const irc = transmute(isize, rc);
-  if (irc < 0) {
-    log.err("failed to map in shmfile memory!", .{});
-  }
-
-  const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
-  const img_buffer = transmute([]u32, ptr);
-
-  const shm_pool = shm.create_pool(
-    &proxy,
-    shm_fd,
-    img_size,
-  );
-
-  return .{
-    .proxy = proxy,
-    .fd = shm_fd,
-    .buffer = img_buffer,
-    .wl_shm_pool = shm_pool,
-  };
-}
-
-fn open_shmfile(arena: *Arena) c_int {
-  const linux = os.linux;
-  const timestamp = time.us();
-  const name_template = "/var/tmp/vkRender-XXXXXX";
-
-  var name = arena.push(u8, name_template.len + 1);
-  @memcpy(name[0..name.len-1], name_template);
-  for (name[(name.len - 7)..][0..6]) |*byte| {
-    byte.* = base.u8_((
-      'A' + (timestamp & 15) + ((timestamp & 16) * 2)
-    ));
-  }
-
-  const fd = linux.open(
-    transmute(CString, name),
-    .{
-      .ACCMODE = .RDWR,
-      .CREAT = true,
-      .EXCL = true,
-      .CLOEXEC = true,
-    },
-    0o600,
-  );
-
-  _ = linux.unlink(transmute(CString, name));
-  return base.i32_(transmute(isize, fd));
-}
-
 fn update() void {
 }
 
 fn draw() void {
+}
+
+fn transition_image_layout(
+  ofb: *OffscreenBuffer,
+  vkd: vk.DeviceWrapper,
+  cmdbuf: vk.CommandBuffer,
+  layout_old: vk.ImageLayout,
+  layout_new: vk.ImageLayout,
+  src_access_mask: vk.AccessFlags2,
+  dst_access_mask: vk.AccessFlags2,
+  src_stage_mask: vk.PipelineStageFlags2,
+  dst_stage_mask: vk.PipelineStageFlags2,
+) void {
+  const barrier: vk.ImageMemoryBarrier2 = .{
+    .src_stage_mask = src_stage_mask,
+    .dst_stage_mask = dst_stage_mask,
+    .old_layout = layout_old,
+    .new_layout = layout_new,
+    .src_access_mask = src_access_mask,
+    .dst_access_mask = dst_access_mask,
+    .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+    .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+    .image = ofb.image,
+    .subresource_range = .{
+      .aspect_mask = .{ .color_bit = true },
+      .base_mip_level = 0,
+      .level_count = 1,
+      .base_array_layer = 0,
+      .layer_count = 1,
+    },
+  };
+  const dependencyInfo: vk.DependencyInfo = .{
+    .dependency_flags = .{},
+    .image_memory_barrier_count = 1,
+    .p_image_memory_barriers = transmute([*]vk.ImageMemoryBarrier2, &barrier),
+  };
+  vkd.cmdPipelineBarrier2(cmdbuf,  &dependencyInfo);
+}
+
+fn createGraphicsPipeline(
+  pipeline: *vk.Pipeline,
+  devw: vk.DeviceWrapper,
+  dev: vk.Device,
+  code: []const u32,
+  format: vk.Format,
+  width: u32,
+  height: u32,
+) void {
+  _ = height; _ = width;
+  const shader_module = createShaderModule(devw, dev, code);
+
+  const pipelineRenderingCreateInfo: vk.PipelineRenderingCreateInfo = .{
+    .color_attachment_count = 1,
+    .p_color_attachment_formats = &.{format},
+    .view_mask = undefined,
+    .depth_attachment_format = undefined,
+    .stencil_attachment_format = undefined,
+  };
+  const pipelineCreateInfo: vk.GraphicsPipelineCreateInfo = .{
+    .p_next = &pipelineRenderingCreateInfo,
+    .p_stages = &.{
+      // vert stage
+      .{
+        .stage = .{ .vertex_bit = true },
+        .flags = .{},
+        .module = shader_module,
+        .p_name = "vertMain",
+      },
+      // frag stage
+      .{
+        .stage = .{ .fragment_bit = true },
+        .flags = .{},
+        .module = shader_module,
+        .p_name = "fragMain",
+      },
+    },
+    .p_dynamic_state = &.{
+      .dynamic_state_count = 2,
+      .p_dynamic_states = &.{ .viewport, .scissor },
+    },
+    .p_vertex_input_state = &.{},
+    .p_input_assembly_state = &.{
+      .topology = .triangle_list,
+      .primitive_restart_enable = .false,
+    },
+    .p_viewport_state = &.{
+      .viewport_count = 1,
+      .scissor_count = 1,
+    },
+    .p_rasterization_state = &.{
+      // .flags: PipelineRasterizationStateCreateFlags = .{},
+      .depth_clamp_enable = .false,
+      .rasterizer_discard_enable = .false,
+      .polygon_mode = .fill,
+      .cull_mode = .{ .back_bit = true },
+      .front_face = .clockwise,
+      .depth_bias_enable = .false,
+      .depth_bias_constant_factor = 1,
+      .depth_bias_clamp = 0,
+      .depth_bias_slope_factor = 0,
+      .line_width = 1,
+    },
+    .p_multisample_state = &.{
+      .rasterization_samples = .{ .@"1_bit" = true },
+      .sample_shading_enable = .false,
+      .min_sample_shading = 0,
+      .alpha_to_coverage_enable = .false,
+      .alpha_to_one_enable = .false,
+    },
+    .p_color_blend_state = &.{
+      .logic_op_enable = .false,
+      .logic_op = .copy,
+      .attachment_count = 1,
+      .p_attachments = &.{
+        .{
+          .blend_enable = .false,
+          .src_color_blend_factor = .zero,
+          .dst_color_blend_factor = .zero,
+          .color_blend_op = .add,
+          .color_write_mask = .{
+            .r_bit = true,
+            .g_bit = true,
+            .b_bit = true,
+            .a_bit = true,
+          },
+          .src_alpha_blend_factor = .zero,
+          .dst_alpha_blend_factor = .zero,
+          .alpha_blend_op = .add,
+        },
+      },
+      .blend_constants = .{0, 0, 0, 0},
+    },
+    .layout = devw.createPipelineLayout(
+      dev,
+      &.{
+        .set_layout_count = 0,
+        .push_constant_range_count = 0,
+      },
+      null,
+    ) catch @panic("failed to create pipeline layout!"),
+    .subpass = undefined,
+    .base_pipeline_index = -1,
+  };
+
+  _ = devw.createGraphicsPipelines(
+    dev,
+    .null_handle,
+    1,
+    &.{pipelineCreateInfo},
+    null,
+    transmute([*]vk.Pipeline, pipeline),
+  ) catch |err| {
+    log.err("VkPipeline creation failed with error :: {s}", .{@errorName(err)});
+    @panic("Failed to create pipeline");
+  };
+}
+
+fn createShaderModule(
+  devw: vk.DeviceWrapper,
+  dev: vk.Device,
+  code: []const u32,
+) vk.ShaderModule {
+  const createInfo: vk.ShaderModuleCreateInfo = .{
+    .flags = .{},
+    .code_size = code.len,
+    .p_code = code.ptr,
+  };
+  const shader_module = devw.createShaderModule(
+    dev,
+    &createInfo,
+    null,
+  ) catch unreachable;
+  return shader_module;
 }
 
 fn selectWaylandVkDevice(
@@ -468,9 +605,7 @@ fn selectWaylandVkDevice(
 
   log.debug(
     "Selected GPU: {s}",
-    .{
-      vk_pdev_candidate.properties.device_name,
-    },
+    .{ vk_pdev_candidate.properties.device_name },
   );
   const vk_dev_create_arena = scratch.arena;
   // Logical Device Creation
@@ -534,6 +669,7 @@ fn selectWaylandVkDevice(
 fn major(dev: u64) u64 {
   return ((dev >> 8) & 0xfff);
 }
+
 fn minor(dev: u64) u64 {
     return ((dev & 0xff) | ((dev >> 12) & 0xffffff00));
 }
@@ -564,7 +700,6 @@ fn selectWaylandModFromFmt(
     bytes.len,
   );
 
-  log.debug("looking for format :: 0x{x} ({s})", .{ u32_(format.toDrm()), @tagName(format.toDrm()) });
   var iter = std.mem.window(u8, bytes, 16, 16);
   while (iter.next()) |entry| {
     const fmt = std.mem.bytesToValue(u32, entry[0..4]);
@@ -601,10 +736,9 @@ const VkDeviceCandidate = struct {
 
 const OffscreenBuffer = platform.OffscreenBuffer;
 
+const slang_shader = @embedFile("shaders/slang.spv");
 const AppName = "vkRender";
 const AppClass = "Liam.Games.vkRender";
-const Swapchain = struct {
-};
 
 const cast = base.casts.cast;
 const transmute = base.casts.transmute;
@@ -614,8 +748,6 @@ const u64_ = base.u64_;
 
 const f32_ = base.f32_;
 const f64_ = base.f64_;
-
-const CString = [*:0]const u8;
 
 const Arena = base.Arena;
 const Thread = base.Thread;

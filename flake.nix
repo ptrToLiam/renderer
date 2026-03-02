@@ -22,6 +22,7 @@
             pkg-config
             renderdoc
             shaderc
+            shader-slang
             valgrind
             vulkan-loader
             vulkan-tools

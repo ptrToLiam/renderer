@@ -67,17 +67,6 @@ pub fn build(b: *std.Build) void {
     },
   });
 
-  // const gfx_mod = b.addModule("gfx", .{
-  //   .root_source_file = b.path("src/gfx/gfx.zig"),
-  //   .target = target,
-  //   .imports = &.{
-  //     .{ .name = "os", .module = os_mod },
-  //     .{ .name = "base", .module = base_mod },
-  //     .{ .name = "platform", .module = platform_mod },
-  //     // .{ .name = "vulkan", .module = vulkan },
-  //   },
-  // });
-
   const root = b.createModule(.{
       .root_source_file = b.path("src/main.zig"),
       .target = target,
@@ -108,6 +97,25 @@ pub fn build(b: *std.Build) void {
   if (b.args) |args| {
     run_cmd.addArgs(args);
   }
+
+  const shader_step = b.step("shaders", "Compile shaders");
+  const shader_cmd = b.addSystemCommand(&.{
+    "slangc",
+    "src/shaders/tri.slang",
+    "-target",
+    "spirv",
+    "-profile",
+    "spirv_1_4",
+    "-emit-spirv-directly",
+    "-fvk-use-entrypoint-name",
+    "-entry",
+    "vertMain",
+    "-entry",
+    "fragMain",
+    "-o",
+    "slang.spv",
+  });
+  shader_step.dependOn(&shader_cmd.step);
 
   const base_tests = b.addTest(.{
     .root_module = base_mod,

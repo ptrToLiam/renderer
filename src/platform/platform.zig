@@ -228,9 +228,9 @@ pub const OffscreenBuffer = struct {
 
     var mem_image_type_idx: u32 = math.maxInt(u32);
     for (0..mem_props.memory_type_count) |i| {
-        if ((mem_reqs.memory_type_bits & (base.u32_(1) << cast(u5, i))) != 0 and
+        if ((mem_reqs.memory_type_bits & (u32_(1) << cast(u5, i))) != 0 and
             mem_props.memory_types[i].property_flags.device_local_bit) {
-            mem_image_type_idx = base.u32_(i);
+            mem_image_type_idx = u32_(i);
             break;
         }
     }
@@ -334,8 +334,8 @@ pub const OffscreenBuffer = struct {
       .width = width,
       .height = height,
       .format = format,
-      .stride = base.u32_(layout.row_pitch),
-      .offset = base.u32_(layout.offset),
+      .stride = u32_(layout.row_pitch),
+      .offset = u32_(layout.offset),
     };
   }
 };
@@ -365,6 +365,7 @@ const Impl = switch (Target) {
 
 const Arena = base.Arena;
 
+const u32_ = base.u32_;
 const cast = casts.cast;
 const tramsute = casts.transmute;
 
