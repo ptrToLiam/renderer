@@ -208,6 +208,25 @@ pub const cmsghdr = packed struct {
   const Size = @sizeOf(@This());
 };
 
+// Types
+pub const dev_t = enum(u64) {
+  _,
+
+  pub fn toInt(dev: dev_t) u64 {
+    return @intFromEnum(dev);
+  }
+  pub fn fromInt(int: u64) dev_t {
+    return @enumFromInt(int);
+  }
+
+  pub fn major(dev: dev_t) u64 {
+    return ((dev.toInt() >> 8) & 0xfff);
+  }
+  pub fn minor(dev: dev_t) u64 {
+    return ((dev.toInt() & 0xff) | ((dev.toInt() >> 12) & 0xffffff00));
+  }
+};
+
 // Syscall aliases
 pub const recvmsg = linux.recvmsg;
 pub const sendmsg = linux.sendmsg;

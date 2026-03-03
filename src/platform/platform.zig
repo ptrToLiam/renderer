@@ -39,8 +39,34 @@ pub const Connection = struct {
       params.height,
       params.flags,
     );
-    conn.handle.check_surface_formats(surface.handle);
+    // conn.handle.check_surface_formats(surface.handle);
     return surface;
+  }
+
+  /// Select Physical Vulkan Device
+  pub fn select_vk_physical_device(
+    conn: *Connection,
+    vki: vk.InstanceProxy,
+    required_extensions: []const [*:0]const u8,
+  ) vk.PhysicalDevice {
+    return conn.handle.select_vk_physical_device(
+      vki,
+      required_extensions,
+    );
+  }
+
+  /// Create Vulkan Logical Device
+  pub fn create_vk_logical_device(
+    conn: *Connection,
+    vki: vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    required_extensions: []const [*:0]const u8,
+  ) struct { vk.Device, u32 } {
+    return conn.handle.create_vk_logical_device(
+      vki,
+      pdev,
+      required_extensions,
+    );
   }
 
   pub fn check_surface_formats(
@@ -164,9 +190,8 @@ pub const OffscreenBuffer = struct {
   offset: u32,
 
   pub fn create(
-    dev_wrapper: vk.DeviceWrapper,
-    dev: vk.Device,
-    vki: vk.InstanceWrapper,
+    vki: vk.InstanceProxy,
+    vkd: vk.DeviceProxy,
     pdev: vk.PhysicalDevice,
     width: u32,
     height: u32,
@@ -191,8 +216,7 @@ pub const OffscreenBuffer = struct {
       .p_drm_format_modifiers = &.{mod.toInt()},
       .p_next = &ext,
     };
-    const image = dev_wrapper.createImage(
-      dev,
+    const image = vkd.createImage(
       &.{
         .p_next = &drm_list_ext,
         .flags = .{},
@@ -212,7 +236,7 @@ pub const OffscreenBuffer = struct {
           .transfer_src_bit = true,
         },
         .sharing_mode = .exclusive,
-        .initial_layout = .undefined,
+        .initial_layout = .general,
       },
       null,
     ) catch |err|{
@@ -220,8 +244,7 @@ pub const OffscreenBuffer = struct {
       @panic("vkImage creation failed");
     };
 
-    const mem_reqs = dev_wrapper.getImageMemoryRequirements(
-      dev,
+    const mem_reqs = vkd.getImageMemoryRequirements(
       image,
     );
     const mem_props = vki.getPhysicalDeviceMemoryProperties(pdev);
@@ -252,8 +275,7 @@ pub const OffscreenBuffer = struct {
       .memory_type_index = mem_image_type_idx,
     };
 
-    const device_mem = dev_wrapper.allocateMemory(
-      dev,
+    const device_mem = vkd.allocateMemory(
       &alloc_info,
       null,
     ) catch |err| {
@@ -261,15 +283,13 @@ pub const OffscreenBuffer = struct {
       @panic("Failed to allocate device memory!");
     };
 
-    dev_wrapper.bindImageMemory(
-      dev,
+    vkd.bindImageMemory(
       image,
       device_mem,
       0,
     ) catch unreachable;
 
-    const fd = dev_wrapper.getMemoryFdKHR(
-      dev,
+    const fd = vkd.getMemoryFdKHR(
       &.{
         .memory = device_mem,
         .handle_type = .{ .dma_buf_bit_ext = true },
@@ -280,8 +300,7 @@ pub const OffscreenBuffer = struct {
       .drm_format_modifier = mod.toInt(),
     };
 
-    dev_wrapper.getImageDrmFormatModifierPropertiesEXT(
-      dev,
+    vkd.getImageDrmFormatModifierPropertiesEXT(
       image,
       &mod_props
     ) catch |err| {
@@ -292,8 +311,7 @@ pub const OffscreenBuffer = struct {
       @panic("vkGetImageDrmFormatModifierPropertiesEXT Failed!");
     };
 
-    const layout = dev_wrapper.getImageSubresourceLayout(
-      dev,
+    const layout = vkd.getImageSubresourceLayout(
       image,
       &.{
         .aspect_mask = .{ .memory_plane_0_bit_ext = true },
@@ -302,8 +320,7 @@ pub const OffscreenBuffer = struct {
       },
     );
 
-    const image_view = dev_wrapper.createImageView(
-      dev,
+    const image_view = vkd.createImageView(
       &.{
         .image = image,
         .view_type = .@"2d",

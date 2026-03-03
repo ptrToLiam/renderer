@@ -34,6 +34,7 @@
           ];
           shellHook = ''
             VULKAN_LOADER_LIB="${pkgs.vulkan-loader}/lib"
+            export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
           '';
         };
       });

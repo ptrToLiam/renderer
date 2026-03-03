@@ -268,7 +268,10 @@ pub const Connection = struct {
             "Compositor Acnowledges Delete ID :: {}",
             .{ delete_id.id },
           );
-          log.info("releasing object of ID: {}", .{delete_id.id});
+          log.info(
+            "releasing object of ID: {} :: {}",
+            .{ delete_id.id, conn.client_state.object_pool.objects[delete_id.id-1] },
+          );
           conn.client_state.object_pool.release_object(delete_id.id);
         },
         .wl_registry_global => |registry_global| {
@@ -293,7 +296,7 @@ pub const Connection = struct {
               if (seat_capabilities.keyboard) "true" else "false",
             },
           );
-          conn.client_state.seat_capabilities = seat_capabilities;
+          conn.client_state.seat_info.capabilities = seat_capabilities;
         },
         .wl_seat_name => |wl_seat_name| {
           const seat_name = wl_seat_name.name;
@@ -302,10 +305,10 @@ pub const Connection = struct {
             .{ seat_name },
           );
           @memcpy(
-            conn.client_state.seat_name[0..seat_name.len],
+            conn.client_state.seat_info.name[0..seat_name.len],
             seat_name,
           );
-          conn.client_state.seat_name[seat_name.len] = 0;
+          conn.client_state.seat_info.name[seat_name.len] = 0;
         },
         .wl_shm_format => |fmt_event| {
           _ = fmt_event;
@@ -363,36 +366,35 @@ pub const Connection = struct {
           conn.client_state.xdg_wm_base.pong(&conn_proxy, ping.serial);
         },
         .zwp_linux_dmabuf_feedback_v1_done => {
-          conn.client_state.dmabuf_feedback.done = true;
           log.info("dmabuf feedback done", .{});
         },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
-          conn.client_state.dmabuf_feedback.fmt_table = format_table;
+          // conn.client_state.dmabuf_feedback.fmt_table = format_table;
           log.info(
             "dmabuf feedback format table received :: {{ fd={}, size={} }}",
             .{ format_table.fd, format_table.size },
           );
         },
-        .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
-          conn.client_state.dmabuf_feedback.main_device = std.mem.bytesToValue(
-            u64,
-            main_device.device
-          );
-          log.info(
-            "dmabuf feedback main device: 0x{x}",
-            .{ conn.client_state.dmabuf_feedback.main_device },
-          );
+        .zwp_linux_dmabuf_feedback_v1_main_device => {
+          // conn.client_state.dmabuf_feedback.main_device = std.mem.bytesToValue(
+            // linux.dev_t,
+            // main_device.device
+          // );
+          // log.info(
+            // "dmabuf feedback main device: 0x{x}",
+            // .{ conn.client_state.dmabuf_feedback.main_device },
+          // );
         },
         .zwp_linux_dmabuf_feedback_v1_tranche_done => {
-          conn.client_state.dmabuf_feedback.tranche_done = true;
+          // conn.client_state.dmabuf_feedback.tranche_done = true;
           log.info("dmabuf feedback tranche done", .{});
         },
-        .zwp_linux_dmabuf_feedback_v1_tranche_target_device => |tranche_target| {
-          const tranche_target_device = std.mem.bytesToValue(u64, tranche_target.device);
-          log.info(
-            "dmabuf feedback tranche target device: 0x{x}",
-            .{ tranche_target_device },
-          );
+        .zwp_linux_dmabuf_feedback_v1_tranche_target_device => {
+          // const tranche_target_device = std.mem.bytesToValue(linux.dev_t, tranche_target.device);
+          // log.info(
+            // "dmabuf feedback tranche target device: 0x{x}",
+            // .{ tranche_target_device },
+          // );
         },
         .zwp_linux_dmabuf_feedback_v1_tranche_formats => |tranche_formats| {
           log.info(
@@ -427,7 +429,8 @@ pub const Connection = struct {
     height: i32,
     flags: platform.Surface.Flags,
   ) platform.Surface {
-    _ = arena;
+    const scratch = Thread.Context.get_scratch(1, .{arena}).?;
+    defer scratch.end();
 
     var conn_proxy = conn.proxy();
     const wl_surface = conn.client_state.compositor.create_surface(
@@ -438,7 +441,6 @@ pub const Connection = struct {
       wl_surface,
     );
     const xdg_toplevel = xdg_surface.get_toplevel(&conn_proxy);
-
     xdg_toplevel.set_title(&conn_proxy, title);
     xdg_toplevel.set_app_id(&conn_proxy, class);
 
@@ -449,7 +451,113 @@ pub const Connection = struct {
 
     wl_surface.commit(&conn_proxy);
 
+    const feedback = conn.client_state.linux_dmabuf.get_surface_feedback(
+      &conn_proxy,
+      wl_surface,
+    );
+    defer feedback.destroy(&conn_proxy);
+    const dmabuf_feedback = arena.create(ClientState.DmabufFeedback);
+    conn.client_state.dmabuf_feedback = dmabuf_feedback;
+
     conn.flush() catch unreachable;
+
+    conn.load_events();
+
+    var ignore_tranche = false;
+    var feedback_done = false;
+    while (!feedback_done) {
+      if (conn.get_event(scratch.arena)) |wl_event| switch (wl_event) {
+        .wl_seat_capabilities => |wl_seat_capabilities| {
+          const seat_capabilities = wl_seat_capabilities.capabilities;
+          log.debug(
+            "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
+            .{
+              if (seat_capabilities.pointer) "true" else "false",
+              if (seat_capabilities.touch) "true" else "false",
+              if (seat_capabilities.keyboard) "true" else "false",
+            },
+          );
+          conn.client_state.seat_info.capabilities = seat_capabilities;
+        },
+        .wl_seat_name => |wl_seat_name| {
+          const seat_name = wl_seat_name.name;
+          log.debug(
+            "setting wayland client seat name to: {s}",
+            .{ seat_name },
+          );
+          @memcpy(
+            conn.client_state.seat_info.name[0..seat_name.len],
+            seat_name,
+          );
+          conn.client_state.seat_info.name[seat_name.len] = 0;
+        },
+        // .zwp_linux_dmabuf_v1_format => |fmt| {
+        //   log.debug("supported surface format :: 0x{x}", .{fmt.format});
+        // },
+        // .zwp_linux_dmabuf_v1_modifier => |mod| {
+        //   log.debug("supported surface modifier :: {{ format = 0x{x}}}", .{mod.format});
+        // },
+        .zwp_linux_dmabuf_feedback_v1_done => {
+          // log.info("dmabuf feedback done", .{});
+          feedback_done = true;
+        },
+        .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
+          dmabuf_feedback.fmt_table = format_table;
+          // log.info(
+          //   "dmabuf feedback format table received :: {{ fd={}, size={} }}",
+          //   .{ format_table.fd, format_table.size },
+          // );
+        },
+        .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
+          dmabuf_feedback.main_device = std.mem.bytesToValue(
+            linux.dev_t,
+            main_device.device
+          );
+          // log.info(
+          //   "dmabuf feedback main device: 0x{x}",
+          //   .{ dmabuf_feedback.main_device.toInt() },
+          // );
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_done => {
+          // log.info("dmabuf feedback tranche done", .{});
+          ignore_tranche = false;
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_target_device => |target| {
+          const tranche_target_device = std.mem.bytesToValue(
+            linux.dev_t,
+            target.device,
+          );
+          if (tranche_target_device != dmabuf_feedback.main_device)
+            ignore_tranche = true;
+            // log.info(
+            //   "dmabuf feedback tranche target device: 0x{x}",
+            //   .{ tranche_target_device.toInt() },
+            // );
+        },
+        .zwp_linux_dmabuf_feedback_v1_tranche_formats => |tranche_formats| {
+          if (!ignore_tranche) {
+            const index_count = tranche_formats.indices.len / 2;
+            dmabuf_feedback.tranche_formats = arena.push(u16, index_count);
+            @memcpy(
+              transmute([]u8, dmabuf_feedback.tranche_formats),
+              tranche_formats.indices,
+            );
+          }
+        },
+        // .zwp_linux_dmabuf_feedback_v1_tranche_flags => |tranche_flags| {
+        //   log.info("dmabuf feedback tranche flags :: {}", .{ tranche_flags.flags });
+        // },
+        else => {
+          // log.debug(
+          //   "SURFACE CREATION RECEIVED UNEXPECTED EVENT :: {}",
+          //   .{ wl_event },
+          // );
+        },
+      } else conn.load_events();
+    }
+
+    log.debug("received surface feedback, can noe return surface", .{});
+
     return .{
       .handle = .{
         .wl_surface = wl_surface,
@@ -462,19 +570,313 @@ pub const Connection = struct {
     };
   }
 
+  pub fn select_vk_physical_device(
+    conn: *Connection,
+    vki: vk.InstanceProxy,
+    required_extensions: []const [*:0]const u8,
+  ) vk.PhysicalDevice {
+    const VkPhysicalDeviceCandidate = struct {
+      pdev: vk.PhysicalDevice,
+      props: vk.PhysicalDeviceProperties,
+      score: u32,
+    };
+    var candidate: VkPhysicalDeviceCandidate = .{
+      .pdev = .null_handle,
+      .props = undefined,
+      .score = 0,
+    };
+
+    var pdev_count: u32 = 0;
+    _ = vki.enumeratePhysicalDevices(
+      &pdev_count,
+      null,
+    ) catch |err| {
+      log.err(
+        "Failed to enumerate vk physical devices! :: {s}",
+        .{ @errorName(err) },
+      );
+    };
+
+    var scratch = Thread.Context.get_scratch(0, .{}).?;
+    defer scratch.end();
+
+    var pdev_options = scratch.arena.push(vk.PhysicalDevice, pdev_count);
+
+    _ = vki.enumeratePhysicalDevices(
+      &pdev_count,
+      pdev_options.ptr,
+    ) catch |err| {
+      log.err(
+        "Failed to enumerate vk physical devices! :: {s}",
+        .{ @errorName(err) },
+      );
+    };
+
+    const main_device: linux.dev_t =
+    if (conn.client_state.dmabuf_feedback) |feedback|
+      feedback.main_device
+    else .fromInt(0);
+
+    for (pdev_options) |pdev| {
+      var drm: vk.PhysicalDeviceDrmPropertiesEXT = .{
+        .has_primary = .false,
+        .has_render = .false,
+        .primary_major = 0,
+        .primary_minor = 0,
+        .render_major = 0,
+        .render_minor = 0,
+      };
+
+      var props13: vk.PhysicalDeviceVulkan13Properties = undefined;
+      props13.s_type = .physical_device_vulkan_1_3_properties;
+      props13.p_next = &drm;
+
+      var props2: vk.PhysicalDeviceProperties2 = .{
+        .p_next = &props13,
+        .properties = undefined,
+      };
+
+      _ = vki.getPhysicalDeviceProperties2(pdev, &props2);
+      var score: u32 = 0;
+
+      const props = props2.properties;
+      if (props.device_type == .discrete_gpu)
+        score += 1000;
+
+      score += props.limits.max_image_dimension_2d;
+
+      var ext_prop_count: u32 = 0;
+      _ = vki.enumerateDeviceExtensionProperties(
+        pdev,
+        null,
+        &ext_prop_count,
+        null,
+      ) catch |err| {
+        log.err(
+          "Failed to enumerate vk physical device extension props :: {s}",
+          .{ @errorName(err) },
+        );
+        break;
+      };
+
+      const ext_props = scratch.arena.push(vk.ExtensionProperties, ext_prop_count);
+
+      _ = vki.enumerateDeviceExtensionProperties(
+        pdev,
+        null,
+        &ext_prop_count,
+        ext_props.ptr,
+      ) catch |err| {
+        log.err(
+          "Failed to enumerate vk physical device extension props :: {s}",
+          .{ @errorName(err) },
+        );
+        break;
+      };
+      const supports_desired_extensions = ext_support: {
+        for (required_extensions) |ext| {
+          const found_ext = found: {
+            for (ext_props) |ext_prop| {
+              const ext_prop_name = ext_prop_name: {
+                var name_end_idx: usize = 0;
+                while (ext_prop.extension_name[name_end_idx] != 0) {
+                  name_end_idx += 1;
+                }
+                break :ext_prop_name ext_prop.extension_name[0..name_end_idx+1];
+              };
+
+              const ext_name = ext_name: {
+                var name_end_idx: usize = 0;
+                while (ext[name_end_idx] != 0) {
+                  name_end_idx += 1;
+                }
+                break :ext_name ext[0..name_end_idx+1];
+              };
+
+              if (std.mem.eql(u8, ext_name, ext_prop_name)) {
+                break :found true;
+              }
+            }
+
+            break :found false;
+          };
+
+          if (!found_ext) break :ext_support false;
+        }
+        break :ext_support true;
+      };
+
+      if (supports_desired_extensions and score > candidate.score) {
+        if (drm.has_primary == .true) {
+          if (drm.primary_major == main_device.major() and
+              drm.primary_minor == main_device.minor())
+          {
+            log.debug("correct GPU found (primary)!", .{});
+            candidate = .{
+              .pdev = pdev,
+              .props = props2.properties,
+              .score = score,
+            };
+          }
+        }
+
+        if (drm.has_render == .true) {
+          if (drm.render_major == main_device.major() and
+              drm.render_minor == main_device.minor())
+          {
+            log.debug("correct GPU found (render)!", .{});
+            candidate = .{
+              .pdev = pdev,
+              .props = props2.properties,
+              .score = score,
+            };
+          }
+        }
+      }
+    }
+
+    if (candidate.pdev != .null_handle)
+      log.debug("Selected GPU :: {s}", .{ candidate.props.device_name });
+
+    return candidate.pdev;
+  }
+
+  pub fn create_vk_logical_device(
+    conn: *Connection,
+    vki: vk.InstanceProxy,
+    pdev: vk.PhysicalDevice,
+    required_extensions: []const [*:0]const u8,
+  ) struct { vk.Device, u32 } {
+    _ = conn;
+    var scratch = Thread.Context.get_scratch(0, .{}).?;
+    defer scratch.end();
+
+    const device, const queue_family_index = dev_index: {
+      const qfi = qfi: {
+        var queue_family_count: u32 = 0;
+        vki.getPhysicalDeviceQueueFamilyProperties(
+          pdev,
+          &queue_family_count,
+          null,
+        );
+
+        const queue_families = scratch.arena.push(
+          vk.QueueFamilyProperties,
+          queue_family_count,
+        );
+        vki.getPhysicalDeviceQueueFamilyProperties(
+          pdev,
+          &queue_family_count,
+          queue_families.ptr,
+        );
+
+        for (queue_families, 0..) |family_props, idx| {
+          if (family_props.queue_flags.graphics_bit) {
+            break :qfi u32_(idx);
+          }
+        }
+        log.err("Unable to find suitable queue family for device!", .{});
+        break :dev_index .{ .null_handle, undefined };
+      };
+
+      const vk_13_features: vk.PhysicalDeviceVulkan13Features = .{
+        .synchronization_2 = .true,
+        .dynamic_rendering = .true,
+      };
+      const queue_priority = 1;
+      break :dev_index .{
+        vki.createDevice(
+          pdev,
+          &.{
+            .p_next = &vk_13_features,
+            .p_queue_create_infos = &.{
+              .{
+                .queue_family_index = qfi,
+                .queue_count = 1,
+                .p_queue_priorities = &.{ queue_priority },
+              },
+            },
+            .queue_create_info_count = 1,
+            .p_enabled_features = null,
+            .enabled_extension_count = u32_(required_extensions.len),
+            .pp_enabled_extension_names = transmute(
+              [*]const [*:0]const u8,
+              required_extensions,
+            ),
+          },
+          null,
+        ) catch .null_handle,
+        qfi,
+      };
+    };
+    return .{ device, queue_family_index };
+  }
+
   //---------------------------------------------------------------------------
+
+  pub fn select_drm_modifier_for_format(
+    conn: *Connection,
+    format: gfx.Format,
+  ) Drm.Modifier {
+    const desired_fmt = format.toDrm();
+
+    const feedback = conn.client_state.dmabuf_feedback orelse return .invalid;
+    const format_table = feedback.fmt_table;
+    const res = os.linux.mmap(
+      null,
+      format_table.size,
+      .{ .READ = true },
+      .{ .TYPE = .PRIVATE },
+      format_table.fd,
+      0,
+    );
+
+    const rc = transmute(isize, res);
+    if (rc < 0) {
+      log.err("failed to map format table :: err={}", .{rc});
+      return .invalid;
+    }
+    const bytes = transmute([*]u8, res)[0..format_table.size];
+    defer _ = os.linux.munmap(
+      bytes.ptr,
+      bytes.len,
+    );
+
+    var iter = std.mem.window(u8, bytes, 16, 16);
+    while (iter.next()) |entry| {
+      const fmt = cast(
+        Drm.Format,
+        std.mem.bytesToValue(u32, entry[0..4]),
+      );
+      const mod = cast(
+        Drm.Modifier,
+        std.mem.bytesToValue(u64, entry[8..]),
+      );
+      if (fmt == desired_fmt) {
+        if (mod != .invalid and mod != .linear)
+        {
+          log.debug(
+            "format ({}) is supported with mod ({})!",
+            .{ format.toDrm(), mod },
+          );
+          return mod;
+        }
+      }
+    }
+    return .invalid;
+  }
 
   pub fn check_surface_formats(
     conn: *Connection,
     surface: Surface,
   ) void {
-    // _ =  conn; _ = surface;
-    var conn_proxy = conn.proxy();
-    _ = conn.client_state.linux_dmabuf.get_surface_feedback(
-      &conn_proxy,
-      surface.wl_surface,
-    );
-    conn.flush() catch unreachable;
+    _ =  conn; _ = surface;
+    // var conn_proxy = conn.proxy();
+    // _ = conn.client_state.linux_dmabuf.get_surface_feedback(
+    //   &conn_proxy,
+    //   surface.wl_surface,
+    // );
+    // conn.flush() catch unreachable;
   }
 
   pub fn wl_buffer(
@@ -601,7 +1003,6 @@ pub const Connection = struct {
     while (cmsg_iter.next()) |cmsg_header| {
       if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM_RIGHTS) {
         const fd = cmsg_header.data(c_int).*;
-        log.debug("received SCM_RIGHTS fd :: {}", .{fd});
         conn.fd_in.put(std.mem.asBytes(&fd));
       }
     }
@@ -1092,7 +1493,7 @@ pub const Surface = struct {
 };
 
 pub const ClientState = struct {
-  // Base Wayland Connection Management
+  // Base Wayland Connection
   display: Display,
   registry: Registry,
 
@@ -1103,34 +1504,34 @@ pub const ClientState = struct {
   xdg_wm_base: XdgWmBase,
   linux_dmabuf: LinuxDmabuf,
 
-  // Objects
+  // Wayland Objects
   object_pool: ObjectPool,
 
-  // Runtime Compositor Data
-  seat_name: [512]u8 = undefined,
-  seat_capabilities: Seat.Capability = .{},
-  dmabuf_feedback: DmabufFeedback,
+  // Runtime Compositor Information
+  seat_info: SeatInfo = .{},
+  dmabuf_feedback: ?*DmabufFeedback = null,
+
+  const SeatInfo = struct {
+    name: [512]u8 = undefined,
+    capabilities: Seat.Capability = .{},
+  };
 
   const DmabufFeedback = struct {
     fmt_table: LinuxDmabufFeedback.format_table,
-    main_device: u64,
-    tranche_target_device: u64,
+    main_device: linux.dev_t,
+    tranche_target_device: linux.dev_t,
     tranche_formats: []u16,
     tranche_flags: LinuxDmabufFeedback.TrancheFlags,
-    tranche_done: bool,
-    done: bool,
 
     pub const nil: DmabufFeedback = .{
       .fmt_table = .{
         .fd = -1,
         .size = 0,
       },
-      .main_device = 0,
-      .tranche_target_device = 0,
+      .main_device = .fromInt(0),
+      .tranche_target_device = .fromInt(0),
       .tranche_formats = .{},
       .tranche_flags = .{},
-      .tranche_done = false,
-      .done = false,
     };
   };
 };
@@ -1365,4 +1766,5 @@ const posix = os.posix;
 const os = @import("os");
 const base = @import("base");
 
+const vk = @import("vulkan");
 const std = @import("std");
