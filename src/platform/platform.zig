@@ -69,6 +69,10 @@ pub const Connection = struct {
     );
   }
 
+  pub fn flush(conn: *Connection) !void {
+    return try conn.handle.flush();
+  }
+
   pub fn check_surface_formats(
     conn: *Connection,
     surface: Surface,
@@ -141,6 +145,7 @@ pub const Event = struct {
     surface_unfocus,
     surface_focus,
     surface_close,
+    buffer_release,
   };
 
   const Modifiers = packed struct (u32) {
@@ -159,8 +164,17 @@ pub const Surface = struct {
   height: i32,
   flags: Flags = .{},
 
-  pub fn release(surface: *Surface) void {
+  pub fn release(surface: *const Surface) void {
     _ = surface;
+  }
+
+  pub fn create_swapchain(surface: *Surface) Swapchain {
+    // TODO
+    _  = surface;
+  }
+
+  pub fn attach_image(noalias surface: *const Surface, noalias image: *const Image) void {
+    surface.handle.attach_image(image);
   }
 
   pub const nil: Surface = .{ .handle = .nil, .dimensions = undefined };
@@ -177,48 +191,121 @@ pub const Surface = struct {
   const Handle = Impl.SurfaceHandle;
 };
 
-pub const OffscreenBuffer = struct {
-  image: vk.Image,
-  image_view: vk.ImageView,
-  device_memory: vk.DeviceMemory,
-  memory_fd: i32,
-  drm_modifier: Drm.Modifier = .invalid,
+pub const Swapchain = struct {
+  surface: *Surface,
+  images: []Image,
+  image_states: []Image.State,
+  current_image: u32,
+
+  pub fn create(
+    arena: *Arena,
+    surface: *Surface,
+    vki: vk.InstanceProxy,
+    vkd: vk.DeviceProxy,
+    vk_pdev: vk.PhysicalDevice,
+    width: u32,
+    height: u32,
+    format: gfx.Format,
+    image_count: usize,
+  ) Swapchain {
+    var images = arena.push(Image, image_count);
+    var image_states = arena.push(Image.State, image_count);
+
+    const drm_modifier = surface.handle.connection.select_drm_modifier_for_format(format);
+    for (0..image_count) |idx| {
+      images[idx] = .alloc(
+        vki,
+        vkd,
+        vk_pdev,
+        surface,
+        width,
+        height,
+        format,
+        .{
+          .fd = -1,
+          .drm_modifier = drm_modifier,
+          .create_info = .{
+            .drm_modifier = drm_modifier,
+            .format_list_create_info = .{
+              .view_format_count = 1,
+              .p_view_formats = &.{ format.toVk() },
+            },
+            .ext_mem_image_create_info = .{
+              .handle_types = .{
+                .dma_buf_bit_ext = true,
+              },
+            },
+            .image_drm_format_mod_info = .{
+              .drm_format_modifier_count = 1,
+              .p_drm_format_modifiers = &.{ drm_modifier.toInt() },
+            },
+          },
+        },
+      );
+      images[idx].platform_specific.prepare_image(surface);
+      image_states[idx] = .available;
+    }
+
+    return .{
+      .surface = surface,
+      .images = images,
+      .image_states = image_states,
+      .current_image = 0,
+    };
+  }
+
+  pub fn release_image(sc: *Swapchain) void {
+    for (0..sc.images.len) |idx| {
+      if (sc.image_states[idx] == .submitted) {
+        sc.image_states[idx] = .available;
+        break;
+      }
+    }
+  }
+
+  pub fn acquire_image(sc: *Swapchain) ?*Image {
+    const idx = sc.current_image % sc.images.len;
+    if (sc.image_states[idx] == .available) {
+      sc.image_states[idx] = .busy;
+      return &sc.images[idx];
+    }
+    return null;
+  }
+
+  pub fn present(sc: *Swapchain) void {
+    const idx = sc.current_image % sc.images.len;
+    sc.surface.attach_image(&sc.images[idx]);
+    sc.image_states[idx] = .submitted;
+    sc.current_image +%= 1;
+  }
+};
+
+pub const Image = struct {
+  vk_image: vk.Image,
+  vk_image_view: vk.ImageView,
+  vk_device_memory: vk.DeviceMemory,
   width: u32,
   height: u32,
   format: gfx.Format,
   stride: u32,
   offset: u32,
+  platform_specific: PlatformSpecificData,
 
-  pub fn create(
+  pub fn alloc(
     vki: vk.InstanceProxy,
     vkd: vk.DeviceProxy,
     pdev: vk.PhysicalDevice,
+    surface: *Surface,
     width: u32,
     height: u32,
     format: gfx.Format,
-    mod: Drm.Modifier,
-  ) OffscreenBuffer {
-    const ext2: vk.ImageFormatListCreateInfo = .{
-      .view_format_count = 1,
-      .p_view_formats = &.{ format.toVk() },
-      .p_next = null,
-    };
-
-    const ext: vk.ExternalMemoryImageCreateInfo = .{
-      .handle_types = .{
-        .dma_buf_bit_ext = true,
-      },
-      .p_next = &ext2,
-    };
-
-    const drm_list_ext: vk.ImageDrmFormatModifierListCreateInfoEXT = .{
-      .drm_format_modifier_count = 1,
-      .p_drm_format_modifiers = &.{mod.toInt()},
-      .p_next = &ext,
-    };
+    platform_specific_data: PlatformSpecificData,
+  ) Image {
+    _ = surface;
+    const p_next = platform_specific_data.create_info.p_next();
     const image = vkd.createImage(
       &.{
-        .p_next = &drm_list_ext,
+        .p_next = p_next,
         .flags = .{},
         .image_type = .@"2d",
         .format = format.toVk(),
@@ -230,7 +317,7 @@ pub const OffscreenBuffer = struct {
         .mip_levels = 1,
         .array_layers = 1,
         .samples = .{ .@"1_bit" = true },
-        .tiling = .drm_format_modifier_ext,
+        .tiling = platform_specific_data.create_info.tiling,
         .usage = .{
           .color_attachment_bit = true,
           .transfer_src_bit = true,
@@ -275,7 +362,7 @@ pub const OffscreenBuffer = struct {
       .memory_type_index = mem_image_type_idx,
     };
 
-    const device_mem = vkd.allocateMemory(
+    const device_memory = vkd.allocateMemory(
       &alloc_info,
       null,
     ) catch |err| {
@@ -285,19 +372,28 @@ pub const OffscreenBuffer = struct {
 
     vkd.bindImageMemory(
       image,
-      device_mem,
+      device_memory,
       0,
     ) catch unreachable;
 
+    const layout = vkd.getImageSubresourceLayout(
+      image,
+      &.{
+        .aspect_mask = .{ .memory_plane_0_bit_ext = true },
+        .mip_level = 0,
+        .array_layer = 0,
+      },
+    );
+
     const fd = vkd.getMemoryFdKHR(
       &.{
-        .memory = device_mem,
+        .memory = device_memory,
         .handle_type = .{ .dma_buf_bit_ext = true },
       },
     ) catch unreachable;
 
     var mod_props: vk.ImageDrmFormatModifierPropertiesEXT = .{
-      .drm_format_modifier = mod.toInt(),
+      .drm_format_modifier = platform_specific_data.drm_modifier.toInt(),
     };
 
     vkd.getImageDrmFormatModifierPropertiesEXT(
@@ -310,15 +406,6 @@ pub const OffscreenBuffer = struct {
       );
       @panic("vkGetImageDrmFormatModifierPropertiesEXT Failed!");
     };
-
-    const layout = vkd.getImageSubresourceLayout(
-      image,
-      &.{
-        .aspect_mask = .{ .memory_plane_0_bit_ext = true },
-        .mip_level = 0,
-        .array_layer = 0,
-      },
-    );
 
     const image_view = vkd.createImageView(
       &.{
@@ -343,18 +430,78 @@ pub const OffscreenBuffer = struct {
     ) catch unreachable;
 
     return .{
-      .image = image,
-      .image_view = image_view,
-      .device_memory = device_mem,
-      .memory_fd = fd,
-      .drm_modifier = .fromInt(mod_props.drm_format_modifier),
+      .vk_image = image,
+      .vk_image_view = image_view,
+      .vk_device_memory = device_memory,
       .width = width,
       .height = height,
       .format = format,
       .stride = u32_(layout.row_pitch),
       .offset = u32_(layout.offset),
+      .platform_specific = .{
+        .fd = fd,
+        .drm_modifier = .fromInt(mod_props.drm_format_modifier),
+        .create_info = undefined,
+      },
     };
   }
+
+  pub const State = enum (u32) {
+    available,
+    busy,
+    submitted,
+  };
+
+  const PlatformSpecificData = switch (Target) {
+    .wayland => struct {
+      fd: i32,
+      drm_modifier: Drm.Modifier,
+      wl_buffer: wayland.WaylandBuffer = undefined,
+      create_info: ImageExtraCreateInfo,
+
+      pub fn image_extra_create_info(conn: *wayland.Connection, format: gfx.Format) ImageExtraCreateInfo {
+        const drm_modifier = conn.select_drm_modifier_for_format(format);
+        return .{
+          .drm_modifier = drm_modifier,
+          .format_list_create_info = .{
+            .view_format_count = 1,
+            .p_view_formats = &.{ format.toVk() },
+          },
+          .ext_mem_image_create_info = .{
+            .handle_types = .{
+              .dma_buf_bit_ext = true,
+            },
+          },
+          .image_drm_format_mod_info = .{
+            .drm_format_modifier_count = 1,
+            .p_drm_format_modifiers = &.{ drm_modifier.toInt() },
+          },
+        };
+      }
+
+      pub fn prepare_image(psd: *PlatformSpecificData, surface: *Surface) void {
+        const image: *Image = @fieldParentPtr("platform_specific", psd);
+        surface.handle.prepare_image(image);
+      }
+
+      const ImageExtraCreateInfo = struct {
+        format_list_create_info: vk.ImageFormatListCreateInfo,
+        ext_mem_image_create_info: vk.ExternalMemoryImageCreateInfo,
+        image_drm_format_mod_info: vk.ImageDrmFormatModifierListCreateInfoEXT,
+        tiling: vk.ImageTiling = .drm_format_modifier_ext,
+        drm_modifier: Drm.Modifier,
+
+        pub fn set_next_pointers(ieci: *ImageExtraCreateInfo) void {
+          ieci.ext_mem_image_create_info.p_next = &ieci.format_list_create_info;
+          ieci.image_drm_format_mod_info.p_next = &ieci.ext_mem_image_create_info;
+        }
+        pub fn p_next(ieci: *const ImageExtraCreateInfo) *const anyopaque {
+          return &ieci.image_drm_format_mod_info;
+        }
+      };
+    },
+    else => @compileError("Win32 not implemented yet!"),
+  };
 };
 
 pub const TargetOptions = enum {

@@ -5,14 +5,14 @@ pub fn app(env: std.process.Environ) void {
   const arena: *Arena = .init(.default);
   defer arena.release();
 
+  const vk_instance_init_start = time.us();
+
   var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
   defer vk_handle.close();
   const vk_get_instance_proc_addr = vk_handle.lookup(
     vk.PfnGetInstanceProcAddr,
     "vkGetInstanceProcAddr",
   ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
-
-  const vk_state_init_start_us = time.us();
 
   //---------------------------------------------------------------------------
   // BEGIN VULKAN STATE INIT
@@ -44,14 +44,14 @@ pub fn app(env: std.process.Environ) void {
   defer vki.destroyInstance(null);
 
   //---------------------------------------------------------------------------
-  // END VULKAN STATE INIT
+  // END VULKAN INSTANCE INIT
   //---------------------------------------------------------------------------
 
-  const vk_state_init_end_us = time.us();
-  const vk_state_init_us = vk_state_init_end_us - vk_state_init_start_us;
-  log.debug(
-    "vulkan instance init complete in {d}us ({d}ms)!",
-    .{ vk_state_init_us, vk_state_init_us / time.us_per_ms },
+  const vk_instance_init_end = time.us();
+  const vk_instance_init_us = vk_instance_init_end - vk_instance_init_start;
+  log.info(
+    "vulkan instance initialized in {d}us ({d}ms)!",
+    .{ vk_instance_init_us, vk_instance_init_us / time.us_per_ms },
   );
 
   const initial_width = 960;
@@ -63,11 +63,9 @@ pub fn app(env: std.process.Environ) void {
   // BEGIN PLATFORM STATE INIT
   //---------------------------------------------------------------------------
 
-  const platform_init_start_us = time.us();
+  const connection_init_start_us = time.us();
   var connection: platform.Connection = .open(arena, env);
   defer connection.close();
-
-  var wl_conn_proxy = connection.handle.proxy();
 
   var surface = connection.acquire_surface(
     arena,
@@ -80,28 +78,27 @@ pub fn app(env: std.process.Environ) void {
   );
   defer surface.release();
 
-  const platform_init_end_us = time.us();
-  const platform_init_us = platform_init_end_us - platform_init_start_us;
+  const connection_init_end_us = time.us();
+  const connection_init_us = connection_init_end_us - connection_init_start_us;
 
   //---------------------------------------------------------------------------
   // END PLATFORM STATE INIT
   //---------------------------------------------------------------------------
 
-  log.debug(
-    "platform state init complete in {d}us ({d:.2}ms)!",
-    .{ platform_init_us, base.f64_(platform_init_us) / base.f64_(time.us_per_ms) },
+  log.info(
+    "platform connection initialized in {d}us ({d:.2}ms)!",
+    .{ connection_init_us, base.f64_(connection_init_us) / base.f64_(time.us_per_ms) },
   );
 
   const vk_pdev,
   const vk_device,
-  const vk_dw: vk.DeviceWrapper,
-  const qfi
+  const qfi,
+  const vk_dw: vk.DeviceWrapper
   = vk_d_dw_qfi: {
     const pdev = connection.select_vk_physical_device(
       vki,
       &vk_required_device_extensions,
     );
-    log.debug("selected physical device :: {x}", .{u64_(pdev)});
 
     const device, const qfi = connection.create_vk_logical_device(
       vki,
@@ -112,11 +109,11 @@ pub fn app(env: std.process.Environ) void {
     break :vk_d_dw_qfi .{
       pdev,
       device,
+      qfi,
       .load(
         device,
         vki.wrapper.dispatch.vkGetDeviceProcAddr.?,
       ),
-      qfi,
     };
   };
   const vkd: vk.DeviceProxy = .init(vk_device, &vk_dw);
@@ -128,30 +125,17 @@ pub fn app(env: std.process.Environ) void {
 
   // vk image creation / swapchain construction
   const img_fmt: gfx.Format = .rgba32;
-  var ofb: [2]OffscreenBuffer = undefined;
-  var ofb_wlbuf: [2]platform.wayland.WaylandBuffer = undefined;
-  const drm_mod = connection.handle.select_drm_modifier_for_format(img_fmt);
-  for (0..ofb.len) |idx| {
-    ofb[idx] = .create(
-      vki,
-      vkd,
-      vk_pdev,
-      u32_(surface.width),
-      u32_(surface.height),
-      img_fmt,
-      drm_mod,
-    );
-    ofb_wlbuf[idx] = connection.handle.wl_buffer(
-      ofb[idx],
-    );
-  }
-  defer {
-    for (ofb) |buf| {
-      vkd.destroyImageView(buf.image_view, null);
-      vkd.destroyImage(buf.image, null);
-      vkd.freeMemory(buf.device_memory, null);
-    }
-  }
+  var swapchain: platform.Swapchain = .create(
+    arena,
+    &surface,
+    vki,
+    vkd,
+    vk_pdev,
+    initial_width,
+    initial_height,
+    img_fmt,
+    2,
+  );
 
   // vk pipeline creation
   createGraphicsPipeline(
@@ -159,8 +143,6 @@ pub fn app(env: std.process.Environ) void {
     vkd,
     slang_shader,
     img_fmt.toVk(),
-    u32_(surface.width),
-    u32_(surface.height),
   );
   defer vkd.destroyPipeline(vk_pipeline, null);
   // vk cmdpool / cmdbuf init
@@ -182,14 +164,6 @@ pub fn app(env: std.process.Environ) void {
     transmute([*]vk.CommandBuffer, &vk_cmdbuf),
   ) catch @panic("failed to allocate cmdbuf from cmdpool");
 
-  // var present_complete_semaphore: vk.Semaphore = vkd.createSemaphore(
-  //   &.{},
-  //   null,
-  // ) catch @panic("Failed to create present_complete_semaphore!");
-  // var render_finished_semaphore: vk.Semaphore = vkd.createSemaphore(
-  //   &.{},
-  //   null,
-  // ) catch @panic("Failed to create render_finished_semaphore!");
   var draw_fence: vk.Fence = vkd.createFence(
     &.{
       .flags = .{ .signaled_bit = true },
@@ -197,9 +171,6 @@ pub fn app(env: std.process.Environ) void {
     null,
   ) catch @panic("Failed to create draw_fence!");
   defer vkd.destroyFence(draw_fence, null);
-  // _ = &present_complete_semaphore;
-  // _ = &render_finished_semaphore;
-  _ = &draw_fence;
 
   const setup_time_full = time.us();
   log.info("Full Setup Time :: {}us ({}ms)", .{ setup_time_full, setup_time_full / time.us_per_ms });
@@ -207,16 +178,25 @@ pub fn app(env: std.process.Environ) void {
   var events: platform.EventList = .empty;
   var want_exit = false;
 
-  var buf_idx: u32 = 0;
+  var bg_r: f32 = undefined;
+  var bg_g: f32 = undefined;
+  var bg_b: f32 = undefined;
 
+  var frame_idx: u64 = 0;
   var first_attach = true;
   const time_target = time.us_per_s / 120;
   while (!want_exit) {
-    defer buf_idx = (buf_idx + 1) % 2;
     const frame_time_start = time.us();
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
+
     defer frame_scratch.end();
     const frame_arena = frame_scratch.arena;
+    defer frame_idx +%= 1;
+
+    bg_r = math.sin(f32_(frame_idx) / 200);
+    bg_g = math.sin(f32_(frame_idx) / 400);
+    bg_b = math.sin(f32_(frame_idx) / 600);
+
     events = connection.get_events(frame_arena, &surface);
     var event_opt = events.first;
     while (event_opt) |ev| : (event_opt = ev.next) {
@@ -225,6 +205,9 @@ pub fn app(env: std.process.Environ) void {
         .surface_close => {
           want_exit = true;
         },
+        .buffer_release => {
+          swapchain.release_image();
+        },
         else => {
           log.debug("app-level ev :: {any}", .{ev});
         },
@@ -232,7 +215,7 @@ pub fn app(env: std.process.Environ) void {
     }
 
     // Draw Logic
-    {
+    if (swapchain.acquire_image()) |image| {
       _ = vkd.waitForFences(
         1,
         @ptrCast(&draw_fence),
@@ -250,11 +233,11 @@ pub fn app(env: std.process.Environ) void {
 
       // - set clearColor
       const clear_color: vk.ClearColorValue = .{
-        .float_32 = .{ 0, 0, 0, 1 },
+        .float_32 = .{ bg_r, bg_g, bg_b, 1 },
       };
       // - attachmentInfo setup
       const attachment_info: vk.RenderingAttachmentInfo = .{
-        .image_view = ofb[buf_idx].image_view,
+        .image_view = image.vk_image_view,
         .image_layout = .color_attachment_optimal,
         .load_op = .clear,
         .store_op = .store,
@@ -322,12 +305,9 @@ pub fn app(env: std.process.Environ) void {
       };
       const submit_info: vk.SubmitInfo = .{
         .wait_semaphore_count = 0,
-        // .p_wait_semaphores = @ptrCast(&present_complete_semaphore),
-        // .p_wait_dst_stage_mask = @ptrCast(&wait_destination_stage_mask),
         .command_buffer_count = 1,
         .p_command_buffers = @ptrCast(&vk_cmdbuf),
         .signal_semaphore_count = 0,
-        // .p_signal_semaphores = @ptrCast(&render_finished_semaphore),
       };
       vkd.queueSubmit(
         vk_queue,
@@ -337,19 +317,18 @@ pub fn app(env: std.process.Environ) void {
       ) catch @panic("Failed to sumbmit to queue!");
     }
 
-    // TODO:
-    // platform-level surface image submission
-    surface.handle.wl_surface.attach(&wl_conn_proxy, ofb_wlbuf[buf_idx], 0, 0);
-    surface.handle.wl_surface.damage_buffer(&wl_conn_proxy, 0, 0, surface.width, surface.height);
-    surface.handle.wl_surface.commit(&wl_conn_proxy);
-    connection.handle.flush() catch unreachable;
+    swapchain.present();
+    connection.flush() catch unreachable;
 
+    const frame_time_end = time.us();
     if (first_attach) {
-      const ts = time.us();
-      log.info("Time to first attach :: {}us ({}ms) !", .{ ts, ts / time.us_per_ms });
+      @branchHint(.cold);
+      log.info(
+        "Time to first frame presentation :: {}us ({}ms) !",
+        .{ frame_time_end, frame_time_end / time.us_per_ms },
+      );
       first_attach = false;
     }
-    const frame_time_end = time.us();
     const frame_elapsed_us = frame_time_end - frame_time_start;
     if (frame_elapsed_us < time_target) {
       Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
@@ -377,10 +356,7 @@ fn createGraphicsPipeline(
   vkd: vk.DeviceProxy,
   code: []const u32,
   format: vk.Format,
-  width: u32,
-  height: u32,
 ) void {
-  _ = height; _ = width;
   const shader_module = createShaderModule(vkd, code);
   defer vkd.destroyShaderModule(shader_module, null);
 

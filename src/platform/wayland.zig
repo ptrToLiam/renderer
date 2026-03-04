@@ -24,20 +24,27 @@ pub const Connection = struct {
     // Allocate & Initialize Ring Buffers
     //-------------------------------------------------------------------------
 
-    // 4 * 2048 = 2 pages of 4KB Virtual Memory
+    // Allocating 3 pages -- 1 each for standard in/out, 1/2 each for fd in/out
     var ring_buffers: [4]RingBuffer = undefined;
-    const ring_buffer_bytes = os.mem_reserve(4 * ring_buffer_size);
+    const ring_buffer_bytes = os.mem_reserve(3 * ring_buffer_size);
 
     if (!os.mem_commit(ring_buffer_bytes))
       @panic("Failed to map pages for ring buffers!");
 
-    inline for (0..4) |i| {
-      const backing_bytes_rng_start = (i * ring_buffer_size);
-      const backing_bytes =
-        ring_buffer_bytes[backing_bytes_rng_start..][0..ring_buffer_size];
+    inline for (0..2) |i| {
+      const standard_backing_bytes_rng_start = (i * ring_buffer_size);
+      const standard_backing_bytes =
+        ring_buffer_bytes[standard_backing_bytes_rng_start..][0..ring_buffer_size];
 
-      @memset(backing_bytes, 0);
-      ring_buffers[i] = .init_backing(backing_bytes);
+      @memset(standard_backing_bytes, 0);
+      ring_buffers[i] = .init_backing(standard_backing_bytes);
+
+      const fd_backing_bytes_rng_start = (2 * ring_buffer_size) +
+                                            (i * fd_ring_buffer_size);
+      const fd_backing_bytes =
+        ring_buffer_bytes[fd_backing_bytes_rng_start..][0..fd_ring_buffer_size];
+      @memset(fd_backing_bytes, 0);
+      ring_buffers[i+2] = .init_backing(fd_backing_bytes);
     }
 
     //-------------------------------------------------------------------------
@@ -250,7 +257,11 @@ pub const Connection = struct {
   }
 
   /// Construct DLL queue of available platform events from received wayland events
-  pub fn get_events(conn: *Connection, arena: *Arena, surface: *Surface) platform.EventList {
+  pub fn get_events(
+    noalias conn: *Connection,
+    noalias arena: *Arena,
+    noalias surface: *Surface,
+  ) platform.EventList {
     var conn_proxy = conn.proxy();
     var event_list: platform.EventList = .empty;
     conn.load_events();
@@ -264,14 +275,6 @@ pub const Connection = struct {
           );
         },
         .wl_display_delete_id => |delete_id| {
-          log.warn(
-            "Compositor Acnowledges Delete ID :: {}",
-            .{ delete_id.id },
-          );
-          log.info(
-            "releasing object of ID: {} :: {}",
-            .{ delete_id.id, conn.client_state.object_pool.objects[delete_id.id-1] },
-          );
           conn.client_state.object_pool.release_object(delete_id.id);
         },
         .wl_registry_global => |registry_global| {
@@ -312,6 +315,15 @@ pub const Connection = struct {
         },
         .wl_shm_format => |fmt_event| {
           _ = fmt_event;
+        },
+        .wl_buffer_release => {
+          const swapchain_image_release_event = arena.create(platform.Event);
+          swapchain_image_release_event.* = .{
+            .timestamp_us = time.us(),
+            .type = .buffer_release,
+            .surface_handle = surface.*,
+          };
+          event_list.push(swapchain_image_release_event);
         },
         .wl_callback_done => |done| {
           log.debug(
@@ -421,10 +433,10 @@ pub const Connection = struct {
 
   /// Acquire a surface handle from host wayland compositor
   pub fn acquire_surface(
-    conn: *Connection,
-    arena: *Arena,
-    title: [:0]const u8,
-    class: [:0]const u8,
+    noalias conn: *Connection,
+    noalias arena: *Arena,
+    noalias title: [:0]const u8,
+    noalias class: [:0]const u8,
     width: i32,
     height: i32,
     flags: platform.Surface.Flags,
@@ -469,22 +481,10 @@ pub const Connection = struct {
       if (conn.get_event(scratch.arena)) |wl_event| switch (wl_event) {
         .wl_seat_capabilities => |wl_seat_capabilities| {
           const seat_capabilities = wl_seat_capabilities.capabilities;
-          log.debug(
-            "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
-            .{
-              if (seat_capabilities.pointer) "true" else "false",
-              if (seat_capabilities.touch) "true" else "false",
-              if (seat_capabilities.keyboard) "true" else "false",
-            },
-          );
           conn.client_state.seat_info.capabilities = seat_capabilities;
         },
         .wl_seat_name => |wl_seat_name| {
           const seat_name = wl_seat_name.name;
-          log.debug(
-            "setting wayland client seat name to: {s}",
-            .{ seat_name },
-          );
           @memcpy(
             conn.client_state.seat_info.name[0..seat_name.len],
             seat_name,
@@ -556,13 +556,13 @@ pub const Connection = struct {
       } else conn.load_events();
     }
 
-    log.debug("received surface feedback, can noe return surface", .{});
-
     return .{
       .handle = .{
+        .connection = conn,
         .wl_surface = wl_surface,
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
+        .is_ready = false,
       },
       .width = width,
       .height = height,
@@ -711,7 +711,6 @@ pub const Connection = struct {
           if (drm.primary_major == main_device.major() and
               drm.primary_minor == main_device.minor())
           {
-            log.debug("correct GPU found (primary)!", .{});
             candidate = .{
               .pdev = pdev,
               .props = props2.properties,
@@ -724,7 +723,6 @@ pub const Connection = struct {
           if (drm.render_major == main_device.major() and
               drm.render_minor == main_device.minor())
           {
-            log.debug("correct GPU found (render)!", .{});
             candidate = .{
               .pdev = pdev,
               .props = props2.properties,
@@ -736,7 +734,7 @@ pub const Connection = struct {
     }
 
     if (candidate.pdev != .null_handle)
-      log.debug("Selected GPU :: {s}", .{ candidate.props.device_name });
+      log.info("Selected GPU :: {s}", .{ candidate.props.device_name });
 
     return candidate.pdev;
   }
@@ -853,12 +851,7 @@ pub const Connection = struct {
         std.mem.bytesToValue(u64, entry[8..]),
       );
       if (fmt == desired_fmt) {
-        if (mod != .invalid and mod != .linear)
-        {
-          log.debug(
-            "format ({}) is supported with mod ({})!",
-            .{ format.toDrm(), mod },
-          );
+        if (mod != .invalid and mod != .linear) {
           return mod;
         }
       }
@@ -877,42 +870,6 @@ pub const Connection = struct {
     //   surface.wl_surface,
     // );
     // conn.flush() catch unreachable;
-  }
-
-  pub fn wl_buffer(
-    conn: *Connection,
-    buf: platform.OffscreenBuffer,
-  ) WaylandBuffer {
-    var conn_proxy = conn.proxy();
-    const params = conn.client_state.linux_dmabuf.create_params(
-      &conn_proxy,
-    );
-
-    defer {
-      params.destroy(&conn_proxy);
-      conn.flush() catch unreachable;
-      _ = linux.close(buf.memory_fd);
-    }
-
-    params.add(
-      &conn_proxy,
-      buf.memory_fd,
-      0,
-      buf.offset,
-      buf.stride,
-      buf.drm_modifier.hi(),
-      buf.drm_modifier.lo(),
-    );
-
-    const ofb_wl_buffer = params.create_immed(
-      &conn_proxy,
-      i32_(buf.width),
-      i32_(buf.height),
-      u32_(buf.format.toDrm()),
-      .{},
-    );
-
-    return ofb_wl_buffer;
   }
 
   fn warn_unhandled_event(event: anytype) void {
@@ -1010,7 +967,7 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
   }
 
-  pub fn peek_event(conn: *Connection, arena: *Arena) ?Event {
+  pub fn peek_event(noalias conn: *Connection, noalias arena: *Arena) ?Event {
     var conn_proxy = conn.proxy();
 
     const event = if (!conn.in.empty()) wayland_event: {
@@ -1117,7 +1074,7 @@ pub const Connection = struct {
     return event;
   }
 
-  pub fn get_event(conn: *Connection, arena: *Arena) ?Event {
+  pub fn get_event(noalias conn: *Connection, noalias arena: *Arena) ?Event {
     const event = conn.peek_event(arena) orelse return null;
     conn.consume_event();
     return event;
@@ -1444,27 +1401,84 @@ pub const Connection = struct {
 
   const cmsg_buf_len = 32 * linux.cmsghdr.msg_len(@sizeOf(i32));
   const ring_buffer_size: usize = default_ring_buffer_size;
-  const default_ring_buffer_size = 2048;
+  const fd_ring_buffer_size: usize = default_fd_ring_buffer_size;
+  const default_ring_buffer_size = 4096;
+  const default_fd_ring_buffer_size = 2048;
 };
 
 pub const Surface = struct {
+  connection: *Connection,
   wl_surface: WaylandSurface,
   xdg_surface: XdgSurface,
   xdg_toplevel: XdgToplevel,
-  is_ready: bool = false,
+  is_ready: bool,
 
-  pub fn ready(surface: *Surface) bool {
+  //---------------------------------------------------------------------------
+  // Platform::Surface API
+  //---------------------------------------------------------------------------
+  pub fn attach_image(
+    surface: *const Surface,
+    noalias image: *const platform.Image,
+  ) void {
+    var proxy = surface.connection.proxy();
+
+    surface.wl_surface.attach(&proxy, image.platform_specific.wl_buffer, 0, 0);
+    surface.wl_surface.damage_buffer(&proxy, 0, 0, i32_(image.width), i32_(image.height));
+    surface.wl_surface.commit(&proxy);
+  }
+
+  pub fn ready(surface: *const Surface) bool {
     return surface.is_ready;
   }
 
+  pub fn prepare_image(
+    noalias surface: *const Surface,
+    noalias image: *platform.Image,
+  ) void {
+    var proxy = surface.connection.proxy();
+    const params = surface.connection.client_state.linux_dmabuf.create_params(
+      &proxy,
+    );
+
+    const fd = image.platform_specific.fd;
+    const drm_modifier = image.platform_specific.drm_modifier;
+
+    defer {
+      params.destroy(&proxy);
+      surface.connection.flush() catch unreachable;
+      _ = linux.close(fd);
+    }
+
+    params.add(
+      &proxy,
+      fd,
+      0,
+      image.offset,
+      image.stride,
+      drm_modifier.hi(),
+      drm_modifier.lo(),
+    );
+
+    const wl_buffer = params.create_immed(
+      &proxy,
+      i32_(image.width),
+      i32_(image.height),
+      u32_(image.format.toDrm()),
+      .{},
+    );
+
+    image.platform_specific.wl_buffer = wl_buffer;
+  }
+
+  //---------------------------------------------------------------------------
+
   pub fn attach_wl_buffer(
     surface: *Surface,
-    conn: *Connection,
     buffer: WaylandBuffer,
     width: i32,
     height: i32,
   ) void {
-    var proxy = conn.proxy();
+    var proxy = surface.connection.proxy();
     surface.wl_surface.attach(
       &proxy,
       .{
@@ -1486,6 +1500,7 @@ pub const Surface = struct {
 
     surface.wl_surface.commit(&proxy);
   }
+
   pub const nil: Surface = .{
     .wl_surface = 0,
     .toplevel = .fromInt(0),
@@ -1578,10 +1593,6 @@ const FreeIdxList = struct {
     };
   }
 
-  // pub fn peek(fil: *FreeIdxList) u32 {
-  //   return fil.indices[fil.index_available-1];
-  // }
-
   pub fn pull(fil: *FreeIdxList) u32 {
     fil.index_available -= 1;
     return fil.indices[fil.index_available];
@@ -1598,21 +1609,61 @@ const FreeIdxList = struct {
   }
 };
 
-// pub const dma_buf = struct {
-//   handle: WaylandBuffer,
-//   flags: Flags,
-
-//   pub const Flags = packed struct (u32) {
-//     confirmed: bool = false,
-//     __reserved_bits: u31 = 0,
-//   };
-// };
-
 const ShmPool = struct {
   proxy: Proxy,
   wl_shm_pool: WaylandShmPool,
   buffer: []u32,
   fd: c_int,
+
+  pub fn create(
+    conn: *Connection,
+    width: i32,
+    height:i32,
+  ) ShmPool {
+    const shm = conn.client_state.wl_shm;
+
+    const scratch = Thread.Context.get_scratch(0, .{}).?;
+    defer scratch.end();
+    const shm_fd = open_shmfile(scratch.arena);
+    var proxy = conn.proxy();
+
+    const img_stride = width * 4;
+    const img_size = height * img_stride;
+    _ = os.linux.ftruncate(
+      shm_fd,
+      img_size,
+    );
+
+    const rc = os.linux.mmap(
+      null,
+      base.usize_(img_size),
+      .{ .READ = true, .WRITE = true },
+      .{ .TYPE = .SHARED },
+      shm_fd,
+      0
+    );
+
+    const irc = transmute(isize, rc);
+    if (irc < 0) {
+      log.err("failed to map in shmfile memory!", .{});
+    }
+
+    const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
+    const img_buffer = transmute([]u32, ptr);
+
+    const shm_pool = shm.create_pool(
+      &proxy,
+      shm_fd,
+      img_size,
+    );
+
+    return .{
+      .proxy = proxy,
+      .fd = shm_fd,
+      .buffer = img_buffer,
+      .wl_shm_pool = shm_pool,
+    };
+  }
 
   pub fn create_buffer(
     pool: *ShmPool,
@@ -1631,55 +1682,6 @@ const ShmPool = struct {
     );
   }
 };
-
-fn create_shm_pool(
-  conn: *Connection,
-  shm: Shm,
-  width: i32,
-  height:i32,
-) ShmPool {
-  const scratch = Thread.Context.get_scratch(0, .{}).?;
-  defer scratch.end();
-  const shm_fd = open_shmfile(scratch.arena);
-  var proxy = conn.proxy();
-
-  const img_stride = width * 4;
-  const img_size = height * img_stride;
-  _ = os.linux.ftruncate(
-    shm_fd,
-    img_size,
-  );
-
-  const rc = os.linux.mmap(
-    null,
-    base.usize_(img_size),
-    .{ .READ = true, .WRITE = true },
-    .{ .TYPE = .SHARED },
-    shm_fd,
-    0
-  );
-
-  const irc = transmute(isize, rc);
-  if (irc < 0) {
-    log.err("failed to map in shmfile memory!", .{});
-  }
-
-  const ptr: []u8 = transmute([*]u8, rc)[0..base.usize_(img_size)];
-  const img_buffer = transmute([]u32, ptr);
-
-  const shm_pool = shm.create_pool(
-    &proxy,
-    shm_fd,
-    img_size,
-  );
-
-  return .{
-    .proxy = proxy,
-    .fd = shm_fd,
-    .buffer = img_buffer,
-    .wl_shm_pool = shm_pool,
-  };
-}
 
 fn open_shmfile(arena: *Arena) c_int {
   const timestamp = time.us();
@@ -1707,7 +1709,6 @@ fn open_shmfile(arena: *Arena) c_int {
   _ = linux.unlink(transmute([*:0]const u8, name));
   return base.i32_(transmute(isize, fd));
 }
-
 
 const WireEventHeader = packed struct (u64) {
   id: u32,
