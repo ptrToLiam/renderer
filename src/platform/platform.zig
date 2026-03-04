@@ -254,6 +254,18 @@ pub const Swapchain = struct {
     };
   }
 
+  // SWAPCHAIN RECREATION
+  //  - On want_resize:
+  //    - RenderCurrent Frame
+  //    - Set new swapchain dimensions
+  //    - Wait for IDLE
+  //    - Free Images/Views
+  //    - Alloc new Images/Views
+  pub fn recreate(width: u32, height: u32) void {
+    _ = width; _ = height;
+    @panic("TODO!");
+  }
+
   pub fn release_image(sc: *Swapchain) void {
     for (0..sc.images.len) |idx| {
       if (sc.image_states[idx] == .submitted) {
