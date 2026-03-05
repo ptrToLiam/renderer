@@ -25,26 +25,26 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
 
     // Allocating 3 pages -- 1 each for standard in/out, 1/2 each for fd in/out
-    var ring_buffers: [4]RingBuffer = undefined;
-    const ring_buffer_bytes = os.mem_reserve(3 * ring_buffer_size);
+    var ringbuffers: [4]RingBuffer = undefined;
+    const ringbuffer_bytes = os.mem_reserve(ring_buffers_mmap_size);
 
-    if (!os.mem_commit(ring_buffer_bytes))
+    if (!os.mem_commit(ringbuffer_bytes))
       @panic("Failed to map pages for ring buffers!");
 
     inline for (0..2) |i| {
-      const standard_backing_bytes_rng_start = (i * ring_buffer_size);
-      const standard_backing_bytes =
-        ring_buffer_bytes[standard_backing_bytes_rng_start..][0..ring_buffer_size];
+      const backing_bytes_rng_start = (i * ring_buffer_size);
+      const backing_bytes =
+        ringbuffer_bytes[backing_bytes_rng_start..][0..ring_buffer_size];
 
-      @memset(standard_backing_bytes, 0);
-      ring_buffers[i] = .init_backing(standard_backing_bytes);
+      @memset(backing_bytes, 0);
+      ringbuffers[i] = .init_backing(backing_bytes);
 
       const fd_backing_bytes_rng_start = (2 * ring_buffer_size) +
                                             (i * fd_ring_buffer_size);
       const fd_backing_bytes =
-        ring_buffer_bytes[fd_backing_bytes_rng_start..][0..fd_ring_buffer_size];
+        ringbuffer_bytes[fd_backing_bytes_rng_start..][0..fd_ring_buffer_size];
       @memset(fd_backing_bytes, 0);
-      ring_buffers[i+2] = .init_backing(fd_backing_bytes);
+      ringbuffers[i+2] = .init_backing(fd_backing_bytes);
     }
 
     //-------------------------------------------------------------------------
@@ -123,10 +123,10 @@ pub const Connection = struct {
       .fd = socket_fd,
 
       // Base Wayland Connection I/O Management
-      .in = ring_buffers[0],
-      .out = ring_buffers[1],
-      .fd_in = ring_buffers[2],
-      .fd_out = ring_buffers[3],
+      .in = ringbuffers[0],
+      .out = ringbuffers[1],
+      .fd_in = ringbuffers[2],
+      .fd_out = ringbuffers[3],
 
       // Wayland State Management
       .client_state = client_state,
@@ -242,7 +242,7 @@ pub const Connection = struct {
     //  Retrieve & Free Ring Buffer Backing Pages
     //-------------------------------------------------------------------------
 
-    const ring_buffer_bytes_len = 4 * ring_buffer_size;
+    const ring_buffer_bytes_len = ring_buffers_mmap_size;
     const ring_buffer_bytes = transmute(
       []align(os.page_size_min) u8,
       conn.in.buf.ptr[0..ring_buffer_bytes_len]
@@ -859,19 +859,6 @@ pub const Connection = struct {
     return .invalid;
   }
 
-  pub fn check_surface_formats(
-    conn: *Connection,
-    surface: Surface,
-  ) void {
-    _ =  conn; _ = surface;
-    // var conn_proxy = conn.proxy();
-    // _ = conn.client_state.linux_dmabuf.get_surface_feedback(
-    //   &conn_proxy,
-    //   surface.wl_surface,
-    // );
-    // conn.flush() catch unreachable;
-  }
-
   fn warn_unhandled_event(event: anytype) void {
     _ = event;
     // log.warn("Unhandled {s} event", .{@tagName(event)});
@@ -1115,6 +1102,7 @@ pub const Connection = struct {
   }
 
   pub fn flush(conn: *Connection) !void {
+    const out_read_start = conn.out.read;
     const out_read = conn.out.mask(conn.out.read);
     const out_write = conn.out.mask(conn.out.write);
 
@@ -1124,7 +1112,6 @@ pub const Connection = struct {
 
     var iov: [2]linux.iovec = undefined;
     var iov_len: usize = 1;
-
 
     if (conn.out.read == conn.out.write) {
       iov_len = 0;
@@ -1150,6 +1137,8 @@ pub const Connection = struct {
 
       conn.out.read +%= u32_(iov_buf_0.len + iov_buf_1.len);
     }
+
+    const bytes_to_write = conn.out.read - out_read_start;
 
     //-------------------------------------------------------------------------
 
@@ -1207,11 +1196,40 @@ pub const Connection = struct {
       .flags = 0,
     };
 
-    _ = linux.sendmsg(
-      conn.fd,
-      &msg,
-      0,
+    var written: usize = 0;
+    var rc: isize = -1;
+    var errno: linux.E = .AGAIN;
+    read: while (rc < 0 and (errno == .AGAIN or errno == .INTR)) {
+      const val = linux.sendmsg(
+        conn.fd,
+        &msg,
+        0,
+      );
+
+      rc = transmute(isize, val);
+
+      if (rc < 0) {
+        errno = linux.errno(rc);
+        if (errno == .INTR) written += cast(usize, -rc);
+        continue :read;
+      }
+    }
+
+
+    if (rc < 0) {
+      log.err(
+        "Failed to write to socket! :: {s}",
+        .{ @tagName(linux.errno(u32_(-rc))) },
+      );
+    }
+
+    written += cast(usize, rc);
+
+    base.DebugAssert(
+      written == bytes_to_write,
+      "bytes_written should match bytes_to_write!",
     );
+
     //-------------------------------------------------------------------------
   }
 
@@ -1399,7 +1417,9 @@ pub const Connection = struct {
     return u16_(math.div_roundup(@sizeOf(u32) + arr.len, @sizeOf(u32)));
   }
 
-  const cmsg_buf_len = 32 * linux.cmsghdr.msg_len(@sizeOf(i32));
+  const cmsg_buf_len = 32 * linux.cmsghdr.msg_len(@sizeOf(c_int));
+  const ring_buffers_mmap_size: usize = (2 * default_ring_buffer_size +
+                                         2 * default_fd_ring_buffer_size);
   const ring_buffer_size: usize = default_ring_buffer_size;
   const fd_ring_buffer_size: usize = default_fd_ring_buffer_size;
   const default_ring_buffer_size = 4096;

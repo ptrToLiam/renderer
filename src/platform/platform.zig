@@ -39,7 +39,6 @@ pub const Connection = struct {
       params.height,
       params.flags,
     );
-    // conn.handle.check_surface_formats(surface.handle);
     return surface;
   }
 
@@ -71,13 +70,6 @@ pub const Connection = struct {
 
   pub fn flush(conn: *Connection) !void {
     return try conn.handle.flush();
-  }
-
-  pub fn check_surface_formats(
-    conn: *Connection,
-    surface: Surface,
-  ) void {
-    conn.handle.check_surface_formats(surface.handle);
   }
 
   const Handle = Impl.ConnectionHandle;
