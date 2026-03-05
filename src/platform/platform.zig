@@ -137,6 +137,7 @@ pub const Event = struct {
     surface_unfocus,
     surface_focus,
     surface_close,
+    surface_resize,
     buffer_release,
   };
 
@@ -184,10 +185,15 @@ pub const Surface = struct {
 };
 
 pub const Swapchain = struct {
-  surface: *Surface,
   images: []Image,
   image_states: []Image.State,
-  current_image: u32,
+  surface: *Surface,
+  acquired_image: ?u32,
+  pending_resize: ?math.Vec2u32,
+
+  submit_queue: []u32,
+  submit_head: u32 = 0,
+  submit_tail: u32 = 0,
 
   pub fn create(
     arena: *Arena,
@@ -202,6 +208,7 @@ pub const Swapchain = struct {
   ) Swapchain {
     var images = arena.push(Image, image_count);
     var image_states = arena.push(Image.State, image_count);
+    const submit_queue = arena.push(u32, image_count);
 
     const drm_modifier = surface.handle.connection.select_drm_modifier_for_format(format);
     for (0..image_count) |idx| {
@@ -216,6 +223,7 @@ pub const Swapchain = struct {
         .{
           .fd = -1,
           .drm_modifier = drm_modifier,
+          .surface = undefined,
           .create_info = .{
             .drm_modifier = drm_modifier,
             .format_list_create_info = .{
@@ -242,45 +250,102 @@ pub const Swapchain = struct {
       .surface = surface,
       .images = images,
       .image_states = image_states,
-      .current_image = 0,
+      .acquired_image = null,
+      .pending_resize = null,
+      .submit_queue = submit_queue,
     };
   }
 
-  // SWAPCHAIN RECREATION
-  //  - On want_resize:
-  //    - RenderCurrent Frame
-  //    - Set new swapchain dimensions
-  //    - Wait for IDLE
-  //    - Free Images/Views
-  //    - Alloc new Images/Views
-  pub fn recreate(width: u32, height: u32) void {
-    _ = width; _ = height;
-    @panic("TODO!");
-  }
-
-  pub fn release_image(sc: *Swapchain) void {
+  pub fn recreate(
+    sc: *Swapchain,
+    vki: vk.InstanceProxy,
+    vkd: vk.DeviceProxy,
+    vk_pdev: vk.PhysicalDevice,
+    width: u32,
+    height: u32,
+  ) void {
+    defer {
+      sc.surface.width = i32_(width);
+      sc.surface.height = i32_(height);
+      sc.pending_resize = null;
+      sc.acquired_image = null;
+      @memset(sc.submit_queue, 0);
+    }
+    const format = sc.images[0].format;
+    const surface = sc.images[0].platform_specific.surface;
+    const drm_modifier = sc.images[0].platform_specific.drm_modifier;
     for (0..sc.images.len) |idx| {
-      if (sc.image_states[idx] == .submitted) {
-        sc.image_states[idx] = .available;
-        break;
-      }
+      sc.images[idx].release(vkd);
+      sc.images[idx] = .alloc(
+        vki,
+        vkd,
+        vk_pdev,
+        surface,
+        width,
+        height,
+        format,
+        .{
+          .fd = -1,
+          .drm_modifier = drm_modifier,
+          .surface = undefined,
+          .create_info = .{
+            .drm_modifier = drm_modifier,
+            .format_list_create_info = .{
+              .view_format_count = 1,
+              .p_view_formats = &.{ format.toVk() },
+            },
+            .ext_mem_image_create_info = .{
+              .handle_types = .{
+                .dma_buf_bit_ext = true,
+              },
+            },
+            .image_drm_format_mod_info = .{
+              .drm_format_modifier_count = 1,
+              .p_drm_format_modifiers = &.{ drm_modifier.toInt() },
+            },
+          },
+        },
+      );
+      sc.images[idx].platform_specific.prepare_image(surface);
+      sc.image_states[idx] = .available;
     }
   }
 
+  pub fn destroy(sc: *Swapchain, vkd: vk.DeviceProxy) void {
+    for (sc.images) |image| {
+      image.release(vkd);
+    }
+  }
+
+  pub fn mark_outdated(sc: *Swapchain, width: u32, height: u32) void {
+    sc.pending_resize = .{ .x = width, .y = height };
+  }
+
   pub fn acquire_image(sc: *Swapchain) ?*Image {
-    const idx = sc.current_image % sc.images.len;
-    if (sc.image_states[idx] == .available) {
-      sc.image_states[idx] = .busy;
-      return &sc.images[idx];
+    for (sc.image_states, 0..) |state, idx| {
+      if (state == .available) {
+        sc.image_states[idx] = .busy;
+        sc.acquired_image = u32_(idx);
+        return &sc.images[idx];
+      }
     }
     return null;
   }
 
   pub fn present(sc: *Swapchain) void {
-    const idx = sc.current_image % sc.images.len;
+    const idx = sc.acquired_image orelse return;
     sc.surface.attach_image(&sc.images[idx]);
     sc.image_states[idx] = .submitted;
-    sc.current_image +%= 1;
+    sc.acquired_image = null;
+
+    sc.submit_queue[sc.submit_tail % sc.images.len] = idx;
+    sc.submit_tail +%= 1;
+  }
+  pub fn release_image(sc: *Swapchain) void {
+    if (sc.submit_tail == sc.submit_head) return;
+    const idx = sc.submit_queue[sc.submit_head % sc.images.len];
+    sc.submit_head +%= 1;
+    sc.image_states[idx] = .available;
   }
 };
 
@@ -305,7 +370,6 @@ pub const Image = struct {
     format: gfx.Format,
     platform_specific_data: PlatformSpecificData,
   ) Image {
-    _ = surface;
     const p_next = platform_specific_data.create_info.p_next();
     const image = vkd.createImage(
       &.{
@@ -444,11 +508,22 @@ pub const Image = struct {
       .stride = u32_(layout.row_pitch),
       .offset = u32_(layout.offset),
       .platform_specific = .{
+        .surface = surface,
         .fd = fd,
         .drm_modifier = .fromInt(mod_props.drm_format_modifier),
         .create_info = undefined,
       },
     };
+  }
+
+  pub fn release(
+    image: *const Image,
+    vkd: vk.DeviceProxy,
+  ) void {
+    vkd.freeMemory(image.vk_device_memory, null);
+    vkd.destroyImageView(image.vk_image_view, null);
+    vkd.destroyImage(image.vk_image, null);
+    image.platform_specific.release();
   }
 
   pub const State = enum (u32) {
@@ -461,6 +536,7 @@ pub const Image = struct {
     .wayland => struct {
       fd: i32,
       drm_modifier: Drm.Modifier,
+      surface: *Surface,
       wl_buffer: wayland.WaylandBuffer = undefined,
       create_info: ImageExtraCreateInfo,
 
@@ -487,6 +563,12 @@ pub const Image = struct {
       pub fn prepare_image(psd: *PlatformSpecificData, surface: *Surface) void {
         const image: *Image = @fieldParentPtr("platform_specific", psd);
         surface.handle.prepare_image(image);
+      }
+
+      pub fn release(psd: *const PlatformSpecificData) void {
+        const image: *const Image = @fieldParentPtr("platform_specific", psd);
+        const surface = psd.surface;
+        surface.handle.release_image(image);
       }
 
       const ImageExtraCreateInfo = struct {
@@ -534,6 +616,7 @@ const Impl = switch (Target) {
 
 const Arena = base.Arena;
 
+const i32_ = base.i32_;
 const u32_ = base.u32_;
 const cast = casts.cast;
 const tramsute = casts.transmute;
@@ -546,6 +629,7 @@ const Drm = gfx.Drm;
 pub const win32 = @import("win32.zig");
 pub const wayland = @import("wayland.zig");
 pub const gfx = @import("gfx/gfx.zig");
+pub const VkContext = @import("VkContext.zig");
 
 const os = @import("os");
 const base = @import("base");

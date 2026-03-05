@@ -345,9 +345,14 @@ pub const Connection = struct {
               (config.width > 0 and config.height > 0) and
               (config.width != platform_surface.width and config.height != platform_surface.height))
           {
-            log.debug("resizing surface to :: {}x{}", .{config.width, config.height});
-            platform_surface.width = config.width;
-            platform_surface.height = config.height;
+            const resize_event = arena.create(platform.Event);
+            resize_event.* = .{
+              .timestamp_us = time.us(),
+              .type = .surface_resize,
+              .surface_handle = surface.*,
+              .delta = .{ .x = f32_(config.width), .y = f32_(config.height) },
+            };
+            event_list.push(resize_event);
           }
         },
         .xdg_toplevel_close => {
@@ -1488,6 +1493,15 @@ pub const Surface = struct {
     );
 
     image.platform_specific.wl_buffer = wl_buffer;
+  }
+
+  pub fn release_image(
+    surface: *const Surface,
+    image: *const platform.Image,
+  ) void {
+    var proxy = surface.connection.proxy();
+    const wl_buffer = image.platform_specific.wl_buffer;
+    wl_buffer.destroy(&proxy);
   }
 
   //---------------------------------------------------------------------------

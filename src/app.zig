@@ -5,47 +5,25 @@ pub fn app(env: std.process.Environ) void {
   const arena: *Arena = .init(.default);
   defer arena.release();
 
-  const vk_instance_init_start = time.us();
-
-  var vk_handle = std.DynLib.open("libvulkan.so.1") catch @panic("Failed to load libvulkan.so.1");
-  defer vk_handle.close();
-  const vk_get_instance_proc_addr = vk_handle.lookup(
-    vk.PfnGetInstanceProcAddr,
-    "vkGetInstanceProcAddr",
-  ) orelse @panic("Failed to locate vkGetInstanceProcAddr");
-
   //---------------------------------------------------------------------------
   // BEGIN VULKAN STATE INIT
   //---------------------------------------------------------------------------
 
-  const vkb: vk.BaseWrapper = .load(vk_get_instance_proc_addr);
-  const app_info: vk.ApplicationInfo = .{
-    .p_application_name = app_name,
-    .application_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
-    .p_engine_name = "custom",
-    .engine_version = u32_(vk.makeApiVersion(0, 1, 0, 0)),
-    .api_version = u32_(vk.API_VERSION_1_4),
-  };
+  const vk_instance_init_start = time.us();
 
-  const instance_create_info: vk.InstanceCreateInfo = .{
-    .p_application_info = &app_info,
-  };
-  const vk_instance, const vk_iw: vk.InstanceWrapper = vk_i_iw: {
-    const instance = vkb.createInstance(
-      &instance_create_info,
-      null,
-    ) catch @panic("Failed to create Vulkan Instance!");
-    break :vk_i_iw .{
-      instance,
-      .load(instance, vk_get_instance_proc_addr),
-    };
-  };
-  const vki: vk.InstanceProxy = .init(vk_instance, &vk_iw);
-  defer vki.destroyInstance(null);
+  var vk_ctx: VkContext = undefined;
+  vk_ctx.init_instance(
+    &.{
+      .name = app_name,
+      .app_version = vk.makeApiVersion(0, 1, 0, 0),
+      .engine_name = "custom",
+      .engine_version = vk.makeApiVersion(0, 1, 0, 0),
+      .api_version = vk.API_VERSION_1_4,
+    },
+  ) catch @panic("Failed Vulkan Instance Init!");
+  defer vk_ctx.destroy();
+  const vki = vk_ctx.instance_proxy;
 
-  //---------------------------------------------------------------------------
-  // END VULKAN INSTANCE INIT
-  //---------------------------------------------------------------------------
 
   const vk_instance_init_end = time.us();
   const vk_instance_init_us = vk_instance_init_end - vk_instance_init_start;
@@ -54,13 +32,17 @@ pub fn app(env: std.process.Environ) void {
     .{ vk_instance_init_us, vk_instance_init_us / time.us_per_ms },
   );
 
-  const initial_width = 960;
-  const initial_height = 540;
+  //---------------------------------------------------------------------------
+
+  const initial_width = 1280;
+  const initial_height = 720;
+  const render_width = 960;
+  const render_height = 540;
   const slang_shader = arena.push(u32, slang_shader_bytes.len / 4);
   @memcpy(transmute([]u8, slang_shader), slang_shader_bytes);
 
   //---------------------------------------------------------------------------
-  // BEGIN PLATFORM STATE INIT
+  // BEGIN PLATFORM CONNECTION INIT
   //---------------------------------------------------------------------------
 
   const connection_init_start_us = time.us();
@@ -74,6 +56,7 @@ pub fn app(env: std.process.Environ) void {
       .class = app_class,
       .width = initial_width,
       .height = initial_height,
+      .flags = .{ .resize = true },
     },
   );
   defer surface.release();
@@ -82,8 +65,6 @@ pub fn app(env: std.process.Environ) void {
   const connection_init_us = connection_init_end_us - connection_init_start_us;
 
   //---------------------------------------------------------------------------
-  // END PLATFORM STATE INIT
-  //---------------------------------------------------------------------------
 
   log.info(
     "platform connection initialized in {d}us ({d:.2}ms)!",
@@ -91,35 +72,33 @@ pub fn app(env: std.process.Environ) void {
   );
 
   const vk_pdev,
-  const vk_device,
-  const qfi,
-  const vk_dw: vk.DeviceWrapper
+  const qfi
   = vk_d_dw_qfi: {
-    const pdev = connection.select_vk_physical_device(
+    vk_ctx.physical_device = connection.select_vk_physical_device(
       vki,
       &vk_required_device_extensions,
     );
 
     const device, const qfi = connection.create_vk_logical_device(
       vki,
-      pdev,
+      vk_ctx.physical_device,
       &vk_required_device_extensions,
     );
+    vk_ctx.device = .load(
+      device,
+      vk_ctx.instance.dispatch.vkGetDeviceProcAddr.?,
+    );
+    vk_ctx.device_proxy = .init(device, &vk_ctx.device);
+    vk_ctx.compute_queue = vk_ctx.device_proxy.getDeviceQueue(qfi, 0);
 
     break :vk_d_dw_qfi .{
-      pdev,
-      device,
+      vk_ctx.physical_device,
       qfi,
-      .load(
-        device,
-        vki.wrapper.dispatch.vkGetDeviceProcAddr.?,
-      ),
     };
   };
-  const vkd: vk.DeviceProxy = .init(vk_device, &vk_dw);
-  defer vkd.destroyDevice(null);
+  const vkd = vk_ctx.device_proxy;
+  const vk_queue = vk_ctx.compute_queue;
 
-  const vk_queue: vk.Queue = vkd.getDeviceQueue(qfi, 0);
   var cmd: vk.CommandBuffer = undefined;
 
   // vk image creation / swapchain construction
@@ -135,6 +114,7 @@ pub fn app(env: std.process.Environ) void {
     img_fmt,
     2,
   );
+  defer swapchain.destroy(vkd);
 
   const drm_modifier = surface.handle.connection.select_drm_modifier_for_format(img_fmt);
   const render_image: platform.Image = .alloc(
@@ -142,12 +122,13 @@ pub fn app(env: std.process.Environ) void {
     vkd,
     vk_pdev,
     &surface,
-    initial_width,
-    initial_height,
+    render_width,
+    render_height,
     img_fmt,
     .{
       .fd = -1,
       .drm_modifier = drm_modifier,
+      .surface = undefined,
       .create_info = .{
         .drm_modifier = drm_modifier,
         .format_list_create_info = .{
@@ -166,27 +147,14 @@ pub fn app(env: std.process.Environ) void {
       },
     },
   );
+  defer render_image.release(vkd);
 
-  // const full_range = vk.ImageSubresourceRange{
-  //     .aspect_mask = .{ .color_bit = true },
-  //     .base_mip_level = 0,
-  //     .level_count = 1,
-  //     .base_array_layer = 0,
-  //     .layer_count = 1,
-  // };
   const color_subresource = vk.ImageSubresourceLayers{
     .aspect_mask = .{ .color_bit = true },
     .mip_level = 0,
     .base_array_layer = 0,
     .layer_count = 1,
   };
-  // vk pipeline creation
-  // createGraphicsPipeline(
-  //   &vk_pipeline,
-  //   vkd,
-  //   slang_shader,
-  //   img_fmt.toVk(),
-  // );
   const compute_pipeline = createComputePipeline(
     vkd,
     slang_shader,
@@ -226,7 +194,10 @@ pub fn app(env: std.process.Environ) void {
   defer vkd.destroyFence(draw_fence, null);
 
   const setup_time_full = time.us();
-  log.info("Full Setup Time :: {}us ({}ms)", .{ setup_time_full, setup_time_full / time.us_per_ms });
+  log.info(
+    "Full Setup Time :: {}us ({}ms)",
+    .{ setup_time_full, setup_time_full / time.us_per_ms },
+  );
 
   var events: platform.EventList = .empty;
   var want_exit = false;
@@ -258,6 +229,9 @@ pub fn app(env: std.process.Environ) void {
         .surface_close => {
           want_exit = true;
         },
+        .surface_resize => {
+          swapchain.mark_outdated(u32_(ev.delta.x), u32_(ev.delta.y));
+        },
         .buffer_release => {
           swapchain.release_image();
         },
@@ -266,11 +240,10 @@ pub fn app(env: std.process.Environ) void {
         },
       }
     }
-const push: PushConstants = .{
-    .r = bg_r,
-    .g = bg_g,
-    .b = bg_b,
-};
+    const g: ShaderGlobals = .{
+        .color = .{ bg_r, bg_g, bg_b, },
+        .time = f32_(u32_(time.us())),
+    };
     // Draw Logic
     {
       _ = vkd.waitForFences(
@@ -282,146 +255,102 @@ const push: PushConstants = .{
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
+
+
+      // reconstruct swapchain if needed
+      if (swapchain.pending_resize) |new_dims| {
+        @branchHint(.cold);
+        swapchain.recreate(vki, vkd, vk_pdev, new_dims.x, new_dims.y);
+      }
       // - command_buffer_begin
       vkd.beginCommandBuffer(
         cmd,
         &.{},
       ) catch @panic("Failed to begin command buffer");
 
-vkd.cmdPushConstants(
-    cmd,
-    compute_pipeline.layout,
-    .{ .compute_bit = true },
-    0,
-    @sizeOf(PushConstants),
-    &push,
-);
-      // 1. Transition render image to GENERAL (if not already)
-      // vkd.cmdPipelineBarrier2(cmd, &.{
-      //     .p_image_memory_barriers = &.{.{
-      //         .src_stage_mask = .{ .compute_shader_bit = true },
-      //         .dst_stage_mask = .{ .compute_shader_bit = true },
-      //         .src_access_mask = .{ .shader_write_bit = true },
-      //         .dst_access_mask = .{ .shader_write_bit = true },
-      //         .old_layout = .general,
-      //         .new_layout = .general,
-      //         .image = render_image.vk_image,
-      //         .subresource_range = full_range,
-      //         .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //         .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //     }},
-      // });
+      vkd.cmdPushConstants(
+          cmd,
+          compute_pipeline.layout,
+          .{ .compute_bit = true },
+          0,
+          @sizeOf(ShaderGlobals),
+          &g,
+      );
 
-      // 2. Dispatch compute shader (screen clear for now)
+      // Compute shader dispatch
       vkd.cmdBindPipeline(cmd, .compute, compute_pipeline.pipeline);
       vkd.cmdBindDescriptorSets(
         cmd,
         .compute,
         compute_pipeline.layout,
-        0,                        // firstSet
-        1,                        // descriptorSetCount
+        0,
+        1,
         @ptrCast(&descriptor_set.set),
-        0,                        // dynamicOffsetCount
-        null,                     // pDynamicOffsets
+        0,
+        null,
       );
       vkd.cmdDispatch(cmd,
-          (render_image.width + 7) / 8,
-          (render_image.height + 7) / 8,
-          1
+        (render_image.width + 15) / 16,
+        (render_image.height + 15) / 16,
+        1
       );
 
-      // 3. Transition render image: GENERAL → TRANSFER_SRC
-      //    Transition swapchain image: UNDEFINED → TRANSFER_DST
-      // vkd.cmdPipelineBarrier2(cmd, &.{
-      //     .p_image_memory_barriers = &.{
-      //         .{
-      //             .src_stage_mask = .{ .compute_shader_bit = true },
-      //             .dst_stage_mask = .{ .all_transfer_bit = true },
-      //             .src_access_mask = .{ .shader_write_bit = true },
-      //             .dst_access_mask = .{ .transfer_read_bit = true },
-      //             .old_layout = .general,
-      //             .new_layout = .transfer_src_optimal,
-      //             .image = render_image.vk_image,
-      //             .subresource_range = full_range,
-      //             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //         },
-      //         .{
-      //             .src_stage_mask = .{ .top_of_pipe_bit = true },
-      //             .dst_stage_mask = .{ .all_transfer_bit = true },
-      //             .src_access_mask = .{},
-      //             .dst_access_mask = .{ .transfer_write_bit = true },
-      //             .old_layout = .undefined,
-      //             .new_layout = .transfer_dst_optimal,
-      //             .image = swapchain_image.vk_image,
-      //             .subresource_range = full_range,
-      //             .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //             .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //         },
-      //     },
-      // });
+      // frame rendering done, acquire swapchain image
 
-      // 4. Blit render image → swapchain image
-      if (swapchain.acquire_image()) |swapchain_image| {
+      const sc_image_opt = swapchain.acquire_image();
+      if (sc_image_opt) |swapchain_image| {
+        // render image is 960x540, swapchain image is 1920x1080
+        // Blit render image -> swapchain image
+        vkd.cmdBlitImage(cmd,
+            render_image.vk_image, .general,
+            swapchain_image.vk_image, .general,
+            1,
+            &.{
+              .{
+                .src_offsets = .{
+                  .{ .x = 0, .y = 0, .z = 0 },
+                  .{ .x = i32_(render_image.width), .y = i32_(render_image.height), .z = 1 },
+                },
+                .dst_offsets = .{
+                  .{ .x = 0, .y = 0, .z = 0 },
+                  .{ .x = i32_(swapchain_image.width), .y = i32_(swapchain_image.height), .z = 1 },
+                },
+                .src_subresource = color_subresource,
+                .dst_subresource = color_subresource,
+              },
+            },
+            .nearest,
+        );
 
-      vkd.cmdBlitImage(cmd,
-          render_image.vk_image, .transfer_src_optimal,
-          swapchain_image.vk_image, .transfer_dst_optimal,
+        vkd.endCommandBuffer(cmd) catch unreachable;
+        // sync
+        vkd.resetFences(
           1,
-          &.{.{
-              .src_offsets = .{ .{ .x = 0, .y = 0, .z = 0 }, .{ .x = i32_(render_image.width), .y = i32_(render_image.height), .z = 1 } },
-              .dst_offsets = .{ .{ .x = 0, .y = 0, .z = 0 }, .{ .x = i32_(initial_width), .y = i32_(initial_height), .z = 1 } },
-              .src_subresource = color_subresource,
-              .dst_subresource = color_subresource,
-          }},
-          .linear,
-      );
+          @ptrCast(&draw_fence),
+        ) catch |err| {
+          log.err("Fence reset failed :: {s}", .{@errorName(err)});
+          @panic("Fence reset failed");
+        };
+        const submit_info: vk.SubmitInfo = .{
+          .wait_semaphore_count = 0,
+          .command_buffer_count = 1,
+          .p_command_buffers = @ptrCast(&cmd),
+          .signal_semaphore_count = 0,
+        };
+        vkd.queueSubmit(
+          vk_queue,
+          1,
+          @ptrCast(&submit_info),
+          draw_fence,
+        ) catch @panic("Failed to sumbmit to queue!");
 
-      // 5. Transition swapchain image for present
-      // (for your custom dmabuf path this may just be a memory barrier
-      // rather than a layout transition depending on your compositor handoff)
-      // vkd.cmdPipelineBarrier2(cmd, &.{
-      //   .p_image_memory_barriers = &.{.{
-      //       .src_stage_mask = .{ .all_transfer_bit = true },
-      //       .dst_stage_mask = .{ .bottom_of_pipe_bit = true },
-      //       .src_access_mask = .{ .transfer_write_bit = true },
-      //       .dst_access_mask = .{},
-      //       .old_layout = .transfer_dst_optimal,
-      //       .new_layout = .general, // your dmabuf images stay GENERAL
-      //       .image = swapchain_image.vk_image,
-      //       .subresource_range = full_range,
-      //       .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //       .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      //   }},
-      // });
-
-      // - command_buffer_end
-      vkd.endCommandBuffer(cmd) catch unreachable;
-
-      // sync
-      vkd.resetFences(
-        1,
-        @ptrCast(&draw_fence),
-      ) catch |err| {
-        log.err("Fence reset failed :: {s}", .{@errorName(err)});
-        @panic("Fence reset failed");
-      };
-      const submit_info: vk.SubmitInfo = .{
-        .wait_semaphore_count = 0,
-        .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&cmd),
-        .signal_semaphore_count = 0,
-      };
-      vkd.queueSubmit(
-        vk_queue,
-        1,
-        @ptrCast(&submit_info),
-        draw_fence,
-      ) catch @panic("Failed to sumbmit to queue!");
+        if (sc_image_opt != null)
+          swapchain.present();
+      } else {
+        vkd.endCommandBuffer(cmd) catch unreachable;
       }
     }
 
-    swapchain.present();
     connection.flush() catch unreachable;
 
     const frame_time_end = time.us();
@@ -454,10 +383,9 @@ fn update() void {
 
 fn draw() void {
 }
-const PushConstants = extern struct {
-    r: f32,
-    g: f32,
-    b: f32,
+const ShaderGlobals = extern struct {
+    color: [3]f32,
+    time: f32,
 };
 
 fn createDescriptorSet(
@@ -527,7 +455,7 @@ fn createComputePipeline(
     .p_push_constant_ranges = &.{.{
         .stage_flags = .{ .compute_bit = true },
         .offset = 0,
-        .size = @sizeOf(PushConstants),
+        .size = @sizeOf(ShaderGlobals),
     }},
 }, null);
   errdefer device.destroyPipelineLayout(layout, null);
@@ -728,6 +656,8 @@ const time = base.time;
 
 const Drm = gfx.Drm;
 const gfx = platform.gfx;
+
+const VkContext = platform.VkContext;
 
 const base = @import("base");
 const os = @import("os");

@@ -100,6 +100,18 @@ pub const Vec2i32 = packed struct {
   }
 };
 
+pub const Vec2u32 = packed struct {
+  x: u32,
+  y: u32,
+
+  /// Returns a pointer to the vector as an indexable array
+  ///
+  /// Works for const and non-const values
+  pub fn arr(vec: anytype) asArrT(u32, @TypeOf(vec), 2) {
+    return @ptrCast(vec);
+  }
+};
+
 pub const Vec3f32 = packed struct {
   x: f32,
   y: f32,
@@ -122,6 +134,19 @@ pub const Vec3i32 = packed struct {
   ///
   /// Works for const and non-const values
   pub fn arr(vec: anytype) asArrT(i32, @TypeOf(vec), 3) {
+    return @ptrCast(vec);
+  }
+};
+
+pub const Vec3u32 = packed struct {
+  x: u32,
+  y: u32,
+  z: u32,
+
+  /// Returns a pointer to the vector as an indexable array
+  ///
+  /// Works for const and non-const values
+  pub fn arr(vec: anytype) asArrT(u32, @TypeOf(vec), 3) {
     return @ptrCast(vec);
   }
 };
@@ -150,6 +175,20 @@ pub const Vec4i32 = packed struct {
   ///
   /// Works for const and non-const values
   pub fn arr(vec: anytype) asArrT(i32, @TypeOf(vec), 4) {
+    return @ptrCast(vec);
+  }
+};
+
+pub const Vec4u32 = packed struct {
+  x: u32,
+  y: u32,
+  z: u32,
+  w: u32,
+
+  /// Returns a pointer to the vector as an indexable array
+  ///
+  /// Works for const and non-const values
+  pub fn arr(vec: anytype) asArrT(u32, @TypeOf(vec), 4) {
     return @ptrCast(vec);
   }
 };
