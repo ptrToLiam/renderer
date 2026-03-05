@@ -323,8 +323,9 @@ pub const Image = struct {
         .samples = .{ .@"1_bit" = true },
         .tiling = platform_specific_data.create_info.tiling,
         .usage = .{
+          .storage_bit = true,
           .color_attachment_bit = true,
-          .transfer_src_bit = true,
+          .transfer_dst_bit = true,
         },
         .sharing_mode = .exclusive,
         .initial_layout = .general,

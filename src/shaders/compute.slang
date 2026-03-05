@@ -1,15 +1,21 @@
-struct UniformBuffer {
-  float delta_time;
+struct PushConstants {
+  float r, g, b, a;
 };
-ConstantBuffer<UniformBuffer> ubo;
 
-// This is prolly not correct syntax
-RWTexture2<float> bufferIn;
-RWTexture2<float> imageOut;
+[[vk::push_constant]]
+PushConstants push;
 
 [shader("compute")]
-[numthreads(256,1,1)]
-void main(uint3 threadId : SV_DispatchThreadID) {
-  // TODO
-  // write image
+[numthreads(8, 8, 1)]
+void compMain(
+  uint3 threadId: SV_DispatchThreadID,
+  uniform RWTexture2D<float4> outputImage
+) {
+  uint width, height;
+  outputImage.GetDimensions(width, height);
+
+  if (threadId.x >= width || threadId.y >= height)
+    return;
+
+  outputImage[threadId.xy] = float4(push.r, push.g, push.b, 1.0);
 }

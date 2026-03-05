@@ -98,8 +98,8 @@ pub fn build(b: *std.Build) void {
     run_cmd.addArgs(args);
   }
 
-  const shader_step = b.step("shaders", "Compile shaders");
-  const shader_cmd = b.addSystemCommand(&.{
+  const tri_shader_step = b.step("triangle-shaders", "Compile hello triangle shaders");
+  const tri_shader_cmd = b.addSystemCommand(&.{
     "slangc",
     "src/shaders/tri.slang",
     "-target",
@@ -114,6 +114,23 @@ pub fn build(b: *std.Build) void {
     "fragMain",
     "-o",
     "slang.spv",
+  });
+  tri_shader_step.dependOn(&tri_shader_cmd.step);
+
+  const shader_step = b.step("shaders", "Compile shaders");
+  const shader_cmd = b.addSystemCommand(&.{
+    "slangc",
+    "src/shaders/compute.slang",
+    "-target",
+    "spirv",
+    "-profile",
+    "spirv_1_4",
+    "-emit-spirv-directly",
+    "-fvk-use-entrypoint-name",
+    "-entry",
+    "compMain",
+    "-o",
+    "src/shaders/comp.spv",
   });
   shader_step.dependOn(&shader_cmd.step);
 
