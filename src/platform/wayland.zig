@@ -445,7 +445,7 @@ pub const Connection = struct {
     width: i32,
     height: i32,
     flags: platform.Surface.Flags,
-  ) platform.Surface {
+  ) Surface {
     const scratch = Thread.Context.get_scratch(1, .{arena}).?;
     defer scratch.end();
 
@@ -562,16 +562,11 @@ pub const Connection = struct {
     }
 
     return .{
-      .handle = .{
-        .connection = conn,
-        .wl_surface = wl_surface,
-        .xdg_surface = xdg_surface,
-        .xdg_toplevel = xdg_toplevel,
-        .is_ready = false,
-      },
-      .width = width,
-      .height = height,
-      .flags = flags,
+      .connection = conn,
+      .wl_surface = wl_surface,
+      .xdg_surface = xdg_surface,
+      .xdg_toplevel = xdg_toplevel,
+      .is_ready = false,
     };
   }
 
@@ -748,9 +743,9 @@ pub const Connection = struct {
 
   pub fn select_drm_modifier_for_format(
     conn: *Connection,
-    format: gfx.Format,
+    format: Drm.Format,
   ) Drm.Modifier {
-    const desired_fmt = format.toDrm();
+    const desired_fmt = format;
 
     const feedback = conn.client_state.dmabuf_feedback orelse return .invalid;
     const format_table = feedback.fmt_table;
@@ -1470,6 +1465,195 @@ pub const Surface = struct {
   };
 };
 
+pub const SwapchainBuffer = WaylandBuffer;
+
+pub const Swapchain = struct {
+  connection: *Connection,
+
+  pub fn alloc(
+    connection: *Connection,
+    vk_ctx: *VkContext,
+    width: u32,
+    height: u32,
+    format: gfx.Format,
+    buffers: []platform.SwapchainBuffer,
+  ) !Swapchain {
+    try alloc_buffers(
+      connection,
+      vk_ctx,
+      width,
+      height,
+      format,
+      buffers,
+    );
+    return .{
+      .connection = connection,
+    };
+  }
+
+  pub fn alloc_buffers(
+    connection: *Connection,
+    vk_ctx: *VkContext,
+    width: u32,
+    height: u32,
+    format: gfx.Format,
+    buffers: []platform.SwapchainBuffer,
+  ) !void {
+    var proxy = connection.proxy();
+    const linux_dmabuf = connection.client_state.linux_dmabuf;
+
+    const vk_format = format.toVk();
+    const drm_format = format.toDrm();
+    const drm_modifier =
+      connection.select_drm_modifier_for_format(drm_format);
+
+    const fmt_list_info: vk.ImageFormatListCreateInfo = .{
+      .view_format_count = 1,
+      .p_view_formats = &.{ vk_format },
+    };
+    const ext_mem_info: vk.ExternalMemoryImageCreateInfo = .{
+      .p_next = &fmt_list_info,
+      .handle_types = .{ .dma_buf_bit_ext = true },
+    };
+    const drm_fmt_mod_info: vk.ImageDrmFormatModifierListCreateInfoEXT = .{
+      .p_next = &ext_mem_info,
+      .drm_format_modifier_count = 1,
+      .p_drm_format_modifiers = &.{ u64_(drm_modifier) },
+    };
+
+    for (buffers) |*buffer| {
+      // Alloc vkImage With Export Info
+      const buffer_image_p_next = &drm_fmt_mod_info;
+      const buffer_image = try vk_ctx.alloc_image(
+        width,
+        height,
+        vk_format,
+        .{ .transfer_dst_bit = true },
+        .drm_format_modifier_ext,
+        buffer_image_p_next,
+        .{ .dma_buf_bit_ext = true },
+      );
+
+      // Get Necessary Image Data For Export
+      const layout = vk_ctx.device_proxy.getImageSubresourceLayout(
+        buffer_image.image,
+        &.{
+          .aspect_mask = .{ .memory_plane_0_bit_ext = true },
+          .mip_level = 0,
+          .array_layer = 0,
+        },
+      );
+      const image_export_fd = try vk_ctx.device_proxy.getMemoryFdKHR(
+        &.{
+          .memory = buffer_image.memory,
+          .handle_type = .{ .dma_buf_bit_ext = true },
+        },
+      );
+      var modifier_properties: vk.ImageDrmFormatModifierPropertiesEXT = .{
+        .drm_format_modifier = u64_(drm_modifier),
+      };
+      try vk_ctx.device_proxy.getImageDrmFormatModifierPropertiesEXT(
+        buffer_image.image,
+        &modifier_properties,
+      );
+
+      const image_drm_format_modifier: Drm.Modifier = cast(
+        Drm.Modifier,
+        modifier_properties.drm_format_modifier,
+      );
+
+      // Export Image As wl_buffer
+      const dmabuf_create_params = linux_dmabuf.create_params(&proxy);
+      // These can probably all be run after the loop, will see later.
+      defer {
+        dmabuf_create_params.destroy(&proxy);
+        connection.flush() catch unreachable;
+        _ = linux.close(image_export_fd);
+      }
+
+      dmabuf_create_params.add(
+        &proxy,
+        image_export_fd,
+        0,
+        u32_(layout.offset),
+        u32_(layout.row_pitch),
+        image_drm_format_modifier.hi(),
+        image_drm_format_modifier.lo(),
+      );
+
+      const image_wl_buffer = dmabuf_create_params.create_immed(
+        &proxy,
+        i32_(width),
+        i32_(height),
+        u32_(drm_format),
+        .{},
+      );
+
+      buffer.* = .{
+        .handle = image_wl_buffer,
+        .image = buffer_image,
+      };
+    }
+  }
+
+  pub fn destroy_buffers(
+    sc: *Swapchain,
+    vk_ctx: *VkContext,
+    buffers: []platform.SwapchainBuffer,
+  ) void {
+    var proxy = sc.connection.proxy();
+    for (buffers) |buffer| {
+      buffer.handle.destroy(&proxy);
+      vk_ctx.destroy_image(buffer.image);
+    }
+  }
+
+  pub fn recreate(
+    sc: *Swapchain,
+    vk_ctx: *VkContext,
+    width: u32,
+    height: u32,
+    format: gfx.Format,
+    buffers: []platform.SwapchainBuffer,
+  ) !void {
+    sc.destroy_buffers(vk_ctx, buffers);
+
+    try alloc_buffers(
+      sc.connection,
+      vk_ctx,
+      width,
+      height,
+      format,
+      buffers,
+    );
+  }
+
+  pub fn present(
+    noalias sc: *const Swapchain,
+    noalias surface: *const Surface,
+    noalias buffer: *const platform.SwapchainBuffer,
+  ) void {
+    var proxy = sc.connection.proxy();
+    const wl_surface = surface.wl_surface;
+    const wl_buffer = buffer.handle;
+
+    // TODO:
+    // - Add something in here for presentation timing
+    // - Add something in here for viewport management
+
+    // Attach Buffer -> Surface
+    wl_surface.attach(&proxy, wl_buffer, 0, 0);
+    wl_surface.damage_buffer(
+      &proxy,
+      0,
+      0,
+      i32_(buffer.image.width),
+      i32_(buffer.image.height),
+    );
+    wl_surface.commit(&proxy);
+  }
+};
+
 pub const ClientState = struct {
   // Base Wayland Connection
   display: Display,
@@ -1707,7 +1891,10 @@ pub const MessageArg = wl_protocols.MessageArg;
 
 const log = std.log.scoped(.wayland);
 
+
+const VkContext = platform.VkContext;
 const Drm = gfx.Drm;
+
 const gfx = platform.gfx;
 
 const wl_protocols = @import("wayland-protocols");
@@ -1716,6 +1903,7 @@ const platform = @import("platform.zig");
 const u16_ = base.u16_;
 const u32_ = base.u32_;
 const i32_ = base.i32_;
+const u64_ = base.u64_;
 const f32_ = base.f32_;
 
 const cast = base.casts.cast;

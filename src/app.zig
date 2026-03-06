@@ -85,27 +85,25 @@ pub fn app(env: std.process.Environ) void {
   const render_image = vk_ctx.alloc_image(
     render_width,
     render_height,
-    img_fmt,
+    img_fmt.toVk(),
     .{ .storage_bit = true, .transfer_src_bit = true },
     .optimal,
     null,
     null,
   ) catch @panic("Failed to allocate primary render image!");
-
   defer vk_ctx.destroy_image(render_image);
-  defer render_image.release(vk_ctx.device_proxy);
 
   // swapchain construction
-  var swapchain: platform.Swapchain = .create(
+  var swapchain = platform.Swapchain.alloc(
     arena,
+    &vk_ctx,
     &surface,
-    vk_ctx,
     initial_width,
     initial_height,
     img_fmt,
     2,
-  );
-  defer swapchain.release(vk_ctx);
+  ) catch unreachable;
+  defer swapchain.release();
 
   var cmd: vk.CommandBuffer = undefined;
   vk_ctx.device_proxy.allocateCommandBuffers(
@@ -133,7 +131,7 @@ pub fn app(env: std.process.Environ) void {
   const descriptor_set = createDescriptorSet(
     vk_ctx.device_proxy,
     compute_pipeline.dsl,
-    render_image.vk_image_view,
+    render_image.view,
   ) catch unreachable;
 
   var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
@@ -184,7 +182,7 @@ pub fn app(env: std.process.Environ) void {
           swapchain.mark_outdated(u32_(ev.delta.x), u32_(ev.delta.y));
         },
         .buffer_release => {
-          swapchain.release_image();
+          swapchain.release_buffer();
         },
         else => {
           log.debug("app-level ev :: {any}", .{ev});
@@ -211,7 +209,7 @@ pub fn app(env: std.process.Environ) void {
       // reconstruct swapchain if needed
       if (swapchain.pending_resize) |new_dims| {
         @branchHint(.cold);
-        swapchain.recreate(vk_ctx, new_dims.x, new_dims.y);
+        swapchain.recreate(new_dims.x, new_dims.y, img_fmt) catch unreachable;
       }
       // - command_buffer_begin
       vk_ctx.device_proxy.beginCommandBuffer(
@@ -253,8 +251,8 @@ pub fn app(env: std.process.Environ) void {
         // render image is 960x540, swapchain image is 1920x1080
         // Blit render image -> swapchain image
         vk_ctx.device_proxy.cmdBlitImage(cmd,
-            render_image.vk_image, .general,
-            swapchain_image.vk_image, .general,
+            render_image.image, .general,
+            swapchain_image.image, .general,
             1,
             &.{
               .{
@@ -443,121 +441,6 @@ fn createComputePipeline(
   };
 }
 
-// fn createGraphicsPipeline(
-//   pipeline: *vk.Pipeline,
-//   vk_ctx.device_proxy: vk.DeviceProxy,
-//   code: []const u32,
-//   format: vk.Format,
-// ) void {
-//   const shader_module = createShaderModule(vk_ctx.device_proxy, code);
-//   defer vk_ctx.device_proxy.destroyShaderModule(shader_module, null);
-
-//   const pipelineRenderingCreateInfo: vk.PipelineRenderingCreateInfo = .{
-//     .color_attachment_count = 1,
-//     .p_color_attachment_formats = &.{format},
-//     .view_mask = 0,
-//     .depth_attachment_format = .undefined,
-//     .stencil_attachment_format = .undefined,
-//   };
-//   const pipelineCreateInfo: vk.GraphicsPipelineCreateInfo = .{
-//     .p_next = &pipelineRenderingCreateInfo,
-//     .stage_count = 2,
-//     .p_stages = &.{
-//       // vert stage
-//       .{
-//         .stage = .{ .vertex_bit = true },
-//         .flags = .{},
-//         .module = shader_module,
-//         .p_name = "vertMain",
-//       },
-//       // frag stage
-//       .{
-//         .stage = .{ .fragment_bit = true },
-//         .flags = .{},
-//         .module = shader_module,
-//         .p_name = "fragMain",
-//       },
-//     },
-//     .p_dynamic_state = &.{
-//       .dynamic_state_count = 2,
-//       .p_dynamic_states = &.{ .viewport, .scissor },
-//     },
-//     .p_vertex_input_state = &.{},
-//     .p_input_assembly_state = &.{
-//       .topology = .triangle_list,
-//       .primitive_restart_enable = .false,
-//     },
-//     .p_viewport_state = &.{
-//       .viewport_count = 1,
-//       .scissor_count = 1,
-//     },
-//     .p_rasterization_state = &.{
-//       // .flags: PipelineRasterizationStateCreateFlags = .{},
-//       .depth_clamp_enable = .false,
-//       .rasterizer_discard_enable = .false,
-//       .polygon_mode = .fill,
-//       .cull_mode = .{ .back_bit = true },
-//       .front_face = .clockwise,
-//       .depth_bias_enable = .false,
-//       .depth_bias_constant_factor = 1,
-//       .depth_bias_clamp = 0,
-//       .depth_bias_slope_factor = 0,
-//       .line_width = 1,
-//     },
-//     .p_multisample_state = &.{
-//       .rasterization_samples = .{ .@"1_bit" = true },
-//       .sample_shading_enable = .false,
-//       .min_sample_shading = 0,
-//       .alpha_to_coverage_enable = .false,
-//       .alpha_to_one_enable = .false,
-//     },
-//     .p_color_blend_state = &.{
-//       .logic_op_enable = .false,
-//       .logic_op = .copy,
-//       .attachment_count = 1,
-//       .p_attachments = &.{
-//         .{
-//           .blend_enable = .false,
-//           .src_color_blend_factor = .zero,
-//           .dst_color_blend_factor = .zero,
-//           .color_blend_op = .add,
-//           .color_write_mask = .{
-//             .r_bit = true,
-//             .g_bit = true,
-//             .b_bit = true,
-//             .a_bit = true,
-//           },
-//           .src_alpha_blend_factor = .zero,
-//           .dst_alpha_blend_factor = .zero,
-//           .alpha_blend_op = .add,
-//         },
-//       },
-//       .blend_constants = .{0, 0, 0, 0},
-//     },
-//     .layout = vk_ctx.device_proxy.createPipelineLayout(
-//       &.{
-//         .set_layout_count = 0,
-//         .push_constant_range_count = 0,
-//       },
-//       null,
-//     ) catch @panic("failed to create pipeline layout!"),
-//     .subpass = undefined,
-//     .base_pipeline_index = vk.QUEUE_FAMILY_IGNORED,
-//   };
-//   defer vk_ctx.device_proxy.destroyPipelineLayout(pipelineCreateInfo.layout, null);
-
-//   _ = vk_ctx.device_proxy.createGraphicsPipelines(
-//     .null_handle,
-//     1,
-//     &.{pipelineCreateInfo},
-//     null,
-//     transmute([*]vk.Pipeline, pipeline),
-//   ) catch |err| {
-//     log.err("VkPipeline creation failed with error :: {s}", .{@errorName(err)});
-//     @panic("Failed to create pipeline");
-//   };
-// }
-
 fn createShaderModule(
   dev: vk.DeviceProxy,
   code: []const u32,
@@ -587,7 +470,6 @@ const OffscreenBuffer = platform.OffscreenBuffer;
 const AppName = "vkRender";
 const AppClass = "Liam.Games.vkRender";
 
-// const slang_shader_bytes = @embedFile("shaders/slang.spv");
 const slang_shader_bytes = @embedFile("shaders/comp.spv");
 
 const cast = base.casts.cast;

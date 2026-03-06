@@ -66,7 +66,7 @@ pub fn init_device(
       ctx.instance_proxy.getPhysicalDeviceQueueFamilyProperties(
         physical_device,
         &queue_family_count,
-        null,
+        queue_families.ptr,
       );
 
       for (queue_families, 0..) |queue_family_properties, idx| {
@@ -105,7 +105,13 @@ pub fn init_device(
     ) catch .null_handle;
     break :dev_qfi .{ device, qfi };
   };
+
   if (device != .null_handle) {
+    log.info(
+      "Creating Logical Device :: Physical Device = 0x{x}",
+      .{ physical_device },
+    );
+
     ctx.device = .load(
       device,
       ctx.instance.dispatch.vkGetDeviceProcAddr.?,
@@ -144,7 +150,7 @@ pub fn alloc_image(
   ctx: *VkContext,
   width: u32,
   height: u32,
-  format: gfx.Format,
+  format: vk.Format,
   usage: vk.ImageUsageFlags,
   tiling: ?vk.ImageTiling,
   image_create_p_next: ?*const anyopaque,
@@ -153,7 +159,7 @@ pub fn alloc_image(
   const image = try ctx.device_proxy.createImage(&.{
     .p_next = image_create_p_next,
     .flags = .{},
-    .format = format.toVk(),
+    .format = format,
     .image_type = .@"2d",
     .extent = .{
       .width = width,
@@ -224,7 +230,7 @@ pub fn alloc_image(
         .b = .identity,
         .a = .identity
       },
-      .format = format.toVk(),
+      .format = format,
       .subresource_range = .{
         .aspect_mask = .{ .color_bit = true },
         .base_mip_level = 0,
@@ -249,7 +255,7 @@ pub fn destroy_image(
   ctx: *const VkContext,
   image: Image,
 ) void {
-  ctx.device_proxy.freeMemory(image.device_memory, null);
+  ctx.device_proxy.freeMemory(image.memory, null);
   ctx.device_proxy.destroyImageView(image.view, null);
   ctx.device_proxy.destroyImage(image.image, null);
 }
@@ -258,7 +264,7 @@ pub fn alloc_render_image(
   ctx: *VkContext,
   width: u32,
   height: u32,
-  format: gfx.Format,
+  format: vk.Format,
 ) Image {
   const render_image = ctx.alloc_image(
     width,
@@ -331,12 +337,11 @@ const transmute = base.casts.transmute;
 
 const math = base.math;
 
-const gfx = @import("gfx/gfx.zig");
-
 const Thread = base.Thread;
 const base = @import("base");
 const os = @import("os");
 
+const log = std.log.scoped(.VkContext);
 const vk = @import("vulkan");
 const std = @import("std");
 const builtin = @import("builtin");
