@@ -34,8 +34,8 @@ pub fn app(env: std.process.Environ) void {
 
   const initial_width = 1280;
   const initial_height = 720;
-  const render_width = 960;
-  const render_height = 540;
+  const render_width = 1280;
+  const render_height = 720;
   const slang_shader = arena.push(u32, slang_shader_bytes.len / 4);
   @memcpy(transmute([]u8, slang_shader), slang_shader_bytes);
 
@@ -115,7 +115,7 @@ pub fn app(env: std.process.Environ) void {
     transmute([*]vk.CommandBuffer, &cmd),
   ) catch @panic("failed to allocate cmdbuf from cmdpool");
 
-  const color_subresource = vk.ImageSubresourceLayers{
+  const color_subresource: vk.ImageSubresourceLayers = .{
     .aspect_mask = .{ .color_bit = true },
     .mip_level = 0,
     .base_array_layer = 0,
@@ -135,9 +135,7 @@ pub fn app(env: std.process.Environ) void {
   ) catch unreachable;
 
   var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
-    &.{
-      .flags = .{ .signaled_bit = true },
-    },
+    &.{ .flags = .{ .signaled_bit = true } },
     null,
   ) catch @panic("Failed to create draw_fence!");
   defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
@@ -189,9 +187,9 @@ pub fn app(env: std.process.Environ) void {
         },
       }
     }
-    const g: ShaderGlobals = .{
+    const push_constants: PushConstants = .{
         .color = .{ bg_r, bg_g, bg_b, },
-        .time = f32_(u32_(time.us())),
+        .time = f32_(f64_(time.us()) / time.us_per_s),
     };
     // Draw Logic
     {
@@ -222,8 +220,8 @@ pub fn app(env: std.process.Environ) void {
           compute_pipeline.layout,
           .{ .compute_bit = true },
           0,
-          @sizeOf(ShaderGlobals),
-          &g,
+          @sizeOf(PushConstants),
+          &push_constants,
       );
 
       // Compute shader dispatch
@@ -248,7 +246,6 @@ pub fn app(env: std.process.Environ) void {
 
       const sc_image_opt = swapchain.acquire_image();
       if (sc_image_opt) |swapchain_image| {
-        // render image is 960x540, swapchain image is 1920x1080
         // Blit render image -> swapchain image
         vk_ctx.device_proxy.cmdBlitImage(cmd,
             render_image.image, .general,
@@ -332,7 +329,8 @@ fn update() void {
 
 fn draw() void {
 }
-const ShaderGlobals = extern struct {
+
+const PushConstants = extern struct {
     color: [3]f32,
     time: f32,
 };
@@ -380,11 +378,16 @@ fn createDescriptorSet(
 
     return .{ .pool = pool, .set = set };
 }
+
 fn createComputePipeline(
     device: vk.DeviceProxy,
-    shader_code: []const u32, // compiled SPIR-V from Slang
-) !struct { pipeline: vk.Pipeline, layout: vk.PipelineLayout, dsl: vk.DescriptorSetLayout } {
-  // 1. Descriptor set layout — single storage image binding
+    shader_code: []const u32,
+) !struct {
+  pipeline: vk.Pipeline,
+  layout: vk.PipelineLayout,
+  dsl: vk.DescriptorSetLayout,
+  }
+{
   const dsl = try device.createDescriptorSetLayout(&.{
     .binding_count = 1,
     .p_bindings = &.{.{
@@ -396,7 +399,6 @@ fn createComputePipeline(
   }, null);
   errdefer device.destroyDescriptorSetLayout(dsl, null);
 
-  // 2. Pipeline layout
   const layout = try device.createPipelineLayout(&.{
     .set_layout_count = 1,
     .p_set_layouts = &.{dsl},
@@ -404,32 +406,32 @@ fn createComputePipeline(
     .p_push_constant_ranges = &.{.{
         .stage_flags = .{ .compute_bit = true },
         .offset = 0,
-        .size = @sizeOf(ShaderGlobals),
+        .size = @sizeOf(PushConstants),
     }},
 }, null);
   errdefer device.destroyPipelineLayout(layout, null);
 
-  // 3. Shader module
   const shader_module = try device.createShaderModule(&.{
     .code_size = shader_code.len * @sizeOf(u32),
     .p_code = shader_code.ptr,
   }, null);
   defer device.destroyShaderModule(shader_module, null);
 
-  // 4. Compute pipeline — just one stage, no rasterizer state
   var pipeline: vk.Pipeline = undefined;
   _ = try device.createComputePipelines(
-    .null_handle, // pipeline cache, wire one in later
+    .null_handle,
     1,
-    &.{.{
+    &.{
+      .{
         .stage = .{
-            .stage = .{ .compute_bit = true },
-            .module = shader_module,
-            .p_name = "compMain",
+          .stage = .{ .compute_bit = true },
+          .module = shader_module,
+          .p_name = "compMain",
         },
         .layout = layout,
         .base_pipeline_index = -1,
-    }},
+      },
+    },
     null,
     @ptrCast(&pipeline),
   );

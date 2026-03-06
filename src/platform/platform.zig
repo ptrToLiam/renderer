@@ -229,6 +229,7 @@ pub const Swapchain = struct {
       .submit_queue = submit_queue,
     };
   }
+  
   /// Recreate Swapchain
   pub fn recreate(
     sc: *Swapchain,

@@ -1,14 +1,9 @@
 # TODAY
 
-- [ ] Swapchain Re-Creation
-- [ ] Uniform Buffer
-- [ ] Compute Shaders
-- [ ] Rendering With Compute
+- [-] Compute Shaders
+  - [-] SDF and shapes
+  - [-] Maybe some Shadertoy stuff?
 
-
-# MAYBE
-
-- [ ] Vulkan WORM Approach
 
 # LOOK INTO EVENTUALLY
 
