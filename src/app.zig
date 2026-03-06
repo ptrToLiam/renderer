@@ -22,8 +22,6 @@ pub fn app(env: std.process.Environ) void {
     },
   ) catch @panic("Failed Vulkan Instance Init!");
   defer vk_ctx.destroy();
-  const vki = vk_ctx.instance_proxy;
-
 
   const vk_instance_init_end = time.us();
   const vk_instance_init_us = vk_instance_init_end - vk_instance_init_start;
@@ -71,83 +69,53 @@ pub fn app(env: std.process.Environ) void {
     .{ connection_init_us, base.f64_(connection_init_us) / base.f64_(time.us_per_ms) },
   );
 
-  const vk_pdev,
-  const qfi
-  = vk_d_dw_qfi: {
-    vk_ctx.physical_device = connection.select_vk_physical_device(
-      vki,
+  // initialize vk device
+  vk_ctx.init_device(
+    connection.select_vk_physical_device(
+      vk_ctx.instance_proxy,
       &vk_required_device_extensions,
-    );
+    ),
+    &vk_required_device_extensions,
+    .{ .reset_command_buffer_bit = true },
+  ) catch @panic("Unable to Initialize Vulkan Device!");
 
-    const device, const qfi = connection.create_vk_logical_device(
-      vki,
-      vk_ctx.physical_device,
-      &vk_required_device_extensions,
-    );
-    vk_ctx.device = .load(
-      device,
-      vk_ctx.instance.dispatch.vkGetDeviceProcAddr.?,
-    );
-    vk_ctx.device_proxy = .init(device, &vk_ctx.device);
-    vk_ctx.compute_queue = vk_ctx.device_proxy.getDeviceQueue(qfi, 0);
-
-    break :vk_d_dw_qfi .{
-      vk_ctx.physical_device,
-      qfi,
-    };
-  };
-  const vkd = vk_ctx.device_proxy;
-  const vk_queue = vk_ctx.compute_queue;
-
-  var cmd: vk.CommandBuffer = undefined;
-
-  // vk image creation / swapchain construction
   const img_fmt: gfx.Format = .rgba32;
+
+  // prepare render image
+  const render_image = vk_ctx.alloc_image(
+    render_width,
+    render_height,
+    img_fmt,
+    .{ .storage_bit = true, .transfer_src_bit = true },
+    .optimal,
+    null,
+    null,
+  ) catch @panic("Failed to allocate primary render image!");
+
+  defer vk_ctx.destroy_image(render_image);
+  defer render_image.release(vk_ctx.device_proxy);
+
+  // swapchain construction
   var swapchain: platform.Swapchain = .create(
     arena,
     &surface,
-    vki,
-    vkd,
-    vk_pdev,
+    vk_ctx,
     initial_width,
     initial_height,
     img_fmt,
     2,
   );
-  defer swapchain.destroy(vkd);
+  defer swapchain.release(vk_ctx);
 
-  const drm_modifier = surface.handle.connection.select_drm_modifier_for_format(img_fmt);
-  const render_image: platform.Image = .alloc(
-    vki,
-    vkd,
-    vk_pdev,
-    &surface,
-    render_width,
-    render_height,
-    img_fmt,
-    .{
-      .fd = -1,
-      .drm_modifier = drm_modifier,
-      .surface = undefined,
-      .create_info = .{
-        .drm_modifier = drm_modifier,
-        .format_list_create_info = .{
-          .view_format_count = 1,
-          .p_view_formats = &.{ img_fmt.toVk() },
-        },
-        .ext_mem_image_create_info = .{
-          .handle_types = .{
-            .dma_buf_bit_ext = true,
-          },
-        },
-        .image_drm_format_mod_info = .{
-          .drm_format_modifier_count = 1,
-          .p_drm_format_modifiers = &.{ drm_modifier.toInt() },
-        },
-      },
+  var cmd: vk.CommandBuffer = undefined;
+  vk_ctx.device_proxy.allocateCommandBuffers(
+    &.{
+      .command_pool = vk_ctx.command_pool,
+      .level = .primary,
+      .command_buffer_count = 1
     },
-  );
-  defer render_image.release(vkd);
+    transmute([*]vk.CommandBuffer, &cmd),
+  ) catch @panic("failed to allocate cmdbuf from cmdpool");
 
   const color_subresource = vk.ImageSubresourceLayers{
     .aspect_mask = .{ .color_bit = true },
@@ -155,43 +123,26 @@ pub fn app(env: std.process.Environ) void {
     .base_array_layer = 0,
     .layer_count = 1,
   };
+
   const compute_pipeline = createComputePipeline(
-    vkd,
+    vk_ctx.device_proxy,
     slang_shader,
   ) catch unreachable;
-  defer vkd.destroyPipeline(compute_pipeline.pipeline, null);
+  defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
 
   const descriptor_set = createDescriptorSet(
-    vkd,
+    vk_ctx.device_proxy,
     compute_pipeline.dsl,
     render_image.vk_image_view,
   ) catch unreachable;
-  // vk cmdpool / cmdbuf init
-  const vk_cmdpool = vkd.createCommandPool(
-    &.{
-      .flags = .{ .reset_command_buffer_bit = true },
-      .queue_family_index = qfi,
-    },
-    null,
-  ) catch unreachable;
-  defer vkd.destroyCommandPool(vk_cmdpool, null);
 
-  vkd.allocateCommandBuffers(
-    &.{
-      .command_pool = vk_cmdpool,
-      .level = .primary,
-      .command_buffer_count = 1
-    },
-    transmute([*]vk.CommandBuffer, &cmd),
-  ) catch @panic("failed to allocate cmdbuf from cmdpool");
-
-  var draw_fence: vk.Fence = vkd.createFence(
+  var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
     &.{
       .flags = .{ .signaled_bit = true },
     },
     null,
   ) catch @panic("Failed to create draw_fence!");
-  defer vkd.destroyFence(draw_fence, null);
+  defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
 
   const setup_time_full = time.us();
   log.info(
@@ -246,7 +197,7 @@ pub fn app(env: std.process.Environ) void {
     };
     // Draw Logic
     {
-      _ = vkd.waitForFences(
+      _ = vk_ctx.device_proxy.waitForFences(
         1,
         @ptrCast(&draw_fence),
         .true,
@@ -260,15 +211,15 @@ pub fn app(env: std.process.Environ) void {
       // reconstruct swapchain if needed
       if (swapchain.pending_resize) |new_dims| {
         @branchHint(.cold);
-        swapchain.recreate(vki, vkd, vk_pdev, new_dims.x, new_dims.y);
+        swapchain.recreate(vk_ctx, new_dims.x, new_dims.y);
       }
       // - command_buffer_begin
-      vkd.beginCommandBuffer(
+      vk_ctx.device_proxy.beginCommandBuffer(
         cmd,
         &.{},
       ) catch @panic("Failed to begin command buffer");
 
-      vkd.cmdPushConstants(
+      vk_ctx.device_proxy.cmdPushConstants(
           cmd,
           compute_pipeline.layout,
           .{ .compute_bit = true },
@@ -278,8 +229,8 @@ pub fn app(env: std.process.Environ) void {
       );
 
       // Compute shader dispatch
-      vkd.cmdBindPipeline(cmd, .compute, compute_pipeline.pipeline);
-      vkd.cmdBindDescriptorSets(
+      vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, compute_pipeline.pipeline);
+      vk_ctx.device_proxy.cmdBindDescriptorSets(
         cmd,
         .compute,
         compute_pipeline.layout,
@@ -289,7 +240,7 @@ pub fn app(env: std.process.Environ) void {
         0,
         null,
       );
-      vkd.cmdDispatch(cmd,
+      vk_ctx.device_proxy.cmdDispatch(cmd,
         (render_image.width + 15) / 16,
         (render_image.height + 15) / 16,
         1
@@ -301,7 +252,7 @@ pub fn app(env: std.process.Environ) void {
       if (sc_image_opt) |swapchain_image| {
         // render image is 960x540, swapchain image is 1920x1080
         // Blit render image -> swapchain image
-        vkd.cmdBlitImage(cmd,
+        vk_ctx.device_proxy.cmdBlitImage(cmd,
             render_image.vk_image, .general,
             swapchain_image.vk_image, .general,
             1,
@@ -322,9 +273,9 @@ pub fn app(env: std.process.Environ) void {
             .nearest,
         );
 
-        vkd.endCommandBuffer(cmd) catch unreachable;
+        vk_ctx.device_proxy.endCommandBuffer(cmd) catch unreachable;
         // sync
-        vkd.resetFences(
+        vk_ctx.device_proxy.resetFences(
           1,
           @ptrCast(&draw_fence),
         ) catch |err| {
@@ -337,8 +288,8 @@ pub fn app(env: std.process.Environ) void {
           .p_command_buffers = @ptrCast(&cmd),
           .signal_semaphore_count = 0,
         };
-        vkd.queueSubmit(
-          vk_queue,
+        vk_ctx.device_proxy.queueSubmit(
+          vk_ctx.queue,
           1,
           @ptrCast(&submit_info),
           draw_fence,
@@ -347,7 +298,7 @@ pub fn app(env: std.process.Environ) void {
         if (sc_image_opt != null)
           swapchain.present();
       } else {
-        vkd.endCommandBuffer(cmd) catch unreachable;
+        vk_ctx.device_proxy.endCommandBuffer(cmd) catch unreachable;
       }
     }
 
@@ -367,7 +318,7 @@ pub fn app(env: std.process.Environ) void {
       Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
     }
   }
-  _ = vkd.waitForFences(
+  _ = vk_ctx.device_proxy.waitForFences(
     1,
     @ptrCast(&draw_fence),
     .true,
@@ -494,12 +445,12 @@ fn createComputePipeline(
 
 // fn createGraphicsPipeline(
 //   pipeline: *vk.Pipeline,
-//   vkd: vk.DeviceProxy,
+//   vk_ctx.device_proxy: vk.DeviceProxy,
 //   code: []const u32,
 //   format: vk.Format,
 // ) void {
-//   const shader_module = createShaderModule(vkd, code);
-//   defer vkd.destroyShaderModule(shader_module, null);
+//   const shader_module = createShaderModule(vk_ctx.device_proxy, code);
+//   defer vk_ctx.device_proxy.destroyShaderModule(shader_module, null);
 
 //   const pipelineRenderingCreateInfo: vk.PipelineRenderingCreateInfo = .{
 //     .color_attachment_count = 1,
@@ -583,7 +534,7 @@ fn createComputePipeline(
 //       },
 //       .blend_constants = .{0, 0, 0, 0},
 //     },
-//     .layout = vkd.createPipelineLayout(
+//     .layout = vk_ctx.device_proxy.createPipelineLayout(
 //       &.{
 //         .set_layout_count = 0,
 //         .push_constant_range_count = 0,
@@ -593,9 +544,9 @@ fn createComputePipeline(
 //     .subpass = undefined,
 //     .base_pipeline_index = vk.QUEUE_FAMILY_IGNORED,
 //   };
-//   defer vkd.destroyPipelineLayout(pipelineCreateInfo.layout, null);
+//   defer vk_ctx.device_proxy.destroyPipelineLayout(pipelineCreateInfo.layout, null);
 
-//   _ = vkd.createGraphicsPipelines(
+//   _ = vk_ctx.device_proxy.createGraphicsPipelines(
 //     .null_handle,
 //     1,
 //     &.{pipelineCreateInfo},

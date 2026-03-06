@@ -161,11 +161,6 @@ pub const Surface = struct {
     _ = surface;
   }
 
-  pub fn create_swapchain(surface: *Surface) Swapchain {
-    // TODO
-    _  = surface;
-  }
-
   pub fn attach_image(noalias surface: *const Surface, noalias image: *const Image) void {
     surface.handle.attach_image(image);
   }
@@ -185,7 +180,33 @@ pub const Surface = struct {
 };
 
 pub const Swapchain = struct {
-  images: []Image,
+  handle: Handle,
+
+  surface: *Surface,
+  buffers: []SwapchainBuffer,
+  buffer_states: []SwapchainBuffer.State,
+  submit_queue: []u32,
+  submit_head: u32,
+  submit_tail: u32,
+  acquired_image: ?u32,
+  pending_resize: ?math.Vec2u32,
+
+  pub fn create(
+    vk_ctx: *VkContext,
+    surface: *Surface,
+  ) Swapchain {
+  }
+
+  const Handle = Impl.SwapchainHandle;
+};
+
+pub const SwapchainBuffer = struct {
+  handle: Handle,
+  image: VkContext.Image,
+
+  const Handle = Impl.SwapchainBufferHandle;
+};
+pub const Swapchain = struct {
   image_states: []Image.State,
   surface: *Surface,
   acquired_image: ?u32,
@@ -198,9 +219,7 @@ pub const Swapchain = struct {
   pub fn create(
     arena: *Arena,
     surface: *Surface,
-    vki: vk.InstanceProxy,
-    vkd: vk.DeviceProxy,
-    vk_pdev: vk.PhysicalDevice,
+    vk_ctx: *VkContext,
     width: u32,
     height: u32,
     format: gfx.Format,
@@ -606,10 +625,12 @@ const Impl = switch (Target) {
   .wayland => struct {
     pub const ConnectionHandle = wayland.Connection;
     pub const SurfaceHandle = wayland.Surface;
+    pub const SwapchainHandle = wayland.Swapchain;
   },
   .win32 => struct {
     pub const ConnectionHandle = win32.Connection;
     pub const SurfaceHandle = win32.Window;
+    pub const SwapchainHandle = win32.Swapchain;
   },
   else => os.UnsupportedPlatformError(),
 };
