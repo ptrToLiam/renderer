@@ -370,7 +370,7 @@ pub const Connection = struct {
               .pressed => .press,
               .released => .release,
             },
-            .button = .fromInt(mouse_button.button),
+            .button = .fromLinuxInputCode(mouse_button.button),
             .timestamp_us = time.us(),
             .surface_handle = surface.*,
           };

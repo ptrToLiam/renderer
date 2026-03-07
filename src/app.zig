@@ -146,8 +146,9 @@ pub fn app(env: std.process.Environ) void {
     .{ setup_time_full, setup_time_full / time.us_per_ms },
   );
 
-  var events: platform.EventList = .empty;
+  const exit_key: platform.Key = .q;
   var want_exit = false;
+
 
   var bg_r: f32 = undefined;
   var bg_g: f32 = undefined;
@@ -155,6 +156,7 @@ pub fn app(env: std.process.Environ) void {
 
   var frame_idx: u64 = 0;
   var first_attach = true;
+  var events: platform.EventList = .empty;
   const time_target = time.us_per_s / 120;
   while (!want_exit) {
     const frame_time_start = time.us();
@@ -184,19 +186,21 @@ pub fn app(env: std.process.Environ) void {
         },
         .press => {
           // TODO: app-level input handling
-          log.debug("Frame#{}: PRESS :: .{{ .key={}, .mouse_button={} }}", .{frame_idx, ev.key, ev.button});
+          if (ev.key == exit_key) want_exit = true;
+          log.debug(
+            "Time:{:8}us|Frame:{:6}|PRESS={{ .key={}, .mouse_button={} }}",
+            .{ ev.timestamp_us, frame_idx, ev.key, ev.button },
+          );
         },
         .release => {
           // TODO: app-level input handling
-          log.debug("Frame#{}: RELEASE :: .{{ .key={}, .mouse_button={} }}", .{frame_idx, ev.key, ev.button});
+          log.debug(
+            "Time:{:8}us|Frame:{:6}|RELEASE={{ .key={}, .mouse_button={} }}",
+            .{ ev.timestamp_us, frame_idx, ev.key, ev.button },
+          );
         },
-        .mouse_move => {
+        .mouse_scroll, .mouse_move => {
           // TODO: app-level input handling
-          // log.debug("Frame#{}: MOUSE MOVE :: .{{ .position={}x{} }}", .{frame_idx, ev.pos.x, ev.pos.y});
-        },
-        .mouse_scroll => {
-          // TODO: app-level input handling
-          // log.debug("Frame#{}: SCROLL :: .{{ .delta={}x{} }}", .{frame_idx, ev.delta.x, ev.delta.y });
         },
         else => {
           log.debug("app-level ev :: {any}", .{ev});
@@ -258,8 +262,31 @@ pub fn app(env: std.process.Environ) void {
         1
       );
 
+      vk_ctx.device_proxy.cmdPipelineBarrier(
+        cmd,
+        .{ .compute_shader_bit = true },
+        .{ .transfer_bit = true },
+        .{}, 0, null, 0, null, 1,
+        &.{
+          .{
+            .src_access_mask = .{ .shader_write_bit = true },
+            .dst_access_mask = .{ .transfer_read_bit = true },
+            .old_layout = .general,
+            .new_layout = .general,
+            .image = render_image.image,
+            .subresource_range = .{
+              .aspect_mask = .{ .color_bit = true },
+              .base_mip_level = 0,
+              .level_count = 1,
+              .base_array_layer = 0,
+              .layer_count = 1,
+            },
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+          },
+        },
+      );
       // frame rendering done, acquire swapchain image
-
       const sc_image_opt = swapchain.acquire_image();
       if (sc_image_opt) |swapchain_image| {
         // Blit render image -> swapchain image
@@ -282,6 +309,31 @@ pub fn app(env: std.process.Environ) void {
               },
             },
             .nearest,
+        );
+
+        vk_ctx.device_proxy.cmdPipelineBarrier(
+          cmd,
+          .{ .transfer_bit = true },
+          .{ .bottom_of_pipe_bit = true },
+          .{}, 0, null, 0, null, 1,
+          &.{
+            .{
+              .src_access_mask = .{ .transfer_write_bit = true },
+              .dst_access_mask = .{},
+              .old_layout = .general,
+              .new_layout = .general,
+              .image = swapchain_image.image,
+              .subresource_range = .{
+                  .aspect_mask = .{ .color_bit = true },
+                  .base_mip_level = 0,
+                  .level_count = 1,
+                  .base_array_layer = 0,
+                  .layer_count = 1,
+              },
+              .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+              .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            }
+          },
         );
 
         vk_ctx.device_proxy.endCommandBuffer(cmd) catch unreachable;
