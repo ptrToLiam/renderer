@@ -17,6 +17,7 @@
           packages = with pkgs; [
             lldb
             libinput
+            libxkbcommon
             man-pages
             mesa
             pkg-config
@@ -33,7 +34,7 @@
             zig.packages.${system}."master-2026-02-03"
           ];
           shellHook = ''
-            VULKAN_LOADER_LIB="${pkgs.vulkan-loader}/lib"
+            RPATH="${pkgs.vulkan-loader}/lib:${pkgs.libxkbcommon}/lib"
             export VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d"
           '';
         };

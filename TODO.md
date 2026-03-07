@@ -1,11 +1,13 @@
 # TODAY
 
-- [-] Compute Shaders
-  - [-] SDF and shapes
-  - [-] Maybe some Shadertoy stuff?
+# MAYBE
 
+- [ ] Pre-Recorded VkCmdBuf?
+- [ ] VkUniformBuffer
+  - Host-visible & coherent
+  - CPU Write Start of Frame:
+    - Time
+    - User Input Data
+    - Camera
+    - Etc.
 
-# LOOK INTO EVENTUALLY
-
-- [ ] wp_presentation
-- [ ] wp_viewporter

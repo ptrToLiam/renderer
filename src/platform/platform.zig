@@ -106,7 +106,90 @@ pub const EventList = struct {
 };
 
 pub const Key = enum (u32) {
+  invalid = math.maxInt(u32),
   none = 0,
+  a,
+  b,
+  c,
+  d,
+  e,
+  f,
+  g,
+  h,
+  i,
+  j,
+  k,
+  l,
+  m,
+  n,
+  o,
+  p,
+  q,
+  r,
+  s,
+  t,
+  u,
+  v,
+  w,
+  x,
+  y,
+  z,
+  _,
+
+  pub fn fromXkb(sym: wayland.Xkb.KeySym) Key {
+    return switch (sym) {
+      .a => .a,
+      .b => .b,
+      .c => .c,
+      .d => .d,
+      .e => .e,
+      .f => .f,
+      .g => .g,
+      .h => .h,
+      .i => .i,
+      .j => .j,
+      .k => .k,
+      .l => .l,
+      .m => .m,
+      .n => .n,
+      .o => .o,
+      .p => .p,
+      .q => .q,
+      .r => .r,
+      .s => .s,
+      .t => .t,
+      .u => .u,
+      .v => .v,
+      .w => .w,
+      .x => .x,
+      .y => .y,
+      .z => .z,
+      else => .invalid,
+    };
+  }
+  pub fn fromInt(n: u32) Key {
+    return @enumFromInt(n);
+  }
+};
+
+pub const MouseButton = enum (u32) {
+  none = 0,
+  _,
+
+  pub fn fromInt(n: u32) MouseButton {
+    return @enumFromInt(n);
+  }
+};
+
+pub const ButtonState = enum(u32) {
+  release = 0,
+  press = 1,
+  repeat = 2,
+
+  invalid = 1024,
+  pub fn fromInt(n: u32) ButtonState {
+    return @enumFromInt(n);
+  }
 };
 
 pub const Event = struct {
@@ -117,6 +200,7 @@ pub const Event = struct {
   surface_handle: Surface.Handle,
   modifiers: Modifiers = .none,
   key: Key = .none,
+  button: MouseButton = .none,
   repeat_count: u32 = 0,
   pos: math.Vec2f32 = .{ .x = 0 , .y = 0 },
   delta: math.Vec2f32 = .{ .x = 0, .y = 0 },
@@ -138,9 +222,9 @@ pub const Event = struct {
     none,
     press,
     release,
-    mouse_move,
     text,
-    scroll,
+    mouse_move,
+    mouse_scroll,
     surface_unfocus,
     surface_focus,
     surface_close,
@@ -229,7 +313,7 @@ pub const Swapchain = struct {
       .submit_queue = submit_queue,
     };
   }
-  
+
   /// Recreate Swapchain
   pub fn recreate(
     sc: *Swapchain,

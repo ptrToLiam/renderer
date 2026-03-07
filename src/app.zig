@@ -182,6 +182,22 @@ pub fn app(env: std.process.Environ) void {
         .buffer_release => {
           swapchain.release_buffer();
         },
+        .press => {
+          // TODO: app-level input handling
+          log.debug("Frame#{}: PRESS :: .{{ .key={}, .mouse_button={} }}", .{frame_idx, ev.key, ev.button});
+        },
+        .release => {
+          // TODO: app-level input handling
+          log.debug("Frame#{}: RELEASE :: .{{ .key={}, .mouse_button={} }}", .{frame_idx, ev.key, ev.button});
+        },
+        .mouse_move => {
+          // TODO: app-level input handling
+          // log.debug("Frame#{}: MOUSE MOVE :: .{{ .position={}x{} }}", .{frame_idx, ev.pos.x, ev.pos.y});
+        },
+        .mouse_scroll => {
+          // TODO: app-level input handling
+          // log.debug("Frame#{}: SCROLL :: .{{ .delta={}x{} }}", .{frame_idx, ev.delta.x, ev.delta.y });
+        },
         else => {
           log.debug("app-level ev :: {any}", .{ev});
         },

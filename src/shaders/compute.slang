@@ -64,6 +64,7 @@ I1 mandelbrot(inout F2 z, F1 time) {
   for (I1 i = 0; i < kMaxIter; i++) {
     if (dot(z,z) > 256) return i;
     z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y)
+        // + c;
         + sin(time+c);
   }
   return kMaxIter;
