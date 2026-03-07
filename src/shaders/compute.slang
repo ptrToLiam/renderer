@@ -18,6 +18,9 @@ struct Globals {
   F1 time;
 };
 
+[[vk::binding(1,0)]]
+ConstantBuffer<Globals> globals;
+
 struct Box {
   F4 color;
   F3 center, size;
@@ -75,7 +78,6 @@ I1 mandelbrot(inout F2 z, F1 time) {
 void compMain(
   uint3 threadId: SV_DispatchThreadID,
   uniform RWTexture2D<float4> outputImage,
-  uniform Globals globals,
 ) {
   I1 width, height;
   outputImage.GetDimensions(width, height);

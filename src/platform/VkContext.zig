@@ -260,23 +260,63 @@ pub fn destroy_image(
   ctx.device_proxy.destroyImage(image.image, null);
 }
 
-pub fn alloc_render_image(
-  ctx: *VkContext,
-  width: u32,
-  height: u32,
-  format: vk.Format,
-) Image {
-  const render_image = ctx.alloc_image(
-    width,
-    height,
-    format,
-    .{ .storage_bit = true, .transfer_src_bit = true },
-    null,
-    null,
+pub fn alloc_buffer(
+  ctx: *const VkContext,
+  size: vk.DeviceSize,
+  usage: vk.BufferUsageFlags,
+  memory_properties: vk.MemoryPropertyFlags,
+) !Buffer {
+  const buffer = try ctx.device_proxy.createBuffer(
+    &.{
+      .size = size,
+      .usage = usage,
+      .sharing_mode = .exclusive,
+    },
     null,
   );
 
-  return render_image;
+  const memory_requirements =
+    ctx.device_proxy.getBufferMemoryRequirements(buffer);
+
+  const memory_props =
+    ctx.instance_proxy.getPhysicalDeviceMemoryProperties(ctx.physical_device);
+
+  var buffer_mem_type_idx: u32 = math.maxInt(u32);
+  for (0..memory_props.memory_type_count) |i| {
+    const type_bits =
+      ((memory_requirements.memory_type_bits & (u32_(1) << cast(u5, i))) != 0);
+    const have_mem_props =
+      memory_props.memory_types[i].property_flags.contains(memory_properties);
+
+    if (type_bits and have_mem_props) {
+      buffer_mem_type_idx = u32_(i);
+      break;
+    }
+  }
+
+  const device_memory = try ctx.device_proxy.allocateMemory(
+    &.{
+      .allocation_size = memory_requirements.size,
+      .memory_type_index = buffer_mem_type_idx,
+    },
+    null,
+  );
+
+  try ctx.device_proxy.bindBufferMemory(buffer, device_memory, 0);
+
+  return .{
+    .buffer = buffer,
+    .memory = device_memory,
+    .size = memory_requirements.size,
+  };
+}
+
+pub fn destroy_buffer(
+  ctx: *const VkContext,
+  buffer: Buffer,
+) void {
+  ctx.device_proxy.freeMemory(buffer.memory, null);
+  ctx.device_proxy.destroyBuffer(buffer.buffer, null);
 }
 
 pub fn destroy(ctx: *const VkContext) void {
@@ -303,6 +343,12 @@ pub const Image = struct {
   memory: vk.DeviceMemory,
   width: u32,
   height: u32,
+};
+
+pub const Buffer = struct {
+  buffer: vk.Buffer,
+  memory: vk.DeviceMemory,
+  size: vk.DeviceSize,
 };
 
 pub const AppInfo = struct {

@@ -81,6 +81,20 @@ pub fn app(env: std.process.Environ) void {
 
   const img_fmt: gfx.Format = .rgba32;
 
+  const globals_buffer = vk_ctx.alloc_buffer(
+    @sizeOf(ShaderGlobals),
+    .{ .uniform_buffer_bit = true },
+    .{ .host_visible_bit = true, .host_coherent_bit = true },
+  ) catch @panic("Unable to alloc host-visible globals buffer");
+  defer vk_ctx.destroy_buffer(globals_buffer);
+
+  const globals_mapped = vk_ctx.device_proxy.mapMemory(
+    globals_buffer.memory,
+    0,
+    @sizeOf(ShaderGlobals),
+    .{},
+  ) catch @panic("Unable to map host-visible globals buffer");
+
   // prepare render image
   const render_image = vk_ctx.alloc_image(
     render_width,
@@ -105,16 +119,6 @@ pub fn app(env: std.process.Environ) void {
   ) catch unreachable;
   defer swapchain.release();
 
-  var cmd: vk.CommandBuffer = undefined;
-  vk_ctx.device_proxy.allocateCommandBuffers(
-    &.{
-      .command_pool = vk_ctx.command_pool,
-      .level = .primary,
-      .command_buffer_count = 1
-    },
-    transmute([*]vk.CommandBuffer, &cmd),
-  ) catch @panic("failed to allocate cmdbuf from cmdpool");
-
   const color_subresource: vk.ImageSubresourceLayers = .{
     .aspect_mask = .{ .color_bit = true },
     .mip_level = 0,
@@ -132,7 +136,21 @@ pub fn app(env: std.process.Environ) void {
     vk_ctx.device_proxy,
     compute_pipeline.dsl,
     render_image.view,
+    globals_buffer,
   ) catch unreachable;
+
+  var cmds: [2]vk.CommandBuffer = undefined;
+  vk_ctx.device_proxy.allocateCommandBuffers(
+    &.{
+      .command_pool = vk_ctx.command_pool,
+      .level = .primary,
+      .command_buffer_count = 2
+    },
+    transmute([*]vk.CommandBuffer, &cmd),
+  ) catch @panic("failed to allocate cmdbuf from cmdpool");
+  const compute_cmd = cmds[0];
+  const blit_cmd = cmds[1];
+
 
   var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
     &.{ .flags = .{ .signaled_bit = true } },
@@ -207,10 +225,14 @@ pub fn app(env: std.process.Environ) void {
         },
       }
     }
-    const push_constants: PushConstants = .{
+    const shader_globals: ShaderGlobals = .{
         .color = .{ bg_r, bg_g, bg_b, },
         .time = f32_(f64_(time.us()) / time.us_per_s),
     };
+    @memcpy(
+      transmute([*]u8, globals_mapped.?)[0..@sizeOf(ShaderGlobals)],
+      transmute([*]const u8, &shader_globals)[0..@sizeOf(ShaderGlobals)],
+    );
     // Draw Logic
     {
       _ = vk_ctx.device_proxy.waitForFences(
@@ -235,14 +257,14 @@ pub fn app(env: std.process.Environ) void {
         &.{},
       ) catch @panic("Failed to begin command buffer");
 
-      vk_ctx.device_proxy.cmdPushConstants(
-          cmd,
-          compute_pipeline.layout,
-          .{ .compute_bit = true },
-          0,
-          @sizeOf(PushConstants),
-          &push_constants,
-      );
+      // vk_ctx.device_proxy.cmdPushConstants(
+      //     cmd,
+      //     compute_pipeline.layout,
+      //     .{ .compute_bit = true },
+      //     0,
+      //     @sizeOf(ShaderGlobals),
+      //     &push_constants,
+      // );
 
       // Compute shader dispatch
       vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, compute_pipeline.pipeline);
@@ -398,7 +420,7 @@ fn update() void {
 fn draw() void {
 }
 
-const PushConstants = extern struct {
+const ShaderGlobals = extern struct {
     color: [3]f32,
     time: f32,
 };
@@ -407,29 +429,30 @@ fn createDescriptorSet(
     device: vk.DeviceProxy,
     dsl: vk.DescriptorSetLayout,
     render_image_view: vk.ImageView,
+    globals_buffer: VkContext.Buffer,
 ) !struct { pool: vk.DescriptorPool, set: vk.DescriptorSet } {
+  const pool = try device.createDescriptorPool(&.{
+      .max_sets = 1,
+      .pool_size_count = 2,
+      .p_pool_sizes = &.{
+        .{ .type = .storage_image, .descriptor_count = 1 },
+        .{ .type = .uniform_buffer, .descriptor_count = 1 },
+      },
+  }, null);
+  errdefer device.destroyDescriptorPool(pool, null);
 
-    // 1. Pool sized for one storage image
-    const pool = try device.createDescriptorPool(&.{
-        .max_sets = 1,
-        .pool_size_count = 1,
-        .p_pool_sizes = &.{.{
-            .type = .storage_image,
-            .descriptor_count = 1,
-        }},
-    }, null);
-    errdefer device.destroyDescriptorPool(pool, null);
+  var set: vk.DescriptorSet = undefined;
+  try device.allocateDescriptorSets(&.{
+      .descriptor_pool = pool,
+      .descriptor_set_count = 1,
+      .p_set_layouts = &.{dsl},
+  }, @ptrCast(&set));
 
-    // 2. Allocate the set
-    var set: vk.DescriptorSet = undefined;
-    try device.allocateDescriptorSets(&.{
-        .descriptor_pool = pool,
-        .descriptor_set_count = 1,
-        .p_set_layouts = &.{dsl},
-    }, @ptrCast(&set));
-
-    // 3. Write the storage image binding
-    device.updateDescriptorSets(1, &.{.{
+  // Write the storage image binding
+  device.updateDescriptorSets(
+    2,
+    &.{
+      .{
         .dst_set = set,
         .dst_binding = 0,
         .dst_array_element = 0,
@@ -437,14 +460,35 @@ fn createDescriptorSet(
         .descriptor_type = .storage_image,
         .p_buffer_info = &.{},
         .p_texel_buffer_view = &.{},
-        .p_image_info = &.{.{
+        .p_image_info = &.{
+          .{
             .sampler = .null_handle,
             .image_view = render_image_view,
             .image_layout = .general,
-        }},
-    }}, 0, null);
-
-    return .{ .pool = pool, .set = set };
+          },
+        },
+      },
+      .{
+        .dst_set = set,
+        .dst_binding = 1,
+        .dst_array_element = 0,
+        .descriptor_count = 1,
+        .descriptor_type = .uniform_buffer,
+        .p_texel_buffer_view = &.{},
+        .p_image_info = &.{},
+        .p_buffer_info = &.{
+          .{
+            .offset = 0,
+            .buffer = globals_buffer.buffer,
+            .range = globals_buffer.size,
+          },
+        },
+      },
+    },
+    0,
+    null,
+  );
+  return .{ .pool = pool, .set = set };
 }
 
 fn createComputePipeline(
@@ -456,27 +500,37 @@ fn createComputePipeline(
   dsl: vk.DescriptorSetLayout,
   }
 {
-  const dsl = try device.createDescriptorSetLayout(&.{
-    .binding_count = 1,
-    .p_bindings = &.{.{
-        .binding = 0,
-        .descriptor_type = .storage_image,
-        .descriptor_count = 1,
-        .stage_flags = .{ .compute_bit = true },
-    }},
-  }, null);
+  const dsl = try device.createDescriptorSetLayout(
+    &.{
+      .binding_count = 2,
+      .p_bindings = &.{
+        .{
+          .binding = 0,
+          .descriptor_type = .storage_image,
+          .descriptor_count = 1,
+          .stage_flags = .{ .compute_bit = true },
+        },
+        .{
+          .binding = 1,
+          .descriptor_type = .uniform_buffer,
+          .descriptor_count = 1,
+          .stage_flags = .{ .compute_bit = true },
+        },
+      },
+    },
+    null,
+  );
   errdefer device.destroyDescriptorSetLayout(dsl, null);
 
-  const layout = try device.createPipelineLayout(&.{
-    .set_layout_count = 1,
-    .p_set_layouts = &.{dsl},
-    .push_constant_range_count = 1,
-    .p_push_constant_ranges = &.{.{
-        .stage_flags = .{ .compute_bit = true },
-        .offset = 0,
-        .size = @sizeOf(PushConstants),
-    }},
-}, null);
+  const layout = try device.createPipelineLayout(
+    &.{
+      .set_layout_count = 1,
+      .p_set_layouts = &.{dsl},
+      .push_constant_range_count = 0,
+      .p_push_constant_ranges = null,
+    },
+    null,
+  );
   errdefer device.destroyPipelineLayout(layout, null);
 
   const shader_module = try device.createShaderModule(&.{
