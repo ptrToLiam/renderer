@@ -1,12 +1,17 @@
 #define S static
 
-#define I1 uint
-#define S1 int
 
 #define F1 float
 #define F2 float2
 #define F3 float3
 #define F4 float4
+
+#define I1 uint
+#define I2 uint2
+#define I3 uint3
+#define I4 uint4
+
+#define S1 int
 
 #define F1_(x) (F1)(x)
 #define F2_(x) (F2)(x)
@@ -16,6 +21,11 @@
 struct Globals {
   F3 color;
   F1 time;
+};
+
+struct Camera {
+  F3 position;
+  F3 target;
 };
 
 [[vk::binding(1,0)]]
@@ -32,120 +42,199 @@ struct Sphere {
   F1 radius;
 };
 
-S Box b = {
+S Box box = {
   { 0.8, 0.2, 0.3, 1.0 },
   { 0.5, 0.0, 0.0 },
   { 0.2, 0.4, 0.1 },
 };
 
-S Sphere s = {
+S Sphere sphere = {
   { 0.3, 0.2, 0.8, 1.0 },
   {0, 0, 0},
   0.3,
 };
 
+F3 rot3D(F3 point, F3 axis, F1 angle) {
+  return lerp(dot(axis, point) * axis, point, cos(angle))
+         + cross(axis, point) * sin(angle);
+}
 
-F1 Box_signed_distance(F3 p, F3 center, F3 size) {
+F1 sdf_Box(F3 p, F3 center, F3 size) {
   F3 q = abs(p - center) - size;
   return length(max(q, 0.0)) + min(max(q.x, max(q.y,q.z)), 0.0);
 }
 
-F1 Sphere_signed_distance(F3 p, F3 center, F1 r) {
+F1 sdf_Sphere(F3 p, F3 center, F1 r) {
   return length(p - center) - r;
 }
 
 F2 coord_to_uv(F2 coord, I1 width, I1 height) {
   F1 aspect_ratio = F1_(width) / F1_(height);
-  F2 normalized_coords = ((coord / float2(F1_(width), F1_(height))) * 2 )- 1;
+  F2 normalized_coords = ((coord / F2(F1_(width), F1_(height))) * 2 ) - 1;
+  normalized_coords.y *= -1;
 
-  return normalized_coords * float2(aspect_ratio, 1);
+  return normalized_coords * F2(aspect_ratio, 1);
 }
 
-S const I1 kMaxIter = 1024;
+struct SdfResult {
+  F1 dist;
+  F3 color;
+};
+
+SdfResult sdf_scene(F3 point) {
+  F1 ground_dist = max(point.y + 0.5, length(point.xz) - 8.0);
+  F3 ground_color = F3(0.8, 0.8, 0.8);
+
+  F1 sphere_dist = sdf_Sphere(point, sphere.center, sphere.radius);
+  F1 box_dist = sdf_Box(point, box.center, box.size);
+  F2 sm = smin_col(sphere_dist, box_dist, 0.4); // smin = blended edge
+  F3 shape_color = lerp(sphere.color.rgb, box.color.rgb, sm.y); // blend color
+
+  F1 final_dist = min(sm.x, ground_dist); // min = hard edge
+  F3 final_color = sm.x < ground_dist ? shape_color : ground_color;
+
+  return {
+    final_dist,
+    final_color,
+  };
+}
+
+// polynomial smin
+F2 smin_col(F1 a, F1 b, F1 k) {
+  F1 h = max(k - abs(a - b), 0.0) / k;
+  F1 m = h * h * 0.5;
+  F1 s = m * k * 0.5;
+  return ( a < b) ? F2(a - s, m) : F2(b - s, 1.0 - m);
+}
+
+// exponential smin
+F1 smin(F1 a, F1 b, F1 k) {
+  return -log(exp(-k * a) + exp(-k * b)) / k;
+}
+
+S const I1 marchMaxSteps = 64;
+
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void compMain(
+  I3 threadId: SV_DispatchThreadID,
+  uniform RWTexture2D<F4> outputImage,
+) {
+  //---------------------------------------------------------------------------
+  // General Init Section
+  //---------------------------------------------------------------------------
+
+  I1 width, height;
+  outputImage.GetDimensions(width, height);
+  if (threadId.x >= width || threadId.y >= height)
+    return;
+
+  // F4 bg_color = F4(F3(1), 1);
+  // F4 bg_color = float4(globals.color.r, globals.color.g, globals.color.b, 1);
+
+  // UV Resolution
+  F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
+  F3 camera = F3(0, 1.2, -3);
+  F3 target = F3(0, 0, 0);
+  F3 forward = normalize(target - camera);
+  F3 right = normalize(cross(forward, F3(0, 1, 0)));
+  F3 up = cross(right, forward);
+  F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
+  F3 ro = camera;
+
+  F4 bg_color = F4(lerp(F3(0.6, 0.7, 0.9), F3(1.0, 1.0, 1.0), clamp(rd.y * 2.0, 0.0, 1.0)), 1.0);
+
+  //---------------------------------------------------------------------------
+
+  //---------------------------------------------------------------------------
+  // SDF Scene Section
+  //---------------------------------------------------------------------------
+
+
+  F4 color = bg_color;
+  // Ray march
+  {
+    // Color Selection
+    F3 sdf_color = F3(0);
+    F1 t = 0.0;
+    for (I1 i=0;i<marchMaxSteps;++i) {
+      SdfResult res = sdf_scene(ro + rd * t);
+      if (res.dist < 0.001) { sdf_color = res.color; break; }
+      t += res.dist;
+      if (t > 100) { t = -1.0; break; }
+    }
+
+    if (t>0) {
+      F3 hit = ro + rd * t;
+
+      // Normal Calculation
+      F1 e = 0.001; // error step?
+      F3 normal = normalize(F3(
+        sdf_scene(hit + F3(e,0,0)).dist - sdf_scene(hit - F3(e,0,0)).dist,
+        sdf_scene(hit + F3(0,e,0)).dist - sdf_scene(hit - F3(0,e,0)).dist,
+        sdf_scene(hit + F3(0,0,e)).dist - sdf_scene(hit - F3(0,0,e)).dist,
+      ));
+
+      F3 light = normalize(F3(0.5, 1, -1));
+      F1 diffuse = max(dot(normal, light), 0.0);
+      F1 ambient = 0.5;
+
+      // Shadow Calculation
+      F1 shadow = 1.0;
+      F3 shadow_ro = hit + normal * 0.01;
+      F3 shadow_rd = light;
+      F1 st = 0.0;
+      for (I1 i=0;i<marchMaxSteps/2;++i) {
+        F1 d = sdf_scene(shadow_ro + shadow_rd * st).dist;
+        if (d < 0.001) { shadow = 0.0; break; }
+        st += d;
+        if (st > 10.0) { break; }
+      }
+
+      // Ambient Occlusion
+      F1 ao = 0.0;
+      F1 ao_step = 0.1;
+      for (I1 i=1;i<3;++i) {
+        F1 d = sdf_scene(hit + normal * ao_step * F1_(i)).dist;
+        ao += max(0.0, ao_step * F1_(i) - d);
+      }
+      ao = 1.0 - clamp(ao * 2, 0, 1);
+
+      F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
+      color = F4( spec + ((diffuse * shadow + ambient * ao) * sdf_color), 1);
+    }
+  }
+
+  //---------------------------------------------------------------------------
+
+  //---------------------------------------------------------------------------
+  // Final Output
+  //---------------------------------------------------------------------------
+
+  outputImage[threadId.xy] = color;
+
+  //---------------------------------------------------------------------------
+}
+
+S const I1 kMaxIter = 64;
 I1 mandelbrot(inout F2 z, F1 time) {
   const F2 c = z;
   for (I1 i = 0; i < kMaxIter; i++) {
     if (dot(z,z) > 256) return i;
-    z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y)
+    z = F2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y)
         // + c;
         + sin(time+c);
   }
   return kMaxIter;
 }
 
-[shader("compute")]
-[numthreads(16, 16, 1)]
-void compMain(
-  uint3 threadId: SV_DispatchThreadID,
-  uniform RWTexture2D<float4> outputImage,
-) {
-  I1 width, height;
-  outputImage.GetDimensions(width, height);
-
-  if (threadId.x >= width || threadId.y >= height)
-    return;
-
-  F4 bg_color = float4(globals.color.r, globals.color.g, globals.color.b, 1);
-
-  // UV Resolution
-  F2 uv = coord_to_uv(float2(threadId.x, threadId.y), width, height);
-
-  // SDF Calculations
-  F1 sphere_sdf = Sphere_signed_distance(float3(uv.xy, 0), s.center, s.radius);
-  F1 box_sdf = Box_signed_distance(float3(uv.xy, 0), b.center, b.size);
-
-  // Signed Distance Union (Box U Sphere)
-  F1 signed_dist = min(sphere_sdf, box_sdf);
-  F4 shape_color = (sphere_sdf < box_sdf) ? s.color : b.color;
-  F1 mask = smoothstep(-0.003, 0.003, signed_dist);
-  F4 color = lerp(shape_color, bg_color, mask);
-
-  // Unrelated to SDF -- Just overwrites the output with Mandelbrot set image
-  {
-    I1 i = mandelbrot(uv, globals.time);
-    F3 m_color = float3(0.0);
-    if (i != kMaxIter) {
-      m_color = 0.5 + 0.5 * sin(i + globals.time + float3(0, 0.5, 1)
-                                -log2(log2(dot(uv, uv))));
-    }
-    color = float4(m_color, 1.0);
+F3 mandelbrot_color(F2 uv){
+  I1 i = mandelbrot(uv, globals.time);
+  F3 color = F3(0.0);
+  if (i != kMaxIter) {
+    color = 0.5 + 0.5 * sin(i + globals.time + F3(0, 0.5, 1)
+                              -log2(log2(dot(uv, uv))));
   }
-
-  outputImage[threadId.xy] = color;
-  // example_effect(outputImage[threadId.xy], globals, uv);
-}
-
-
-F1 example_effect_rand(F1 n) {
-  return fract(sin(n) * 43758.5453123);
-}
-
-void example_effect(inout F4 color, Globals globals, F2 uv) {
-  F1 freq = 0.5;
-  F2 pos = (uv + globals.time*float2(0.25f, 0.0f)) * freq;
-
-  F2 center = floor(pos + float2(0.5));
-
-  F1 r0 = example_effect_rand(center.x*3.0  + center.y*7.0 );
-  F1 r1 = example_effect_rand(center.x*7.0  + center.y*13.0);
-  F1 r2 = example_effect_rand(center.x*13.0 + center.y*3.0 );
-
-  F1 p = smoothstep(0.0, 4.0, r0);
-  F1 f = smoothstep(0.2, 0.9, r1);
-
-  F1 a = 0.5f * (1.0f + cos(globals.time*f + p));
-
-  F1 rad0 = smoothstep(0.1, 0.4, r2);
-  F1 rad1 = smoothstep(0.2, 0.9, r0);
-
-  F1 radius = 0.5f*smoothstep(rad0, rad1, a);
-
-  F2 delta = pos - center;
-  F1 distance = length(delta);
-
-  color.xyz = float3(r0, r1, r2);
-  color.w = 1.0f;
-
-  if(distance > radius) color.xyz = float3(0.25f);
+  return color;
 }
 
