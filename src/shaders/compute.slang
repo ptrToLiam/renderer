@@ -21,6 +21,7 @@
 struct Globals {
   F3 color;
   F1 time;
+  F2 resolution;
 };
 
 struct Camera {
@@ -134,7 +135,7 @@ void compMain(
 
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
-  F3 camera = F3(0, 1.2, -3);
+  F3 camera = F3(sin(globals.time), 1.2, -2 + cos(globals.time));
   F3 target = F3(0, 0, 0);
   F3 forward = normalize(target - camera);
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
@@ -142,8 +143,17 @@ void compMain(
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
   F3 ro = camera;
 
-  F4 bg_color = F4(lerp(F3(0.6, 0.7, 0.9), F3(1.0, 1.0, 1.0), clamp(rd.y * 2.0, 0.0, 1.0)), 1.0);
+  F4 bg_color = F4(
+    lerp(F3(0.6, 0.7, 0.9),
+    F3(1.0, 1.0, 1.0),
+    clamp(rd.y * 2.0, 0.0, 1.0)),
+    1.0,
+  );
 
+  F4 col_mod = F4(1, 1, 1, 1);
+  if (threadId.y & 1 != 0) {
+    col_mod = F4(0.3, 0.3, 0.3, 1);
+  }
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
@@ -211,7 +221,7 @@ void compMain(
   // Final Output
   //---------------------------------------------------------------------------
 
-  outputImage[threadId.xy] = color;
+  outputImage[threadId.xy] = color * col_mod;
 
   //---------------------------------------------------------------------------
 }
@@ -237,4 +247,3 @@ F3 mandelbrot_color(F2 uv){
   }
   return color;
 }
-
