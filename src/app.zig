@@ -132,12 +132,45 @@ pub fn app(env: std.process.Environ) void {
   ) catch unreachable;
   defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
 
+  const scene_buffer = vk_ctx.alloc_buffer(
+    @sizeOf(GpuScene) * 2,
+    .{ .storage_buffer_bit = true, .transfer_dst_bit = true },
+    .{ .device_local_bit = true },
+  ) catch @panic("Failed To Allocate Scene Buffer!");
+
+  const input_buffer = vk_ctx.alloc_buffer(
+    @sizeOf(InputPacket) * 2,
+    .{ .uniform_buffer_bit = true },
+    .{ .host_visible_bit = true, .host_coherent_bit = true },
+  ) catch @panic("Failed To Allocate Input Buffer!");
+  const gpu_input = transmute(
+    [*]InputPacket,
+    vk_ctx.device_proxy.mapMemory(
+      input_buffer.memory, 0, vk.WHOLE_SIZE, .{},
+    ) catch @panic("Failed To Map Input Buffer!")
+      orelse @panic("Got Null Input Buffer Mapping!"),
+  );
+  defer vk_ctx.device_proxy.unmapMemory(input_buffer.memory);
+  _ = &gpu_input;
+
   const descriptor_set = createDescriptorSet(
     vk_ctx.device_proxy,
     compute_pipeline.dsl,
     render_image.view,
     globals_buffer,
+    scene_buffer,
+    input_buffer,
   ) catch unreachable;
+
+  var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
+    &.{ .flags = .{ .signaled_bit = true } },
+    null,
+  ) catch @panic("Failed to create draw_fence!");
+  defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
+
+  //---------------------------------------------------------------------------
+  // Command buffer pre-recording
+  //---------------------------------------------------------------------------
 
   var cmds: [2]vk.CommandBuffer = undefined;
   vk_ctx.device_proxy.allocateCommandBuffers(
@@ -150,10 +183,6 @@ pub fn app(env: std.process.Environ) void {
   ) catch @panic("failed to allocate cmdbuf from cmdpool");
   const compute_cmd = cmds[0];
   const blit_cmd = cmds[1];
-
-  //---------------------------------------------------------------------------
-  // Command buffer pre-recording
-  //---------------------------------------------------------------------------
 
   vk_ctx.device_proxy.beginCommandBuffer(compute_cmd, &.{})
     catch @panic("Failed to begin compute command pre-record!");
@@ -207,11 +236,32 @@ pub fn app(env: std.process.Environ) void {
 
   //---------------------------------------------------------------------------
 
-  var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
-    &.{ .flags = .{ .signaled_bit = true } },
-    null,
-  ) catch @panic("Failed to create draw_fence!");
-  defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
+  //---------------------------------------------------------------------------
+  // Initial GPU Scene Upload
+  //---------------------------------------------------------------------------
+
+  const initial_scene: GpuScene = .{
+    .sphere = .{
+      .color = .{ 0.3, 0.6, 0.8, 1.0 },
+      .center = .{ 0, 0, 0 },
+      .radius = 0.3,
+    },
+    .box = .{
+      .color = .{ 0.8, 0.2, 0.8, 1.0 },
+      .center = .{ 0.5, 0.0, 0.0 },
+      .size = .{ 0.2, 0.4, 0.1 },
+    },
+    .camera = .{
+      .position = .{ 0, 1.3, -3 },
+      .target = .{ 0, 0, 0 },
+    },
+  };
+
+  vk_ctx.upload_buffer(GpuScene, &initial_scene, scene_buffer)
+    catch @panic("GPU Scene Buffer Upload Failed");
+
+  //---------------------------------------------------------------------------
+
 
   const setup_time_full = time.us();
   log.info(
@@ -446,19 +496,25 @@ fn record_blit_cmd(
 }
 
 fn createDescriptorSet(
-    device: vk.DeviceProxy,
-    dsl: vk.DescriptorSetLayout,
-    render_image_view: vk.ImageView,
-    globals_buffer: VkContext.Buffer,
+  device: vk.DeviceProxy,
+  dsl: vk.DescriptorSetLayout,
+  render_image_view: vk.ImageView,
+  globals_buffer: VkContext.Buffer,
+  scene_buffer: VkContext.Buffer,
+  input_buffer: VkContext.Buffer,
 ) !struct { pool: vk.DescriptorPool, set: vk.DescriptorSet } {
-  const pool = try device.createDescriptorPool(&.{
+  const pool = try device.createDescriptorPool(
+    &.{
       .max_sets = 1,
-      .pool_size_count = 2,
+      .pool_size_count = 3,
       .p_pool_sizes = &.{
         .{ .type = .storage_image, .descriptor_count = 1 },
-        .{ .type = .uniform_buffer, .descriptor_count = 1 },
+        .{ .type = .uniform_buffer, .descriptor_count = 2 },
+        .{ .type = .storage_buffer, .descriptor_count = 1 },
       },
-  }, null);
+    },
+    null,
+  );
   errdefer device.destroyDescriptorPool(pool, null);
 
   var set: vk.DescriptorSet = undefined;
@@ -470,7 +526,7 @@ fn createDescriptorSet(
 
   // Write the storage image binding
   device.updateDescriptorSets(
-    2,
+    4,
     &.{
       .{
         .dst_set = set,
@@ -504,6 +560,38 @@ fn createDescriptorSet(
           },
         },
       },
+      .{
+        .dst_set = set,
+        .dst_binding = 2,
+        .dst_array_element = 0,
+        .descriptor_count = 1,
+        .descriptor_type = .storage_buffer,
+        .p_texel_buffer_view = &.{},
+        .p_image_info = &.{},
+        .p_buffer_info = &.{
+          .{
+            .offset = 0,
+            .buffer = scene_buffer.buffer,
+            .range = scene_buffer.size,
+          },
+        },
+      },
+      .{
+        .dst_set = set,
+        .dst_binding = 3,
+        .dst_array_element = 0,
+        .descriptor_count = 1,
+        .descriptor_type = .uniform_buffer,
+        .p_texel_buffer_view = &.{},
+        .p_image_info = &.{},
+        .p_buffer_info = &.{
+          .{
+            .offset = 0,
+            .buffer = input_buffer.buffer,
+            .range = input_buffer.size,
+          },
+        },
+      },
     },
     0,
     null,
@@ -512,8 +600,8 @@ fn createDescriptorSet(
 }
 
 fn createComputePipeline(
-    device: vk.DeviceProxy,
-    shader_code: []const u32,
+  device: vk.DeviceProxy,
+  shader_code: []const u32,
 ) !struct {
   pipeline: vk.Pipeline,
   layout: vk.PipelineLayout,
@@ -522,7 +610,7 @@ fn createComputePipeline(
 {
   const dsl = try device.createDescriptorSetLayout(
     &.{
-      .binding_count = 2,
+      .binding_count = 4,
       .p_bindings = &.{
         .{
           .binding = 0,
@@ -532,6 +620,18 @@ fn createComputePipeline(
         },
         .{
           .binding = 1,
+          .descriptor_type = .uniform_buffer,
+          .descriptor_count = 1,
+          .stage_flags = .{ .compute_bit = true },
+        },
+        .{
+          .binding = 2,
+          .descriptor_type = .storage_buffer,
+          .descriptor_count = 1,
+          .stage_flags = .{ .compute_bit = true },
+        },
+        .{
+          .binding = 3,
           .descriptor_type = .uniform_buffer,
           .descriptor_count = 1,
           .stage_flags = .{ .compute_bit = true },
@@ -601,11 +701,50 @@ fn createShaderModule(
   ) catch unreachable;
   return shader_module;
 }
+//-----------------------------------------------------------------------------
+// Shader-Side Structs
+//-----------------------------------------------------------------------------
 
 const ShaderGlobals = extern struct {
   color: [3]f32,
   time: f32,
 };
+
+const InputPacket = extern struct {
+  packet_hash: u32,
+  mouse_x: f32,
+  mouse_y: f32,
+  cpu_time_lo: u32,
+  cpu_time_hi: u32,
+  key_arr_lo: u32,
+  key_arr_hi: u32,
+  resolution_xy: u32,
+};
+
+const GpuScene = extern struct {
+  sphere: Sphere,
+  box: Box,
+  camera: Camera,
+};
+
+const Sphere = extern struct {
+  color: [4]f32,
+  center: [3]f32,
+  radius: f32,
+};
+
+const Box = extern struct {
+  color: [4]f32,
+  center: [3]f32   align (16),
+  size: [3]f32     align (16),
+};
+
+const Camera = extern struct {
+  position: [3]f32 align (16),
+  target: [3]f32   align (16),
+};
+
+//-----------------------------------------------------------------------------
 
 const vk_required_device_extensions = [_][*:0]const u8{
   vk.extensions.khr_external_memory.name,

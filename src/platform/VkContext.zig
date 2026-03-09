@@ -6,6 +6,7 @@ device: vk.DeviceWrapper,
 device_proxy: vk.DeviceProxy,
 queue: vk.Queue,
 command_pool: vk.CommandPool,
+upload_fence: vk.Fence,
 
 pub fn init_instance(
   noalias ctx: *VkContext,
@@ -124,6 +125,10 @@ pub fn init_device(
         .flags = command_pool_create_flags,
         .queue_family_index = queue_family_index,
       },
+      null,
+    );
+    ctx.upload_fence = try ctx.device_proxy.createFence(
+      &.{ .flags = .{ .signaled_bit = true } },
       null,
     );
   } else {
@@ -311,6 +316,82 @@ pub fn alloc_buffer(
   };
 }
 
+pub fn upload_buffer(
+  ctx: *VkContext,
+  comptime T: type,
+  data: *const T,
+  dst: Buffer,
+) !void {
+  const staging = try ctx.alloc_buffer(
+    @sizeOf(T),
+    .{ .transfer_src_bit = true },
+    .{ .host_visible_bit = true, .host_coherent_bit = true },
+  );
+  defer ctx.destroy_buffer(staging);
+
+  const staging_buffer = try ctx.device_proxy.mapMemory(
+    staging.memory,
+    0,
+    vk.WHOLE_SIZE,
+    .{},
+  );
+
+  @memcpy(
+    transmute([*]u8, staging_buffer.?)[0..@sizeOf(T)],
+    transmute([*]const u8, data)[0..@sizeOf(T)],
+  );
+
+  ctx.device_proxy.unmapMemory(staging.memory);
+  var cmd: vk.CommandBuffer = undefined;
+  try ctx.device_proxy.allocateCommandBuffers(
+    &.{
+      .command_pool = ctx.command_pool,
+      .level = .primary,
+      .command_buffer_count = 1,
+    },
+    @ptrCast(&cmd),
+  );
+  defer ctx.device_proxy.freeCommandBuffers(
+    ctx.command_pool,
+    1,
+    @ptrCast(&cmd),
+  );
+
+  try ctx.device_proxy.beginCommandBuffer(
+    cmd,
+    &.{ .flags = .{ .one_time_submit_bit = true } },
+  );
+  ctx.device_proxy.cmdCopyBuffer(
+    cmd,
+    staging.buffer,
+    dst.buffer,
+    1,
+    &.{
+      .{ .src_offset = 0, .dst_offset = 0, .size = @sizeOf(T) },
+    },
+  );
+  try ctx.device_proxy.endCommandBuffer(cmd);
+
+  try ctx.device_proxy.resetFences(1, @ptrCast(&ctx.upload_fence));
+  try ctx.device_proxy.queueSubmit(
+    ctx.queue,
+    1,
+    &.{
+      .{
+        .command_buffer_count = 1,
+        .p_command_buffers = @ptrCast(&cmd),
+      },
+    },
+    ctx.upload_fence,
+  );
+  _ = try ctx.device_proxy.waitForFences(
+    1,
+    @ptrCast(&ctx.upload_fence),
+    .true,
+    math.maxInt(u64),
+  );
+}
+
 pub fn destroy_buffer(
   ctx: *const VkContext,
   buffer: Buffer,
@@ -323,6 +404,7 @@ pub fn destroy(ctx: *const VkContext) void {
   defer ctx.instance_proxy.destroyInstance(null);
   defer ctx.device_proxy.destroyDevice(null);
   defer ctx.device_proxy.destroyCommandPool(ctx.command_pool, null);
+  defer ctx.device_proxy.destroyFence(ctx.upload_fence, null);
 }
 
 pub fn load_lib() LoadLibError!void {

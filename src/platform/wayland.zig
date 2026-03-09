@@ -626,35 +626,19 @@ pub const Connection = struct {
           );
           conn.client_state.seat_info.name[seat_name.len] = 0;
         },
-        // .zwp_linux_dmabuf_v1_format => |fmt| {
-        //   log.debug("supported surface format :: 0x{x}", .{fmt.format});
-        // },
-        // .zwp_linux_dmabuf_v1_modifier => |mod| {
-        //   log.debug("supported surface modifier :: {{ format = 0x{x}}}", .{mod.format});
-        // },
         .zwp_linux_dmabuf_feedback_v1_done => {
-          // log.info("dmabuf feedback done", .{});
           feedback_done = true;
         },
         .zwp_linux_dmabuf_feedback_v1_format_table => |format_table| {
           dmabuf_feedback.fmt_table = format_table;
-          // log.info(
-          //   "dmabuf feedback format table received :: {{ fd={}, size={} }}",
-          //   .{ format_table.fd, format_table.size },
-          // );
         },
         .zwp_linux_dmabuf_feedback_v1_main_device => |main_device| {
           dmabuf_feedback.main_device = std.mem.bytesToValue(
             linux.dev_t,
             main_device.device
           );
-          // log.info(
-          //   "dmabuf feedback main device: 0x{x}",
-          //   .{ dmabuf_feedback.main_device.toInt() },
-          // );
         },
         .zwp_linux_dmabuf_feedback_v1_tranche_done => {
-          // log.info("dmabuf feedback tranche done", .{});
           ignore_tranche = false;
         },
         .zwp_linux_dmabuf_feedback_v1_tranche_target_device => |target| {
@@ -664,10 +648,6 @@ pub const Connection = struct {
           );
           if (tranche_target_device != dmabuf_feedback.main_device)
             ignore_tranche = true;
-            // log.info(
-            //   "dmabuf feedback tranche target device: 0x{x}",
-            //   .{ tranche_target_device.toInt() },
-            // );
         },
         .zwp_linux_dmabuf_feedback_v1_tranche_formats => |tranche_formats| {
           if (!ignore_tranche) {
@@ -680,12 +660,7 @@ pub const Connection = struct {
           }
         },
 
-        else => {
-          log.debug(
-            "SURFACE CREATION RECEIVED UNEXPECTED EVENT :: {}",
-            .{ wl_event },
-          );
-        },
+        else => {},
       } else conn.load_events();
     }
 

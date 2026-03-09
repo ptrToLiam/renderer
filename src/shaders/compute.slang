@@ -1,6 +1,5 @@
 #define S static
 
-
 #define F1 float
 #define F2 float2
 #define F3 float3
@@ -29,9 +28,6 @@ struct Camera {
   F3 target;
 };
 
-[[vk::binding(1,0)]]
-ConstantBuffer<Globals> globals;
-
 struct Box {
   F4 color;
   F3 center, size;
@@ -43,22 +39,42 @@ struct Sphere {
   F1 radius;
 };
 
-S Box box = {
-  { 0.8, 0.2, 0.3, 1.0 },
-  { 0.5, 0.0, 0.0 },
-  { 0.2, 0.4, 0.1 },
+struct SdfResult {
+  F1 dist;
+  F3 color;
 };
 
-S Sphere sphere = {
-  { 0.3, 0.2, 0.8, 1.0 },
-  {0, 0, 0},
-  0.3,
+struct GpuScene {
+  Sphere sphere;
+  Box box;
+  Camera camera;
 };
 
-F3 rot3D(F3 point, F3 axis, F1 angle) {
-  return lerp(dot(axis, point) * axis, point, cos(angle))
-         + cross(axis, point) * sin(angle);
-}
+struct InputPacket {
+  I1 packet_hash;
+  F1 mouse_x;
+  F1 mouse_y;
+  I1 cpu_time_lo;
+  I1 cpu_time_hi;
+  I1 key_arr_lo;
+  I1 key_arr_hi;
+  I1 resolution_xy;
+};
+
+//-----------------------------------------------------------------------------
+// Vulkan Bindings
+//-----------------------------------------------------------------------------
+
+[[vk::binding(1,0)]]
+ConstantBuffer<Globals> globals;
+
+[[vk::binding(2,0)]]
+RWStructuredBuffer<GpuScene> scene;
+
+[[vk::binding(3,0)]]
+ConstantBuffer<InputPacket[2]> input_packet;
+
+//-----------------------------------------------------------------------------
 
 F1 sdf_Box(F3 p, F3 center, F3 size) {
   F3 q = abs(p - center) - size;
@@ -77,19 +93,16 @@ F2 coord_to_uv(F2 coord, I1 width, I1 height) {
   return normalized_coords * F2(aspect_ratio, 1);
 }
 
-struct SdfResult {
-  F1 dist;
-  F3 color;
-};
-
 SdfResult sdf_scene(F3 point) {
   F1 ground_dist = max(point.y + 0.5, length(point.xz) - 8.0);
   F3 ground_color = F3(0.8, 0.8, 0.8);
 
-  F1 sphere_dist = sdf_Sphere(point, sphere.center, sphere.radius);
-  F1 box_dist = sdf_Box(point, box.center, box.size);
+  F1 sphere_dist =
+    sdf_Sphere( point, scene[0].sphere.center, scene[0].sphere.radius);
+  F1 box_dist = sdf_Box(point, scene[0].box.center, scene[0].box.size);
   F2 sm = smin_col(sphere_dist, box_dist, 0.4); // smin = blended edge
-  F3 shape_color = lerp(sphere.color.rgb, box.color.rgb, sm.y); // blend color
+  F3 shape_color =
+    lerp(scene[0].sphere.color.rgb, scene[0].box.color.rgb, sm.y);
 
   F1 final_dist = min(sm.x, ground_dist); // min = hard edge
   F3 final_color = sm.x < ground_dist ? shape_color : ground_color;
@@ -151,79 +164,70 @@ void compMain(
   );
 
   F4 col_mod = F4(1, 1, 1, 1);
-  if (threadId.y & 1 != 0) {
-    col_mod = F4(0.3, 0.3, 0.3, 1);
+  if ((threadId.y % 4) == 0) {
+    col_mod = F4(F3(0.2), 1);
   }
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
-  // SDF Scene Section
+  // SDF Scene Ray March
   //---------------------------------------------------------------------------
-
 
   F4 color = bg_color;
-  // Ray march
-  {
-    // Color Selection
-    F3 sdf_color = F3(0);
-    F1 t = 0.0;
-    for (I1 i=0;i<marchMaxSteps;++i) {
-      SdfResult res = sdf_scene(ro + rd * t);
-      if (res.dist < 0.001) { sdf_color = res.color; break; }
-      t += res.dist;
-      if (t > 100) { t = -1.0; break; }
-    }
-
-    if (t>0) {
-      F3 hit = ro + rd * t;
-
-      // Normal Calculation
-      F1 e = 0.001; // error step?
-      F3 normal = normalize(F3(
-        sdf_scene(hit + F3(e,0,0)).dist - sdf_scene(hit - F3(e,0,0)).dist,
-        sdf_scene(hit + F3(0,e,0)).dist - sdf_scene(hit - F3(0,e,0)).dist,
-        sdf_scene(hit + F3(0,0,e)).dist - sdf_scene(hit - F3(0,0,e)).dist,
-      ));
-
-      F3 light = normalize(F3(0.5, 1, -1));
-      F1 diffuse = max(dot(normal, light), 0.0);
-      F1 ambient = 0.5;
-
-      // Shadow Calculation
-      F1 shadow = 1.0;
-      F3 shadow_ro = hit + normal * 0.01;
-      F3 shadow_rd = light;
-      F1 st = 0.0;
-      for (I1 i=0;i<marchMaxSteps/2;++i) {
-        F1 d = sdf_scene(shadow_ro + shadow_rd * st).dist;
-        if (d < 0.001) { shadow = 0.0; break; }
-        st += d;
-        if (st > 10.0) { break; }
-      }
-
-      // Ambient Occlusion
-      F1 ao = 0.0;
-      F1 ao_step = 0.1;
-      for (I1 i=1;i<3;++i) {
-        F1 d = sdf_scene(hit + normal * ao_step * F1_(i)).dist;
-        ao += max(0.0, ao_step * F1_(i) - d);
-      }
-      ao = 1.0 - clamp(ao * 2, 0, 1);
-
-      F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
-      color = F4( spec + ((diffuse * shadow + ambient * ao) * sdf_color), 1);
-    }
+  F3 sdf_color = F3(0);
+  F1 t = 0.0;
+  for (I1 i=0;i<marchMaxSteps;++i) {
+    SdfResult res = sdf_scene(ro + rd * t);
+    if (res.dist < 0.001) { sdf_color = res.color; break; }
+    t += res.dist;
+    if (t > 100) { t = -1.0; break; }
   }
 
-  //---------------------------------------------------------------------------
+  if (t>0) {
+    F3 hit = ro + rd * t;
+
+    // Normal Calculation
+    F1 e = 0.001; // error step?
+    F3 normal = normalize(F3(
+      sdf_scene(hit + F3(e,0,0)).dist - sdf_scene(hit - F3(e,0,0)).dist,
+      sdf_scene(hit + F3(0,e,0)).dist - sdf_scene(hit - F3(0,e,0)).dist,
+      sdf_scene(hit + F3(0,0,e)).dist - sdf_scene(hit - F3(0,0,e)).dist,
+    ));
+
+    F3 light = normalize(F3(0.5, 1, -1));
+    F1 diffuse = max(dot(normal, light), 0.0);
+    F1 ambient = 0.5;
+
+    // Shadow Calculation
+    F1 shadow = 1.0;
+    F3 shadow_ro = hit + normal * 0.01;
+    F3 shadow_rd = light;
+    F1 st = 0.0;
+    for (I1 i=0;i<marchMaxSteps/2;++i) {
+      F1 d = sdf_scene(shadow_ro + shadow_rd * st).dist;
+      if (d < 0.001) { shadow = 0.0; break; }
+      st += d;
+      if (st > 10.0) { break; }
+    }
+
+    // Ambient Occlusion
+    F1 ao = 0.0;
+    F1 ao_step = 0.1;
+    for (I1 i=1;i<3;++i) {
+      F1 d = sdf_scene(hit + normal * ao_step * F1_(i)).dist;
+      ao += max(0.0, ao_step * F1_(i) - d);
+    }
+    ao = 1.0 - clamp(ao * 2, 0, 1);
+
+    F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
+    color = F4( spec + ((diffuse * shadow + ambient * ao) * sdf_color), 1);
+  }
 
   //---------------------------------------------------------------------------
   // Final Output
   //---------------------------------------------------------------------------
 
   outputImage[threadId.xy] = color * col_mod;
-
-  //---------------------------------------------------------------------------
 }
 
 S const I1 kMaxIter = 64;
@@ -247,3 +251,9 @@ F3 mandelbrot_color(F2 uv){
   }
   return color;
 }
+
+F3 rot3D(F3 point, F3 axis, F1 angle) {
+  return lerp(dot(axis, point) * axis, point, cos(angle))
+         + cross(axis, point) * sin(angle);
+}
+
