@@ -148,7 +148,7 @@ void compMain(
 
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
-  F3 camera = F3(sin(globals.time), 1.2, -2 + cos(globals.time));
+  F3 camera = F3(sin(globals.time), 1.2, -3 + cos(globals.time));
   F3 target = F3(0, 0, 0);
   F3 forward = normalize(target - camera);
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
@@ -227,10 +227,13 @@ void compMain(
   // Final Output
   //---------------------------------------------------------------------------
 
-  outputImage[threadId.xy] = color * col_mod;
+  // color.rgb = mandelbrot_color(uv);
+  outputImage[threadId.xy] = color;
+
+  //---------------------------------------------------------------------------
 }
 
-S const I1 kMaxIter = 64;
+S const I1 kMaxIter = 1024;
 I1 mandelbrot(inout F2 z, F1 time) {
   const F2 c = z;
   for (I1 i = 0; i < kMaxIter; i++) {
