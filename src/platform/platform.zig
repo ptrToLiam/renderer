@@ -442,6 +442,7 @@ pub const Swapchain = struct {
       format,
       sc.buffers,
     );
+    sc.pending_resize = null;
   }
 
   /// Mark Swapchain In Need Of Recreation

@@ -147,7 +147,9 @@ pub const Connection = struct {
       xdg_wm_base: bool = false,
       linux_dmabuf: bool = false,
       wl_shm: bool = false,
-      __reserved_bits: u3 = 0,
+      xdg_decoration_manager: bool = false,
+
+      __reserved_bits: u2 = 0,
 
       pub fn match(a: @This(), b: @This()) bool {
         return transmute(u8, a) == transmute(u8, b);
@@ -158,14 +160,22 @@ pub const Connection = struct {
         .wl_compositor = true,
         .xdg_wm_base = true,
         .linux_dmabuf = true,
-        // .wl_shm = true,
+        .xdg_decoration_manager = true,
       };
     };
 
     var globals_bound: GlobalsBound = .{};
     // Loop until all desired globals are bound OR no more globals are available
     while (true) {
-      const event = connection.peek_event(scratch_arena) orelse { connection.load_events(); continue; };
+      const event = connection.peek_event(scratch_arena) orelse {
+        if (globals_bound.match(.desired))
+          break;
+
+        connection.flush() catch unreachable;
+        connection.load_events();
+
+        continue;
+      };
       switch (event) {
         .wl_registry_global => |registry_global| {
           defer connection.consume_event();
@@ -202,6 +212,14 @@ pub const Connection = struct {
               registry_global.version,
             );
             globals_bound.linux_dmabuf = true;
+          } else if (std.mem.eql(u8, XdgDecorationManager.Name, registry_global.interface)) {
+            connection.client_state.xdg_decoration_manager = connection.client_state.registry.bind(
+              &conn_proxy,
+              registry_global.name,
+              XdgDecorationManager,
+              registry_global.version,
+            );
+            globals_bound.xdg_decoration_manager = true;
           }
         },
         .wl_display_error => |display_error| {
@@ -559,8 +577,14 @@ pub const Connection = struct {
       xdg_toplevel.set_min_size(&conn_proxy, width, height);
       xdg_toplevel.set_max_size(&conn_proxy, width, height);
     }
+    const xdg_decoration =
+      conn.client_state.xdg_decoration_manager.get_toplevel_decoration(
+        &conn_proxy,
+        xdg_toplevel,
+      );
 
     wl_surface.commit(&conn_proxy);
+    xdg_decoration.set_mode(&conn_proxy, .server_side);
 
     const feedback = conn.client_state.linux_dmabuf.get_surface_feedback(
       &conn_proxy,
@@ -656,27 +680,11 @@ pub const Connection = struct {
           }
         },
 
-        // .wl_seat_capabilities => |wl_seat_capabilities| {
-        //   const seat_capabilities = wl_seat_capabilities.capabilities;
-        //   log.debug(
-        //     "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
-        //     .{
-        //       if (seat_capabilities.pointer) "true" else "false",
-        //       if (seat_capabilities.touch) "true" else "false",
-        //       if (seat_capabilities.keyboard) "true" else "false",
-        //     },
-        //   );
-        //   conn.client_state.seat_info.capabilities = seat_capabilities;
-        // },
-        // .zwp_linux_dmabuf_feedback_v1_tranche_flags => |tranche_flags| {
-        //   log.info("dmabuf feedback tranche flags :: {}", .{ tranche_flags.flags });
-        // },
-
         else => {
-          // log.debug(
-          //   "SURFACE CREATION RECEIVED UNEXPECTED EVENT :: {}",
-          //   .{ wl_event },
-          // );
+          log.debug(
+            "SURFACE CREATION RECEIVED UNEXPECTED EVENT :: {}",
+            .{ wl_event },
+          );
         },
       } else conn.load_events();
     }
@@ -686,6 +694,7 @@ pub const Connection = struct {
       .wl_surface = wl_surface,
       .xdg_surface = xdg_surface,
       .xdg_toplevel = xdg_toplevel,
+      .xdg_decoration = xdg_decoration,
       .is_ready = false,
     };
   }
@@ -1480,6 +1489,7 @@ pub const Surface = struct {
   wl_surface: WaylandSurface,
   xdg_surface: XdgSurface,
   xdg_toplevel: XdgToplevel,
+  xdg_decoration: XdgDecoration,
   is_ready: bool,
 
   //---------------------------------------------------------------------------
@@ -1784,6 +1794,7 @@ pub const ClientState = struct {
   compositor: Compositor,
   xdg_wm_base: XdgWmBase,
   linux_dmabuf: LinuxDmabuf,
+  xdg_decoration_manager: XdgDecorationManager,
 
   // Wayland Objects
   object_pool: ObjectPool,
@@ -2007,6 +2018,8 @@ pub const Registry = wl_protocols.wl_registry;
 pub const Compositor = wl_protocols.wl_compositor;
 pub const XdgWmBase = wl_protocols.xdg_wm_base;
 pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
+pub const XdgDecoration = wl_protocols.zxdg_toplevel_decoration_v1;
+pub const XdgDecorationManager = wl_protocols.zxdg_decoration_manager_v1;
 
 
 // Wayland Base Type Aliases
@@ -2037,7 +2050,7 @@ pub const Xkb = struct {
   const GetOneSymPfn = *fn (*anyopaque, u32) callconv(.c) u32;
 
   pub fn load_lib() !void {
-    handle = try std.DynLib.open("libxkbcommon.so");
+    handle = try std.DynLib.open("libxkbcommon.so.0");
 
     context_new_fn = handle.lookup(
       ContextNewPfn,
