@@ -138,11 +138,22 @@ pub fn app(env: std.process.Environ) void {
     .{ .device_local_bit = true },
   ) catch @panic("Failed To Allocate Scene Buffer!");
 
+  var input_packet: InputPacket = .{
+    .packet_hash = 0x55555555,
+    .mouse_x = 0,
+    .mouse_y = 0,
+    .cpu_time_lo = 0,
+    .cpu_time_hi = 0,
+    .key_arr_lo = 0,
+    .key_arr_hi = 0,
+    .resolution_xy = 0,
+  };
   const input_buffer = vk_ctx.alloc_buffer(
     @sizeOf(InputPacket) * 2,
     .{ .uniform_buffer_bit = true },
     .{ .host_visible_bit = true, .host_coherent_bit = true },
   ) catch @panic("Failed To Allocate Input Buffer!");
+  var gpu_input_write: u32 = 0;
   const gpu_input = transmute(
     [*]InputPacket,
     vk_ctx.device_proxy.mapMemory(
@@ -309,18 +320,37 @@ pub fn app(env: std.process.Environ) void {
         },
         .press => {
           // TODO: app-level input handling
+          const key_base = ev.key.toBase();
+          if (u32_(key_base) < 64) {
+            log.debug(
+              "PRESS={{ .key={} (0x{x}) }}",
+              .{ key_base, u64_(key_base) },
+            );
+            var input_packet_key_cur =
+              (u64_(input_packet.key_arr_hi) << 32) |
+              input_packet.key_arr_lo;
+
+            input_packet_key_cur |= (u64_(1) << cast(u6, u32_(key_base)));
+            input_packet.key_arr_hi = u32_(input_packet_key_cur >> 32);
+            input_packet.key_arr_lo = u32_(input_packet_key_cur & 0xffffffff);
+          }
           if (ev.key == exit_key) want_exit = true;
-          log.debug(
-            "Time:{:8}us|Frame:{:6}|PRESS={{ .key={}, .mouse_button={} }}",
-            .{ ev.timestamp_us, frame_idx, ev.key, ev.button },
-          );
         },
         .release => {
-          // TODO: app-level input handling
-          log.debug(
-            "Time:{:8}us|Frame:{:6}|RELEASE={{ .key={}, .mouse_button={} }}",
-            .{ ev.timestamp_us, frame_idx, ev.key, ev.button },
-          );
+          const key_base = ev.key.toBase();
+          if (u32_(key_base) < 64) {
+            log.debug(
+              "RELEASE={{ .key={} (0x{x}) }}",
+              .{ key_base, u64_(key_base) },
+            );
+            var input_packet_key_cur =
+              (u64_(input_packet.key_arr_hi) << 32) |
+              input_packet.key_arr_lo;
+
+            input_packet_key_cur &= ~(u64_(1) << cast(u6, u32_(key_base)));
+            input_packet.key_arr_hi = u32_(input_packet_key_cur >> 32);
+            input_packet.key_arr_lo = u32_(input_packet_key_cur & 0xffffffff);
+          }
         },
         .mouse_scroll, .mouse_move => {
           // TODO: app-level input handling
@@ -330,18 +360,30 @@ pub fn app(env: std.process.Environ) void {
         },
       }
     }
+    input_packet.write_hash();
+
+    const shader_globals: ShaderGlobals = .{
+        .color = .{ bg_r, bg_g, bg_b, },
+        .time = f32_(f64_(time.us()) / time.us_per_s),
+    };
+    @memcpy(
+      transmute([*]u8, globals_mapped.?)[0..@sizeOf(ShaderGlobals)],
+      transmute([*]const u8, &shader_globals)[0..@sizeOf(ShaderGlobals)],
+    );
+
+    // 2-packet ringbuffer, mask idx
+    const masked_gpu_write = gpu_input_write & (input_buffer.size - 1);
+    @memcpy(
+      transmute(
+        [*]u8,
+        gpu_input,
+      )[masked_gpu_write..][0..@sizeOf(InputPacket)],
+      transmute([*]const u8, &input_packet)[0..@sizeOf(InputPacket)],
+    );
+    gpu_input_write +%= @sizeOf(InputPacket);
+
     // Draw Logic
     {
-
-      const shader_globals: ShaderGlobals = .{
-          .color = .{ bg_r, bg_g, bg_b, },
-          .time = f32_(f64_(time.us()) / time.us_per_s),
-      };
-      @memcpy(
-        transmute([*]u8, globals_mapped.?)[0..@sizeOf(ShaderGlobals)],
-        transmute([*]const u8, &shader_globals)[0..@sizeOf(ShaderGlobals)],
-      );
-
       _ = vk_ctx.device_proxy.waitForFences(
         1,
         @ptrCast(&draw_fence),
@@ -351,7 +393,6 @@ pub fn app(env: std.process.Environ) void {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
-
 
       // reconstruct swapchain if needed
       if (swapchain.pending_resize) |new_dims| {
@@ -719,6 +760,16 @@ const InputPacket = extern struct {
   key_arr_lo: u32,
   key_arr_hi: u32,
   resolution_xy: u32,
+
+  pub fn write_hash(ip: *InputPacket) void {
+    ip.packet_hash = 0x55555555;
+    inline for (@typeInfo(InputPacket).@"struct".fields, 0..) |field, idx| {
+      if (idx > 0) {
+        const val = @field(ip, field.name);
+        ip.packet_hash ^= u32_(val);
+      }
+    }
+  }
 };
 
 const GpuScene = extern struct {

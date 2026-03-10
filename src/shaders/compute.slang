@@ -17,6 +17,11 @@
 #define F3_(x) (F3)(x)
 #define F4_(x) (F4)(x)
 
+#define I1_(x) (I1)(x)
+#define I2_(x) (I2)(x)
+#define I3_(x) (I3)(x)
+#define I4_(x) (I4)(x)
+
 struct Globals {
   F3 color;
   F1 time;
@@ -93,9 +98,8 @@ F2 coord_to_uv(F2 coord, I1 width, I1 height) {
   return normalized_coords * F2(aspect_ratio, 1);
 }
 
-SdfResult sdf_scene(F3 point) {
+SdfResult sdf_scene(F3 point, F3 ground_color) {
   F1 ground_dist = max(point.y + 0.5, length(point.xz) - 8.0);
-  F3 ground_color = F3(0.8, 0.8, 0.8);
 
   F1 sphere_dist =
     sdf_Sphere( point, scene[0].sphere.center, scene[0].sphere.radius);
@@ -126,6 +130,20 @@ F1 smin(F1 a, F1 b, F1 k) {
   return -log(exp(-k * a) + exp(-k * b)) / k;
 }
 
+bool input_packet_valid(I1 idx) {
+  I1 hash = 0x55555555;
+
+  hash ^= I1_(input_packet[idx].mouse_x);
+  hash ^= I1_(input_packet[idx].mouse_y);
+  hash ^= I1_(input_packet[idx].cpu_time_lo);
+  hash ^= I1_(input_packet[idx].cpu_time_hi);
+  hash ^= I1_(input_packet[idx].key_arr_lo);
+  hash ^= I1_(input_packet[idx].key_arr_hi);
+  hash ^= I1_(input_packet[idx].resolution_xy);
+
+  return (hash == input_packet[idx].packet_hash);
+}
+
 S const I1 marchMaxSteps = 64;
 
 [shader("compute")]
@@ -148,13 +166,14 @@ void compMain(
 
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
-  F3 camera = F3(sin(globals.time), 1.2, -3 + cos(globals.time));
+  // F3 camera = F3(sin(globals.time), 1.2, -3 + cos(globals.time));
+  F3 camera = scene[0].camera.position;
   F3 target = F3(0, 0, 0);
   F3 forward = normalize(target - camera);
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
   F3 up = cross(right, forward);
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
-  F3 ro = camera;
+  F3 ro = scene[0].camera.position;
 
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
@@ -162,6 +181,23 @@ void compMain(
     clamp(rd.y * 2.0, 0.0, 1.0)),
     1.0,
   );
+  F3 ground_color = F3(0.8, 0.8, 0.8);
+
+  // if 'r' held, ground is red
+  if (input_packet_valid(0)) {
+    if ((input_packet[0].key_arr_lo & I1_(1 << 27)) != 0) {
+      ground_color = F3(1, 0, 0);
+    }
+
+    if ((input_packet[0].key_arr_hi & I1_(1 << 0)) != 0) {
+      if (threadId.x == 0)
+        scene[0].camera.position += 0.001;
+    }
+    if ((input_packet[0].key_arr_lo & I1_(1 << 28)) != 0) {
+      if (threadId.x == 0)
+        scene[0].camera.position -= 0.001;
+    }
+  }
 
   F4 col_mod = F4(1, 1, 1, 1);
   if ((threadId.y % 4) == 0) {
@@ -177,7 +213,7 @@ void compMain(
   F3 sdf_color = F3(0);
   F1 t = 0.0;
   for (I1 i=0;i<marchMaxSteps;++i) {
-    SdfResult res = sdf_scene(ro + rd * t);
+    SdfResult res = sdf_scene(ro + rd * t, ground_color);
     if (res.dist < 0.001) { sdf_color = res.color; break; }
     t += res.dist;
     if (t > 100) { t = -1.0; break; }
@@ -189,9 +225,9 @@ void compMain(
     // Normal Calculation
     F1 e = 0.001; // error step?
     F3 normal = normalize(F3(
-      sdf_scene(hit + F3(e,0,0)).dist - sdf_scene(hit - F3(e,0,0)).dist,
-      sdf_scene(hit + F3(0,e,0)).dist - sdf_scene(hit - F3(0,e,0)).dist,
-      sdf_scene(hit + F3(0,0,e)).dist - sdf_scene(hit - F3(0,0,e)).dist,
+      sdf_scene(hit + F3(e,0,0), ground_color).dist - sdf_scene(hit - F3(e,0,0), ground_color).dist,
+      sdf_scene(hit + F3(0,e,0), ground_color).dist - sdf_scene(hit - F3(0,e,0), ground_color).dist,
+      sdf_scene(hit + F3(0,0,e), ground_color).dist - sdf_scene(hit - F3(0,0,e), ground_color).dist,
     ));
 
     F3 light = normalize(F3(0.5, 1, -1));
@@ -204,7 +240,7 @@ void compMain(
     F3 shadow_rd = light;
     F1 st = 0.0;
     for (I1 i=0;i<marchMaxSteps/2;++i) {
-      F1 d = sdf_scene(shadow_ro + shadow_rd * st).dist;
+      F1 d = sdf_scene(shadow_ro + shadow_rd * st, ground_color).dist;
       if (d < 0.001) { shadow = 0.0; break; }
       st += d;
       if (st > 10.0) { break; }
@@ -214,7 +250,7 @@ void compMain(
     F1 ao = 0.0;
     F1 ao_step = 0.1;
     for (I1 i=1;i<3;++i) {
-      F1 d = sdf_scene(hit + normal * ao_step * F1_(i)).dist;
+      F1 d = sdf_scene(hit + normal * ao_step * F1_(i), ground_color).dist;
       ao += max(0.0, ao_step * F1_(i) - d);
     }
     ao = 1.0 - clamp(ao * 2, 0, 1);
@@ -227,8 +263,7 @@ void compMain(
   // Final Output
   //---------------------------------------------------------------------------
 
-  // color.rgb = mandelbrot_color(uv);
-  outputImage[threadId.xy] = color;
+  outputImage[threadId.xy] = color * col_mod;
 
   //---------------------------------------------------------------------------
 }
