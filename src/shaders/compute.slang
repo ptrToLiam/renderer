@@ -1,3 +1,7 @@
+//-----------------------------------------------------------------------------
+// Type & Cast Macros
+//-----------------------------------------------------------------------------
+
 #define S static
 
 #define F1 float
@@ -6,6 +10,7 @@
 #define F4 float4
 
 #define L1 uint64_t
+
 #define I1 uint
 #define I2 uint2
 #define I3 uint3
@@ -23,6 +28,8 @@
 #define I2_(x) (I2)(x)
 #define I3_(x) (I3)(x)
 #define I4_(x) (I4)(x)
+
+//-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
 // Key Inputs
@@ -248,7 +255,7 @@ void compMain(
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
   // F3 camera = F3(sin(globals.time), 1.2, -3 + cos(globals.time));
   F3 camera = scene[0].camera.position;
-  F3 target = F3(0, 0, 0);
+  F3 target = scene[0].camera.target;
   F3 forward = normalize(target - camera);
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
   F3 up = cross(right, forward);
@@ -265,7 +272,7 @@ void compMain(
 
   F4 col_mod = F4(1, 1, 1, 1);
   if ((threadId.y % 4) == 0) {
-    col_mod = F4(F3(0.2), 1);
+    col_mod = F4(F3(0.8), 1);
   }
 
   //---------------------------------------------------------------------------
@@ -287,10 +294,10 @@ void compMain(
       scene[0].camera.position.z -= mov;
     }
     if (keyPressed(0, KEY_LEFT)) {
-      scene[0].camera.target.y -= mov;
+      scene[0].camera.position.x -= mov;
     }
     if (keyPressed(0, KEY_RIGHT)) {
-      scene[0].camera.target.y += mov;
+      scene[0].camera.position.x += mov;
     }
   }
 

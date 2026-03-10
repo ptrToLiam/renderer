@@ -153,6 +153,9 @@ pub fn app(env: std.process.Environ) void {
     .{ .uniform_buffer_bit = true },
     .{ .host_visible_bit = true, .host_coherent_bit = true },
   ) catch @panic("Failed To Allocate Input Buffer!");
+  comptime {
+    base.Assert(math.is_pow2(@sizeOf(InputPacket) * 2));
+  }
   var gpu_input_write: u32 = 0;
   const gpu_input = transmute(
     [*]InputPacket,
