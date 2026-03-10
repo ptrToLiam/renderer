@@ -5,6 +5,7 @@
 #define F3 float3
 #define F4 float4
 
+#define L1 uint64_t
 #define I1 uint
 #define I2 uint2
 #define I3 uint3
@@ -17,10 +18,79 @@
 #define F3_(x) (F3)(x)
 #define F4_(x) (F4)(x)
 
+#define L1_(x) (L1)(x)
 #define I1_(x) (I1)(x)
 #define I2_(x) (I2)(x)
 #define I3_(x) (I3)(x)
 #define I4_(x) (I4)(x)
+
+//-----------------------------------------------------------------------------
+// Key Inputs
+//-----------------------------------------------------------------------------
+
+#define KEY_0         (L1_(1) <<  0)
+#define KEY_1         (L1_(1) <<  2)
+#define KEY_2         (L1_(1) <<  2)
+#define KEY_3         (L1_(1) <<  3)
+#define KEY_4         (L1_(1) <<  4)
+#define KEY_5         (L1_(1) <<  5)
+#define KEY_6         (L1_(1) <<  6)
+#define KEY_7         (L1_(1) <<  7)
+#define KEY_8         (L1_(1) <<  8)
+#define KEY_9         (L1_(1) <<  9)
+#define KEY_A         (L1_(1) << 10)
+#define KEY_B         (L1_(1) << 11)
+#define KEY_C         (L1_(1) << 12)
+#define KEY_D         (L1_(1) << 13)
+#define KEY_E         (L1_(1) << 14)
+#define KEY_F         (L1_(1) << 15)
+#define KEY_G         (L1_(1) << 16)
+#define KEY_H         (L1_(1) << 17)
+#define KEY_I         (L1_(1) << 18)
+#define KEY_J         (L1_(1) << 19)
+#define KEY_K         (L1_(1) << 20)
+#define KEY_L         (L1_(1) << 21)
+#define KEY_M         (L1_(1) << 22)
+#define KEY_N         (L1_(1) << 23)
+#define KEY_O         (L1_(1) << 24)
+#define KEY_P         (L1_(1) << 25)
+#define KEY_Q         (L1_(1) << 26)
+#define KEY_R         (L1_(1) << 27)
+#define KEY_S         (L1_(1) << 28)
+#define KEY_T         (L1_(1) << 29)
+#define KEY_U         (L1_(1) << 30)
+#define KEY_V         (L1_(1) << 31)
+#define KEY_W         (L1_(1) << 32)
+#define KEY_X         (L1_(1) << 33)
+#define KEY_Y         (L1_(1) << 34)
+#define KEY_Z         (L1_(1) << 35)
+#define KEY_SPACE     (L1_(1) << 36)
+#define KEY_ESC       (L1_(1) << 37)
+#define KEY_ENTER     (L1_(1) << 38)
+#define KEY_TAB       (L1_(1) << 39)
+#define KEY_BACKSPACE (L1_(1) << 40)
+#define KEY_RIGHT     (L1_(1) << 41)
+#define KEY_LEFT      (L1_(1) << 42)
+#define KEY_UP        (L1_(1) << 43)
+#define KEY_DOWN      (L1_(1) << 44)
+#define KEY_SHIFT     (L1_(1) << 45)
+#define KEY_ALT       (L1_(1) << 46)
+#define KEY_CTRL      (L1_(1) << 47)
+#define KEY_SUPER     (L1_(1) << 48)
+#define KEY_F1        (L1_(1) << 49)
+#define KEY_F2        (L1_(1) << 50)
+#define KEY_F3        (L1_(1) << 51)
+#define KEY_F4        (L1_(1) << 52)
+#define KEY_F5        (L1_(1) << 53)
+#define KEY_F6        (L1_(1) << 54)
+#define KEY_F7        (L1_(1) << 55)
+#define KEY_F8        (L1_(1) << 56)
+#define KEY_F9        (L1_(1) << 57)
+#define KEY_F10       (L1_(1) << 58)
+#define KEY_F11       (L1_(1) << 59)
+#define KEY_F12       (L1_(1) << 60)
+
+//-----------------------------------------------------------------------------
 
 struct Globals {
   F3 color;
@@ -130,6 +200,9 @@ F1 smin(F1 a, F1 b, F1 k) {
   return -log(exp(-k * a) + exp(-k * b)) / k;
 }
 
+//-----------------------------------------------------------------------------
+// Input Packet Processing
+//-----------------------------------------------------------------------------
 bool input_packet_valid(I1 idx) {
   I1 hash = 0x55555555;
 
@@ -143,6 +216,13 @@ bool input_packet_valid(I1 idx) {
 
   return (hash == input_packet[idx].packet_hash);
 }
+
+bool keyPressed(I1 packet_idx, L1 key) {
+  return (key >= (L1_(1) << 31)) ?
+      ((input_packet[packet_idx].key_arr_hi & I1_(key >> 32)) != 0)
+    : ((input_packet[packet_idx].key_arr_lo & I1_(key)) != 0);
+}
+//-----------------------------------------------------------------------------
 
 S const I1 marchMaxSteps = 64;
 
@@ -183,26 +263,37 @@ void compMain(
   );
   F3 ground_color = F3(0.8, 0.8, 0.8);
 
-  // if 'r' held, ground is red
-  if (input_packet_valid(0)) {
-    if ((input_packet[0].key_arr_lo & I1_(1 << 27)) != 0) {
-      ground_color = F3(1, 0, 0);
-    }
-
-    if ((input_packet[0].key_arr_hi & I1_(1 << 0)) != 0) {
-      if (threadId.x == 0)
-        scene[0].camera.position += 0.001;
-    }
-    if ((input_packet[0].key_arr_lo & I1_(1 << 28)) != 0) {
-      if (threadId.x == 0)
-        scene[0].camera.position -= 0.001;
-    }
-  }
-
   F4 col_mod = F4(1, 1, 1, 1);
   if ((threadId.y % 4) == 0) {
     col_mod = F4(F3(0.2), 1);
   }
+
+  //---------------------------------------------------------------------------
+
+  //---------------------------------------------------------------------------
+  // Input Processing
+  //---------------------------------------------------------------------------
+
+  if (input_packet_valid(0)) {
+    if (keyPressed(0, KEY_R)) {
+      ground_color = F3(1, 0, 0);
+    }
+
+    F1 mov = 0.01 / (16 * 16 * 1);
+    if (keyPressed(0, KEY_W) || keyPressed(0, KEY_UP)) {
+      scene[0].camera.position.z += mov;
+    }
+    if (keyPressed(0, KEY_S) || keyPressed(0, KEY_DOWN)) {
+      scene[0].camera.position.z -= mov;
+    }
+    if (keyPressed(0, KEY_LEFT)) {
+      scene[0].camera.target.y -= mov;
+    }
+    if (keyPressed(0, KEY_RIGHT)) {
+      scene[0].camera.target.y += mov;
+    }
+  }
+
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
