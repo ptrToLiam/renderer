@@ -239,15 +239,6 @@ bool input_packet_valid(I1 idx) {
 
   return (hash == input_packet[idx].packet_hash);
 }
-
-bool keyPressed(I1 packet_idx, L1 key) {
-  I1 keys = (L1_(input_packet[packet_idx].key_arr_hi) << 32)
-               | input_packet[packet_idx].key_arr_lo;
-  return (keys & key) != 0;
-  // return (key >= (L1_(1) << 31)) ?
-  //     ((input_packet[packet_idx].key_arr_hi & I1_(key >> 32)) != 0)
-  //   : ((input_packet[packet_idx].key_arr_lo & I1_(key)) != 0);
-}
 //-----------------------------------------------------------------------------
 
 S const I1 marchMaxSteps = 128;
@@ -389,6 +380,7 @@ void compMain(
   //---------------------------------------------------------------------------
 
   if (threadId.x == 0 && threadId.y == 0) {
+    // Write Scene State Forward
     scene[nfidx].box = scene[fidx].box;
     scene[nfidx].sphere = scene[fidx].sphere;
     scene[nfidx].camera = scene[fidx].camera;
@@ -398,19 +390,19 @@ void compMain(
     F1 yaw = scene[fidx].camera.yaw;
     F1 mov = 0.02;
 
-    L1 keyboard = L1_((L1_(input_packet[fidx].key_arr_hi)<<32)
-                      | L1_(input_packet[fidx].key_arr_lo));
+    L1 keyboard = (L1_(input_packet[fidx].key_arr_hi)<<32)
+                     | input_packet[fidx].key_arr_lo;
 
     F3 cam_displace = F3(0);
     F1 pitch_displace = 0;
     F1 yaw_displace = 0;
 
-    cam_displace += (mov *  forward) * ((keyboard >> KEY_W)&1);
-    cam_displace += (mov * -forward) * ((keyboard >> KEY_S)&1);
-    cam_displace += (mov *    right) * ((keyboard >> KEY_D)&1);
-    cam_displace += (mov *   -right) * ((keyboard >> KEY_A)&1);
-    cam_displace += (mov *       up) * ((keyboard >> KEY_SPACE)&1);
-    cam_displace += (mov *      -up) * ((keyboard >> KEY_SHIFT)&1);
+    cam_displace += (mov *  forward) * F1_((keyboard >> KEY_W)&1);
+    cam_displace += (mov * -forward) * F1_((keyboard >> KEY_S)&1);
+    cam_displace += (mov *    right) * F1_((keyboard >> KEY_D)&1);
+    cam_displace += (mov *   -right) * F1_((keyboard >> KEY_A)&1);
+    cam_displace += (mov *       up) * F1_((keyboard >> KEY_SPACE)&1);
+    cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
 
     pitch_displace +=  mov * ((keyboard >> KEY_UP)&1);
     pitch_displace += -mov * ((keyboard >> KEY_DOWN)&1);
@@ -421,37 +413,6 @@ void compMain(
     scene[nfidx].camera.position = campos + cam_displace;
     scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
     scene[nfidx].camera.yaw = yaw + yaw_displace;
-
-    // if (keyPressed(pidx, KEY_S)) {
-    //   scene[nfidx].camera.position = campos + (mov * -forward);
-    // }
-    // if (keyPressed(pidx, KEY_A)) {
-    //   scene[nfidx].camera.position = campos + (mov * -right);
-    // }
-    // if (keyPressed(pidx, KEY_D)) {
-    //   scene[nfidx].camera.position = campos + (mov * right);
-    // }
-    // if (keyPressed(pidx, KEY_SPACE)) {
-    //   scene[nfidx].camera.position = campos + (mov * up);
-    // }
-    // if (keyPressed(pidx, KEY_SHIFT)) {
-    //   scene[nfidx].camera.position = campos + (mov * -up);
-    // }
-
-
-    // if (keyPressed(pidx, KEY_UP)) {
-    //   scene[nfidx].camera.pitch = (pitch+mov);
-    // }
-    // if (keyPressed(pidx, KEY_DOWN)) {
-    //   scene[nfidx].camera.pitch = (pitch-mov);
-    // }
-    // if (keyPressed(pidx, KEY_LEFT)) {
-    //   scene[nfidx].camera.yaw = (yaw+mov);
-    // }
-    // if (keyPressed(pidx, KEY_RIGHT)) {
-    //   scene[nfidx].camera.yaw = (yaw-mov);
-    // }
-    // scene[nfidx].camera.pitch = clamp(scene[nfidx].camera.pitch, -1.5, 1.5);
   }
 
   //---------------------------------------------------------------------------
