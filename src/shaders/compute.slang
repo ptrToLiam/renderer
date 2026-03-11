@@ -302,7 +302,6 @@ void compMain(
   F3 up = cross(right, forward);
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
   F3 ro = scene[fidx].camera.position;
-  scene[fidx].sphere.center.zx = 1.3*sin(time);
 
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
@@ -313,9 +312,9 @@ void compMain(
   F3 ground_color = F3(0.8, 0.8, 0.8);
 
   F4 col_mod = F4(1, 1, 1, 1);
-  if ((threadId.y % 4) == 0) {
-    col_mod = F4(F3(0.8), 1);
-  }
+  // if ((threadId.y % 4) == 0) {
+  //   col_mod = F4(F3(0.8), 1);
+  // }
 
   //---------------------------------------------------------------------------
 
@@ -383,6 +382,8 @@ void compMain(
     // Write Scene State Forward
     scene[nfidx].box = scene[fidx].box;
     scene[nfidx].sphere = scene[fidx].sphere;
+
+    scene[nfidx].sphere.center = F3(1.2*sin(time), 0.3*cos(time), 0.8*cos(time));
     scene[nfidx].camera = scene[fidx].camera;
 
     F3 campos = scene[fidx].camera.position;
