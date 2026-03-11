@@ -139,14 +139,10 @@ pub fn app(env: std.process.Environ) void {
   ) catch @panic("Failed To Allocate Scene Buffer!");
 
   var input_packet: InputPacket = .{
-    .packet_hash = 0x55555555,
-    .mouse_x = 0,
-    .mouse_y = 0,
-    .cpu_time_lo = 0,
-    .cpu_time_hi = 0,
-    .key_arr_lo = 0,
-    .key_arr_hi = 0,
-    .resolution_xy = 0,
+    .packet_hash = undefined,
+    .cpu_time_lo = undefined,
+    .cpu_time_hi = undefined,
+    .frame_idx = undefined,
   };
   const input_buffer = vk_ctx.alloc_buffer(
     @sizeOf(InputPacket) * 2,
@@ -267,7 +263,8 @@ pub fn app(env: std.process.Environ) void {
     },
     .camera = .{
       .position = .{ 0, 1.3, -3 },
-      .target = .{ 0, 0, 0 },
+      .yaw = 0,
+      .pitch = -0.3,
     },
   };
 
@@ -297,8 +294,12 @@ pub fn app(env: std.process.Environ) void {
   const time_target = time.us_per_s / 120;
   while (!want_exit) {
     const frame_time_start = time.us();
-    var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
+    // this will wrap after a while, but that doesn't matter too much yet.
+    input_packet.frame_idx = u32_(frame_idx & 0xffffffff);
+    input_packet.cpu_time_hi = u32_(frame_time_start >> 32);
+    input_packet.cpu_time_lo = u32_(frame_time_start & 0xffffffff);
 
+    var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
     defer frame_scratch.end();
     const frame_arena = frame_scratch.arena;
     defer frame_idx +%= 1;
@@ -322,7 +323,6 @@ pub fn app(env: std.process.Environ) void {
           swapchain.release_buffer();
         },
         .press => {
-          // TODO: app-level input handling
           const key_base = ev.key.toBase();
           if (u32_(key_base) < 64) {
             log.debug(
@@ -363,6 +363,7 @@ pub fn app(env: std.process.Environ) void {
         },
       }
     }
+
     input_packet.write_hash();
 
     const shader_globals: ShaderGlobals = .{
@@ -756,20 +757,28 @@ const ShaderGlobals = extern struct {
 
 const InputPacket = extern struct {
   packet_hash: u32,
-  mouse_x: f32,
-  mouse_y: f32,
+  mouse_x: f32 = 0,
+  mouse_y: f32 = 0,
   cpu_time_lo: u32,
   cpu_time_hi: u32,
-  key_arr_lo: u32,
-  key_arr_hi: u32,
-  resolution_xy: u32,
+  key_arr_lo: u32 = 0,
+  key_arr_hi: u32 = 0,
+  resolution_xy: u32 = 0,
+  frame_idx: u32,
+  __reserved_0: u32 = 0,
+  __reserved_1: u32 = 0,
+  __reserved_2: u32 = 0,
+  __reserved_3: u32 = 0,
+  __reserved_4: u32 = 0,
+  __reserved_5: u32 = 0,
+  __reserved_6: u32 = 0,
 
   pub fn write_hash(ip: *InputPacket) void {
     ip.packet_hash = 0x55555555;
     inline for (@typeInfo(InputPacket).@"struct".fields, 0..) |field, idx| {
       if (idx > 0) {
         const val = @field(ip, field.name);
-        ip.packet_hash ^= u32_(val);
+        ip.packet_hash ^= transmute(u32, val);
       }
     }
   }
@@ -795,7 +804,8 @@ const Box = extern struct {
 
 const Camera = extern struct {
   position: [3]f32 align (16),
-  target: [3]f32   align (16),
+  yaw:      f32,
+  pitch:    f32,
 };
 
 //-----------------------------------------------------------------------------

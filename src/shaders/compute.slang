@@ -32,11 +32,17 @@
 //-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
+// General Constant Defines
+//-----------------------------------------------------------------------------
+#define US_PER_S 1000000
+//-----------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
 // Key Inputs
 //-----------------------------------------------------------------------------
 
 #define KEY_0         (L1_(1) <<  0)
-#define KEY_1         (L1_(1) <<  2)
+#define KEY_1         (L1_(1) <<  1)
 #define KEY_2         (L1_(1) <<  2)
 #define KEY_3         (L1_(1) <<  3)
 #define KEY_4         (L1_(1) <<  4)
@@ -107,7 +113,8 @@ struct Globals {
 
 struct Camera {
   F3 position;
-  F3 target;
+  F1 yaw;
+  F1 pitch;
 };
 
 struct Box {
@@ -141,6 +148,14 @@ struct InputPacket {
   I1 key_arr_lo;
   I1 key_arr_hi;
   I1 resolution_xy;
+  I1 frame_idx;
+  I1 __reserved_0;
+  I1 __reserved_1;
+  I1 __reserved_2;
+  I1 __reserved_3;
+  I1 __reserved_4;
+  I1 __reserved_5;
+  I1 __reserved_6;
 };
 
 //-----------------------------------------------------------------------------
@@ -175,17 +190,17 @@ F2 coord_to_uv(F2 coord, I1 width, I1 height) {
   return normalized_coords * F2(aspect_ratio, 1);
 }
 
-SdfResult sdf_scene(F3 point, F3 ground_color) {
+SdfResult sdf_scene(F3 point, I1 fidx, F3 ground_color) {
   F1 ground_dist = max(point.y + 0.5, length(point.xz) - 8.0);
 
   F1 sphere_dist =
-    sdf_Sphere( point, scene[0].sphere.center, scene[0].sphere.radius);
-  F1 box_dist = sdf_Box(point, scene[0].box.center, scene[0].box.size);
+    sdf_Sphere( point, scene[fidx].sphere.center, scene[fidx].sphere.radius);
+  F1 box_dist = sdf_Box(point, scene[fidx].box.center, scene[fidx].box.size);
   F2 sm = smin_col(sphere_dist, box_dist, 0.4); // smin = blended edge
   F3 shape_color =
-    lerp(scene[0].sphere.color.rgb, scene[0].box.color.rgb, sm.y);
+    lerp(scene[fidx].sphere.color.rgb, scene[fidx].box.color.rgb, sm.y);
 
-  F1 final_dist = min(sm.x, ground_dist); // min = hard edge
+  F1 final_dist = smin(sm.x, ground_dist, 8); // min = hard edge
   F3 final_color = sm.x < ground_dist ? shape_color : ground_color;
 
   return {
@@ -213,13 +228,14 @@ F1 smin(F1 a, F1 b, F1 k) {
 bool input_packet_valid(I1 idx) {
   I1 hash = 0x55555555;
 
-  hash ^= I1_(input_packet[idx].mouse_x);
-  hash ^= I1_(input_packet[idx].mouse_y);
+  hash ^= asuint(input_packet[idx].mouse_x);
+  hash ^= asuint(input_packet[idx].mouse_y);
   hash ^= I1_(input_packet[idx].cpu_time_lo);
   hash ^= I1_(input_packet[idx].cpu_time_hi);
   hash ^= I1_(input_packet[idx].key_arr_lo);
   hash ^= I1_(input_packet[idx].key_arr_hi);
   hash ^= I1_(input_packet[idx].resolution_xy);
+  hash ^= I1_(input_packet[idx].frame_idx);
 
   return (hash == input_packet[idx].packet_hash);
 }
@@ -248,19 +264,51 @@ void compMain(
   if (threadId.x >= width || threadId.y >= height)
     return;
 
-  // F4 bg_color = F4(F3(1), 1);
-  // F4 bg_color = float4(globals.color.r, globals.color.g, globals.color.b, 1);
+  //---------------------------------------------------------------------------
+  // Input Packet Selection
+  //---------------------------------------------------------------------------
+
+  bool p0_valid = input_packet_valid(0);
+  bool p1_valid = input_packet_valid(1);
+
+  I1 pidx = 0;
+  if (p0_valid && p1_valid) {
+    L1 t0 = (L1_(input_packet[0].cpu_time_hi) << 32) |
+             L1_(input_packet[0].cpu_time_lo);
+    L1 t1 = (L1_(input_packet[1].cpu_time_hi) << 32) |
+             L1_(input_packet[1].cpu_time_lo);
+    pidx = (t0 >= t1) ? 0 : 1;
+  } else {
+    if (p0_valid) pidx = 0;
+    if (p1_valid) pidx = 1;
+  }
+
+  L1 cpu_t = (L1_(input_packet[pidx].cpu_time_hi) << 32) |
+              L1_(input_packet[pidx].cpu_time_lo);
+
+  I1 fidx = (input_packet[pidx].frame_idx) & 1;
+  I1 nfidx = (fidx + 1) & 1;
+  F1 time = F1_(cpu_t) / F1_(US_PER_S);
+
+  //---------------------------------------------------------------------------
 
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
-  // F3 camera = F3(sin(globals.time), 1.2, -3 + cos(globals.time));
-  F3 camera = scene[0].camera.position;
-  F3 target = scene[0].camera.target;
-  F3 forward = normalize(target - camera);
+
+  F3 camera = scene[fidx].camera.position;
+  F1 yaw = scene[fidx].camera.yaw;
+  F1 pitch = scene[fidx].camera.pitch;
+  F3 forward = normalize(F3(
+    cos(pitch) * sin(yaw),
+    sin(pitch),
+    cos(pitch) * cos(yaw),
+  ));
+
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
   F3 up = cross(right, forward);
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
-  F3 ro = scene[0].camera.position;
+  F3 ro = scene[fidx].camera.position;
+  scene[fidx].sphere.center.zx = 1.3*sin(time);
 
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
@@ -278,32 +326,6 @@ void compMain(
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
-  // Input Processing
-  //---------------------------------------------------------------------------
-
-  if (input_packet_valid(0)) {
-    if (keyPressed(0, KEY_R)) {
-      ground_color = F3(1, 0, 0);
-    }
-
-    F1 mov = 0.01 / (16 * 16 * 1);
-    if (keyPressed(0, KEY_W) || keyPressed(0, KEY_UP)) {
-      scene[0].camera.position.z += mov;
-    }
-    if (keyPressed(0, KEY_S) || keyPressed(0, KEY_DOWN)) {
-      scene[0].camera.position.z -= mov;
-    }
-    if (keyPressed(0, KEY_LEFT)) {
-      scene[0].camera.position.x -= mov;
-    }
-    if (keyPressed(0, KEY_RIGHT)) {
-      scene[0].camera.position.x += mov;
-    }
-  }
-
-  //---------------------------------------------------------------------------
-
-  //---------------------------------------------------------------------------
   // SDF Scene Ray March
   //---------------------------------------------------------------------------
 
@@ -311,10 +333,10 @@ void compMain(
   F3 sdf_color = F3(0);
   F1 t = 0.0;
   for (I1 i=0;i<marchMaxSteps;++i) {
-    SdfResult res = sdf_scene(ro + rd * t, ground_color);
+    SdfResult res = sdf_scene(ro + rd * t, fidx, ground_color);
     if (res.dist < 0.001) { sdf_color = res.color; break; }
     t += res.dist;
-    if (t > 100) { t = -1.0; break; }
+    if (t > 128) { t = -1.0; break; }
   }
 
   if (t>0) {
@@ -323,9 +345,9 @@ void compMain(
     // Normal Calculation
     F1 e = 0.001; // error step?
     F3 normal = normalize(F3(
-      sdf_scene(hit + F3(e,0,0), ground_color).dist - sdf_scene(hit - F3(e,0,0), ground_color).dist,
-      sdf_scene(hit + F3(0,e,0), ground_color).dist - sdf_scene(hit - F3(0,e,0), ground_color).dist,
-      sdf_scene(hit + F3(0,0,e), ground_color).dist - sdf_scene(hit - F3(0,0,e), ground_color).dist,
+      sdf_scene(hit + F3(e,0,0), fidx, ground_color).dist - sdf_scene(hit - F3(e,0,0), fidx, ground_color).dist,
+      sdf_scene(hit + F3(0,e,0), fidx, ground_color).dist - sdf_scene(hit - F3(0,e,0), fidx, ground_color).dist,
+      sdf_scene(hit + F3(0,0,e), fidx, ground_color).dist - sdf_scene(hit - F3(0,0,e), fidx, ground_color).dist,
     ));
 
     F3 light = normalize(F3(0.5, 1, -1));
@@ -338,7 +360,7 @@ void compMain(
     F3 shadow_rd = light;
     F1 st = 0.0;
     for (I1 i=0;i<marchMaxSteps/2;++i) {
-      F1 d = sdf_scene(shadow_ro + shadow_rd * st, ground_color).dist;
+      F1 d = sdf_scene(shadow_ro + shadow_rd * st, fidx, ground_color).dist;
       if (d < 0.001) { shadow = 0.0; break; }
       st += d;
       if (st > 10.0) { break; }
@@ -347,8 +369,8 @@ void compMain(
     // Ambient Occlusion
     F1 ao = 0.0;
     F1 ao_step = 0.1;
-    for (I1 i=1;i<3;++i) {
-      F1 d = sdf_scene(hit + normal * ao_step * F1_(i), ground_color).dist;
+    for (I1 i=1;i<4;++i) {
+      F1 d = sdf_scene(hit + normal * ao_step * F1_(i), fidx, ground_color).dist;
       ao += max(0.0, ao_step * F1_(i) - d);
     }
     ao = 1.0 - clamp(ao * 2, 0, 1);
@@ -356,6 +378,58 @@ void compMain(
     F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
     color = F4( spec + ((diffuse * shadow + ambient * ao) * sdf_color), 1);
   }
+
+  //---------------------------------------------------------------------------
+
+  //---------------------------------------------------------------------------
+  // Apply User Input
+  //---------------------------------------------------------------------------
+
+  if (threadId.x == 0 && threadId.y == 0) {
+    scene[nfidx].box = scene[fidx].box;
+    scene[nfidx].sphere = scene[fidx].sphere;
+    scene[nfidx].camera = scene[fidx].camera;
+
+    F3 campos = scene[fidx].camera.position;
+    F1 pitch = scene[fidx].camera.pitch;
+    F1 yaw = scene[fidx].camera.yaw;
+    F1 mov = 0.02;
+
+    if (keyPressed(pidx, KEY_W)) {
+      scene[nfidx].camera.position = campos + (mov * forward);
+    }
+    if (keyPressed(pidx, KEY_S)) {
+      scene[nfidx].camera.position = campos + (mov * -forward);
+    }
+    if (keyPressed(pidx, KEY_A)) {
+      scene[nfidx].camera.position = campos + (mov * -right);
+    }
+    if (keyPressed(pidx, KEY_D)) {
+      scene[nfidx].camera.position = campos + (mov * right);
+    }
+    if (keyPressed(pidx, KEY_SPACE)) {
+      scene[nfidx].camera.position = campos + (mov * up);
+    }
+    if (keyPressed(pidx, KEY_SHIFT)) {
+      scene[nfidx].camera.position = campos + (mov * -up);
+    }
+
+    if (keyPressed(pidx, KEY_UP)) {
+      scene[nfidx].camera.pitch = (pitch+mov);
+    }
+    if (keyPressed(pidx, KEY_DOWN)) {
+      scene[nfidx].camera.pitch = (pitch-mov);
+    }
+    if (keyPressed(pidx, KEY_LEFT)) {
+      scene[nfidx].camera.yaw = (yaw+mov);
+    }
+    if (keyPressed(pidx, KEY_RIGHT)) {
+      scene[nfidx].camera.yaw = (yaw-mov);
+    }
+    scene[nfidx].camera.pitch = clamp(scene[nfidx].camera.pitch, -1.5, 1.5);
+  }
+
+  //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
   // Final Output
