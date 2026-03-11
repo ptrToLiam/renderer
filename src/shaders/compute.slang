@@ -41,67 +41,67 @@
 // Key Inputs
 //-----------------------------------------------------------------------------
 
-#define KEY_0         (L1_(1) <<  0)
-#define KEY_1         (L1_(1) <<  1)
-#define KEY_2         (L1_(1) <<  2)
-#define KEY_3         (L1_(1) <<  3)
-#define KEY_4         (L1_(1) <<  4)
-#define KEY_5         (L1_(1) <<  5)
-#define KEY_6         (L1_(1) <<  6)
-#define KEY_7         (L1_(1) <<  7)
-#define KEY_8         (L1_(1) <<  8)
-#define KEY_9         (L1_(1) <<  9)
-#define KEY_A         (L1_(1) << 10)
-#define KEY_B         (L1_(1) << 11)
-#define KEY_C         (L1_(1) << 12)
-#define KEY_D         (L1_(1) << 13)
-#define KEY_E         (L1_(1) << 14)
-#define KEY_F         (L1_(1) << 15)
-#define KEY_G         (L1_(1) << 16)
-#define KEY_H         (L1_(1) << 17)
-#define KEY_I         (L1_(1) << 18)
-#define KEY_J         (L1_(1) << 19)
-#define KEY_K         (L1_(1) << 20)
-#define KEY_L         (L1_(1) << 21)
-#define KEY_M         (L1_(1) << 22)
-#define KEY_N         (L1_(1) << 23)
-#define KEY_O         (L1_(1) << 24)
-#define KEY_P         (L1_(1) << 25)
-#define KEY_Q         (L1_(1) << 26)
-#define KEY_R         (L1_(1) << 27)
-#define KEY_S         (L1_(1) << 28)
-#define KEY_T         (L1_(1) << 29)
-#define KEY_U         (L1_(1) << 30)
-#define KEY_V         (L1_(1) << 31)
-#define KEY_W         (L1_(1) << 32)
-#define KEY_X         (L1_(1) << 33)
-#define KEY_Y         (L1_(1) << 34)
-#define KEY_Z         (L1_(1) << 35)
-#define KEY_SPACE     (L1_(1) << 36)
-#define KEY_ESC       (L1_(1) << 37)
-#define KEY_ENTER     (L1_(1) << 38)
-#define KEY_TAB       (L1_(1) << 39)
-#define KEY_BACKSPACE (L1_(1) << 40)
-#define KEY_RIGHT     (L1_(1) << 41)
-#define KEY_LEFT      (L1_(1) << 42)
-#define KEY_UP        (L1_(1) << 43)
-#define KEY_DOWN      (L1_(1) << 44)
-#define KEY_SHIFT     (L1_(1) << 45)
-#define KEY_ALT       (L1_(1) << 46)
-#define KEY_CTRL      (L1_(1) << 47)
-#define KEY_SUPER     (L1_(1) << 48)
-#define KEY_F1        (L1_(1) << 49)
-#define KEY_F2        (L1_(1) << 50)
-#define KEY_F3        (L1_(1) << 51)
-#define KEY_F4        (L1_(1) << 52)
-#define KEY_F5        (L1_(1) << 53)
-#define KEY_F6        (L1_(1) << 54)
-#define KEY_F7        (L1_(1) << 55)
-#define KEY_F8        (L1_(1) << 56)
-#define KEY_F9        (L1_(1) << 57)
-#define KEY_F10       (L1_(1) << 58)
-#define KEY_F11       (L1_(1) << 59)
-#define KEY_F12       (L1_(1) << 60)
+#define KEY_0         L1_( 0)
+#define KEY_1         L1_( 1)
+#define KEY_2         L1_( 2)
+#define KEY_3         L1_( 3)
+#define KEY_4         L1_( 4)
+#define KEY_5         L1_( 5)
+#define KEY_6         L1_( 6)
+#define KEY_7         L1_( 7)
+#define KEY_8         L1_( 8)
+#define KEY_9         L1_( 9)
+#define KEY_A         L1_(10)
+#define KEY_B         L1_(11)
+#define KEY_C         L1_(12)
+#define KEY_D         L1_(13)
+#define KEY_E         L1_(14)
+#define KEY_F         L1_(15)
+#define KEY_G         L1_(16)
+#define KEY_H         L1_(17)
+#define KEY_I         L1_(18)
+#define KEY_J         L1_(19)
+#define KEY_K         L1_(20)
+#define KEY_L         L1_(21)
+#define KEY_M         L1_(22)
+#define KEY_N         L1_(23)
+#define KEY_O         L1_(24)
+#define KEY_P         L1_(25)
+#define KEY_Q         L1_(26)
+#define KEY_R         L1_(27)
+#define KEY_S         L1_(28)
+#define KEY_T         L1_(29)
+#define KEY_U         L1_(30)
+#define KEY_V         L1_(31)
+#define KEY_W         L1_(32)
+#define KEY_X         L1_(33)
+#define KEY_Y         L1_(34)
+#define KEY_Z         L1_(35)
+#define KEY_SPACE     L1_(36)
+#define KEY_ESC       L1_(37)
+#define KEY_ENTER     L1_(38)
+#define KEY_TAB       L1_(39)
+#define KEY_BACKSPACE L1_(40)
+#define KEY_RIGHT     L1_(41)
+#define KEY_LEFT      L1_(42)
+#define KEY_UP        L1_(43)
+#define KEY_DOWN      L1_(44)
+#define KEY_SHIFT     L1_(45)
+#define KEY_ALT       L1_(46)
+#define KEY_CTRL      L1_(47)
+#define KEY_SUPER     L1_(48)
+#define KEY_F1        L1_(49)
+#define KEY_F2        L1_(50)
+#define KEY_F3        L1_(51)
+#define KEY_F4        L1_(52)
+#define KEY_F5        L1_(53)
+#define KEY_F6        L1_(54)
+#define KEY_F7        L1_(55)
+#define KEY_F8        L1_(56)
+#define KEY_F9        L1_(57)
+#define KEY_F10       L1_(58)
+#define KEY_F11       L1_(59)
+#define KEY_F12       L1_(60)
 
 //-----------------------------------------------------------------------------
 
@@ -241,13 +241,16 @@ bool input_packet_valid(I1 idx) {
 }
 
 bool keyPressed(I1 packet_idx, L1 key) {
-  return (key >= (L1_(1) << 31)) ?
-      ((input_packet[packet_idx].key_arr_hi & I1_(key >> 32)) != 0)
-    : ((input_packet[packet_idx].key_arr_lo & I1_(key)) != 0);
+  I1 keys = (L1_(input_packet[packet_idx].key_arr_hi) << 32)
+               | input_packet[packet_idx].key_arr_lo;
+  return (keys & key) != 0;
+  // return (key >= (L1_(1) << 31)) ?
+  //     ((input_packet[packet_idx].key_arr_hi & I1_(key >> 32)) != 0)
+  //   : ((input_packet[packet_idx].key_arr_lo & I1_(key)) != 0);
 }
 //-----------------------------------------------------------------------------
 
-S const I1 marchMaxSteps = 64;
+S const I1 marchMaxSteps = 128;
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -395,38 +398,60 @@ void compMain(
     F1 yaw = scene[fidx].camera.yaw;
     F1 mov = 0.02;
 
-    if (keyPressed(pidx, KEY_W)) {
-      scene[nfidx].camera.position = campos + (mov * forward);
-    }
-    if (keyPressed(pidx, KEY_S)) {
-      scene[nfidx].camera.position = campos + (mov * -forward);
-    }
-    if (keyPressed(pidx, KEY_A)) {
-      scene[nfidx].camera.position = campos + (mov * -right);
-    }
-    if (keyPressed(pidx, KEY_D)) {
-      scene[nfidx].camera.position = campos + (mov * right);
-    }
-    if (keyPressed(pidx, KEY_SPACE)) {
-      scene[nfidx].camera.position = campos + (mov * up);
-    }
-    if (keyPressed(pidx, KEY_SHIFT)) {
-      scene[nfidx].camera.position = campos + (mov * -up);
-    }
+    L1 keyboard = L1_((L1_(input_packet[fidx].key_arr_hi)<<32)
+                      | L1_(input_packet[fidx].key_arr_lo));
 
-    if (keyPressed(pidx, KEY_UP)) {
-      scene[nfidx].camera.pitch = (pitch+mov);
-    }
-    if (keyPressed(pidx, KEY_DOWN)) {
-      scene[nfidx].camera.pitch = (pitch-mov);
-    }
-    if (keyPressed(pidx, KEY_LEFT)) {
-      scene[nfidx].camera.yaw = (yaw+mov);
-    }
-    if (keyPressed(pidx, KEY_RIGHT)) {
-      scene[nfidx].camera.yaw = (yaw-mov);
-    }
-    scene[nfidx].camera.pitch = clamp(scene[nfidx].camera.pitch, -1.5, 1.5);
+    F3 cam_displace = F3(0);
+    F1 pitch_displace = 0;
+    F1 yaw_displace = 0;
+
+    cam_displace += (mov *  forward) * ((keyboard >> KEY_W)&1);
+    cam_displace += (mov * -forward) * ((keyboard >> KEY_S)&1);
+    cam_displace += (mov *    right) * ((keyboard >> KEY_D)&1);
+    cam_displace += (mov *   -right) * ((keyboard >> KEY_A)&1);
+    cam_displace += (mov *       up) * ((keyboard >> KEY_SPACE)&1);
+    cam_displace += (mov *      -up) * ((keyboard >> KEY_SHIFT)&1);
+
+    pitch_displace +=  mov * ((keyboard >> KEY_UP)&1);
+    pitch_displace += -mov * ((keyboard >> KEY_DOWN)&1);
+
+    yaw_displace +=  mov * ((keyboard >> KEY_LEFT)&1);
+    yaw_displace += -mov * ((keyboard >> KEY_RIGHT)&1);
+
+    scene[nfidx].camera.position = campos + cam_displace;
+    scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
+    scene[nfidx].camera.yaw = yaw + yaw_displace;
+
+    // if (keyPressed(pidx, KEY_S)) {
+    //   scene[nfidx].camera.position = campos + (mov * -forward);
+    // }
+    // if (keyPressed(pidx, KEY_A)) {
+    //   scene[nfidx].camera.position = campos + (mov * -right);
+    // }
+    // if (keyPressed(pidx, KEY_D)) {
+    //   scene[nfidx].camera.position = campos + (mov * right);
+    // }
+    // if (keyPressed(pidx, KEY_SPACE)) {
+    //   scene[nfidx].camera.position = campos + (mov * up);
+    // }
+    // if (keyPressed(pidx, KEY_SHIFT)) {
+    //   scene[nfidx].camera.position = campos + (mov * -up);
+    // }
+
+
+    // if (keyPressed(pidx, KEY_UP)) {
+    //   scene[nfidx].camera.pitch = (pitch+mov);
+    // }
+    // if (keyPressed(pidx, KEY_DOWN)) {
+    //   scene[nfidx].camera.pitch = (pitch-mov);
+    // }
+    // if (keyPressed(pidx, KEY_LEFT)) {
+    //   scene[nfidx].camera.yaw = (yaw+mov);
+    // }
+    // if (keyPressed(pidx, KEY_RIGHT)) {
+    //   scene[nfidx].camera.yaw = (yaw-mov);
+    // }
+    // scene[nfidx].camera.pitch = clamp(scene[nfidx].camera.pitch, -1.5, 1.5);
   }
 
   //---------------------------------------------------------------------------
