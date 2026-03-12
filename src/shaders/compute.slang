@@ -169,7 +169,7 @@ ConstantBuffer<Globals> globals;
 RWStructuredBuffer<GpuScene> scene;
 
 [[vk::binding(3,0)]]
-ConstantBuffer<InputPacket[2]> input_packet;
+ConstantBuffer<InputPacket[2]> input;
 
 //-----------------------------------------------------------------------------
 
@@ -228,16 +228,16 @@ F1 smin(F1 a, F1 b, F1 k) {
 bool input_packet_valid(I1 idx) {
   I1 hash = 0x55555555;
 
-  hash ^= asuint(input_packet[idx].mouse_x);
-  hash ^= asuint(input_packet[idx].mouse_y);
-  hash ^= I1_(input_packet[idx].cpu_time_lo);
-  hash ^= I1_(input_packet[idx].cpu_time_hi);
-  hash ^= I1_(input_packet[idx].key_arr_lo);
-  hash ^= I1_(input_packet[idx].key_arr_hi);
-  hash ^= I1_(input_packet[idx].resolution_xy);
-  hash ^= I1_(input_packet[idx].frame_idx);
+  hash ^= asuint(input[idx].mouse_x);
+  hash ^= asuint(input[idx].mouse_y);
+  hash ^= I1_(input[idx].cpu_time_lo);
+  hash ^= I1_(input[idx].cpu_time_hi);
+  hash ^= I1_(input[idx].key_arr_lo);
+  hash ^= I1_(input[idx].key_arr_hi);
+  hash ^= I1_(input[idx].resolution_xy);
+  hash ^= I1_(input[idx].frame_idx);
 
-  return (hash == input_packet[idx].packet_hash);
+  return (hash == input[idx].packet_hash);
 }
 //-----------------------------------------------------------------------------
 
@@ -247,6 +247,7 @@ S const I1 marchMaxSteps = 128;
 [numthreads(16, 16, 1)]
 void compMain(
   I3 threadId: SV_DispatchThreadID,
+  I3 groupId:  SV_GroupThreadID,
   uniform RWTexture2D<F4> outputImage,
 ) {
   //---------------------------------------------------------------------------
@@ -267,20 +268,20 @@ void compMain(
 
   I1 pidx = 0;
   if (p0_valid && p1_valid) {
-    L1 t0 = (L1_(input_packet[0].cpu_time_hi) << 32) |
-             L1_(input_packet[0].cpu_time_lo);
-    L1 t1 = (L1_(input_packet[1].cpu_time_hi) << 32) |
-             L1_(input_packet[1].cpu_time_lo);
+    L1 t0 = (L1_(input[0].cpu_time_hi) << 32) |
+             L1_(input[0].cpu_time_lo);
+    L1 t1 = (L1_(input[1].cpu_time_hi) << 32) |
+             L1_(input[1].cpu_time_lo);
     pidx = (t0 >= t1) ? 0 : 1;
   } else {
     if (p0_valid) pidx = 0;
     if (p1_valid) pidx = 1;
   }
 
-  L1 cpu_t = (L1_(input_packet[pidx].cpu_time_hi) << 32) |
-              L1_(input_packet[pidx].cpu_time_lo);
+  L1 cpu_t = (L1_(input[pidx].cpu_time_hi) << 32) |
+              L1_(input[pidx].cpu_time_lo);
 
-  I1 fidx = (input_packet[pidx].frame_idx) & 1;
+  I1 fidx = (input[pidx].frame_idx) & 1;
   I1 nfidx = (fidx + 1) & 1;
   F1 time = F1_(cpu_t) / F1_(US_PER_S);
 
@@ -303,18 +304,14 @@ void compMain(
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
   F3 ro = scene[fidx].camera.position;
 
+  F3 ground_color = F3(0.8, 0.8, 0.8);
+
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
     F3(1.0, 1.0, 1.0),
     clamp(rd.y * 2.0, 0.0, 1.0)),
     1.0,
   );
-  F3 ground_color = F3(0.8, 0.8, 0.8);
-
-  F4 col_mod = F4(1, 1, 1, 1);
-  // if ((threadId.y % 4) == 0) {
-  //   col_mod = F4(F3(0.8), 1);
-  // }
 
   //---------------------------------------------------------------------------
 
@@ -378,21 +375,19 @@ void compMain(
   // Apply User Input
   //---------------------------------------------------------------------------
 
-  if (threadId.x == 0 && threadId.y == 0) {
-    // Write Scene State Forward
+  if (all(groupId == I3(0)) && all(threadId == I3(0))) {
     scene[nfidx].box = scene[fidx].box;
     scene[nfidx].sphere = scene[fidx].sphere;
-
-    scene[nfidx].sphere.center = F3(1.2*sin(time), 0.3*cos(time), 0.8*cos(time));
-    scene[nfidx].camera = scene[fidx].camera;
+    scene[nfidx].sphere.center =
+      scene[fidx].sphere.center + F3(0.008*sin(time), 0.0001*sin(time), 0.0002*sin(time));
 
     F3 campos = scene[fidx].camera.position;
     F1 pitch = scene[fidx].camera.pitch;
     F1 yaw = scene[fidx].camera.yaw;
     F1 mov = 0.02;
 
-    L1 keyboard = (L1_(input_packet[fidx].key_arr_hi)<<32)
-                     | input_packet[fidx].key_arr_lo;
+    L1 keyboard = (L1_(input[fidx].key_arr_hi)<<32)
+                     | input[fidx].key_arr_lo;
 
     F3 cam_displace = F3(0);
     F1 pitch_displace = 0;
@@ -405,11 +400,11 @@ void compMain(
     cam_displace += (mov *       up) * F1_((keyboard >> KEY_SPACE)&1);
     cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
 
-    pitch_displace +=  mov * ((keyboard >> KEY_UP)&1);
-    pitch_displace += -mov * ((keyboard >> KEY_DOWN)&1);
+    pitch_displace +=  mov * F1_((keyboard >> KEY_UP)&1);
+    pitch_displace += -mov * F1_((keyboard >> KEY_DOWN)&1);
 
-    yaw_displace +=  mov * ((keyboard >> KEY_LEFT)&1);
-    yaw_displace += -mov * ((keyboard >> KEY_RIGHT)&1);
+    yaw_displace +=  mov * F1_((keyboard >> KEY_LEFT)&1);
+    yaw_displace += -mov * F1_((keyboard >> KEY_RIGHT)&1);
 
     scene[nfidx].camera.position = campos + cam_displace;
     scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
@@ -422,7 +417,7 @@ void compMain(
   // Final Output
   //---------------------------------------------------------------------------
 
-  outputImage[threadId.xy] = color * col_mod;
+  outputImage[threadId.xy] = color;
 
   //---------------------------------------------------------------------------
 }

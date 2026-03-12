@@ -5,6 +5,17 @@ pub fn app(env: std.process.Environ) void {
   const arena: *Arena = .init(.default);
   defer arena.release();
 
+  var stio: Io.Threaded = .init_single_threaded;
+  defer stio.deinit();
+  const stdio = stio.io();
+  const cwd = Io.Dir.cwd();
+
+  var shader_file_stat: Io.File.Stat = cwd.statFile(
+    stdio,
+    "./src/shaders/comp.spv",
+    .{},
+  ) catch unreachable;
+
   //---------------------------------------------------------------------------
   // BEGIN VULKAN STATE INIT
   //---------------------------------------------------------------------------
@@ -36,8 +47,6 @@ pub fn app(env: std.process.Environ) void {
   const initial_height = 720;
   const render_width = 1280;
   const render_height = 720;
-  const slang_shader = arena.push(u32, slang_shader_bytes.len / 4);
-  @memcpy(transmute([]u8, slang_shader), slang_shader_bytes);
 
   //---------------------------------------------------------------------------
   // BEGIN PLATFORM CONNECTION INIT
@@ -79,7 +88,15 @@ pub fn app(env: std.process.Environ) void {
     .{ .reset_command_buffer_bit = true },
   ) catch @panic("Unable to Initialize Vulkan Device!");
 
-  const img_fmt: gfx.Format = .rgba32;
+  const query_pool = vk_ctx.device_proxy.createQueryPool(
+    &.{
+      .query_type = .timestamp,
+      .query_count = 32,
+    },
+    null,
+  ) catch @panic("Unable to Create Query Pool!");
+  defer vk_ctx.device_proxy.destroyQueryPool(query_pool, null);
+  _ = &query_pool;
 
   const globals_buffer = vk_ctx.alloc_buffer(
     @sizeOf(ShaderGlobals),
@@ -95,6 +112,7 @@ pub fn app(env: std.process.Environ) void {
     .{},
   ) catch @panic("Unable to map host-visible globals buffer");
 
+  const img_fmt: gfx.Format = .rgba32;
   // prepare render image
   const render_image = vk_ctx.alloc_image(
     render_width,
@@ -126,9 +144,10 @@ pub fn app(env: std.process.Environ) void {
     .layer_count = 1,
   };
 
-  const compute_pipeline = createComputePipeline(
+  var compute_pipeline: ComputePipeline = createComputePipeline(
+    stdio,
     vk_ctx.device_proxy,
-    slang_shader,
+    "./src/shaders/comp.spv",
   ) catch unreachable;
   defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
 
@@ -281,6 +300,7 @@ pub fn app(env: std.process.Environ) void {
   );
 
   const exit_key: platform.Key = .q;
+  var shader_want_reload = false;
   var want_exit = false;
 
 
@@ -361,6 +381,31 @@ pub fn app(env: std.process.Environ) void {
         else => {
           log.debug("app-level ev :: {any}", .{ev});
         },
+      }
+    }
+
+    // Shader Reload
+    {
+      if (shader_want_reload) {
+        shader_want_reload = false;
+        vk_ctx.device_proxy.deviceWaitIdle() catch unreachable;
+        vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
+        compute_pipeline = createComputePipeline(
+          stdio,
+          vk_ctx.device_proxy,
+          "./src/shaders/comp.spv",
+        ) catch unreachable;
+        log.info("Reloaded Compute Shader!", .{});
+      } else {
+        const shader_stat_new = cwd.statFile(
+          stdio,
+          "./src/shaders/comp.spv",
+          .{},
+        ) catch unreachable;
+        if (shader_stat_new.mtime.nanoseconds != shader_file_stat.mtime.nanoseconds) {
+          shader_want_reload = true;
+          shader_file_stat = shader_stat_new;
+        }
       }
     }
 
@@ -644,15 +689,30 @@ fn createDescriptorSet(
   return .{ .pool = pool, .set = set };
 }
 
-fn createComputePipeline(
-  device: vk.DeviceProxy,
-  shader_code: []const u32,
-) !struct {
+const ComputePipeline = struct {
   pipeline: vk.Pipeline,
   layout: vk.PipelineLayout,
   dsl: vk.DescriptorSetLayout,
-  }
-{
+};
+
+fn createComputePipeline(
+  io: Io,
+  device: vk.DeviceProxy,
+  shader_filename: []const u8,
+) !ComputePipeline {
+  const cwd = Io.Dir.cwd();
+  const scratch = Thread.Context.get_scratch(0, .{}).?;
+  defer scratch.end();
+  const shader_code = transmute(
+    []const u32,
+    cwd.readFileAlloc(
+      io,
+      shader_filename,
+      scratch.arena.allocator(),
+      .unlimited,
+    ) catch unreachable,
+  );
+
   const dsl = try device.createDescriptorSetLayout(
     &.{
       .binding_count = 4,
@@ -821,8 +881,6 @@ const OffscreenBuffer = platform.OffscreenBuffer;
 
 const AppName = "vkRender";
 const AppClass = "Liam.Games.vkRender";
-
-const slang_shader_bytes = @embedFile("shaders/comp.spv");
 
 const cast = base.casts.cast;
 const transmute = base.casts.transmute;
