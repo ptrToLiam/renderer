@@ -372,7 +372,7 @@ void compMain(
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
-  // Apply User Input
+  // Write Scene Forward & Apply User Input
   //---------------------------------------------------------------------------
 
   if (all(groupId == I3(0)) && all(threadId == I3(0))) {
@@ -386,8 +386,8 @@ void compMain(
     F1 yaw = scene[fidx].camera.yaw;
     F1 mov = 0.02;
 
-    L1 keyboard = (L1_(input[fidx].key_arr_hi)<<32)
-                     | input[fidx].key_arr_lo;
+    L1 keyboard = (L1_(input[pidx].key_arr_hi)<<32)
+                     | input[pidx].key_arr_lo;
 
     F3 cam_displace = F3(0);
     F1 pitch_displace = 0;
