@@ -37,6 +37,8 @@ pub fn build(b: *std.Build) void {
     b.path("src/wayland-protocols/xdg-decoration-unstable-v1.xml"),
     b.path("src/wayland-protocols/linux-dmabuf-v1.xml"),
     b.path("src/wayland-protocols/presentation-time.xml"),
+    b.path("src/wayland-protocols/relative-pointer-unstable-v1.xml"),
+    b.path("src/wayland-protocols/pointer-constraints-unstable-v1.xml"),
   };
 
   const wayland_protocols = b.dependency("wayland_protocol_codegen", .{

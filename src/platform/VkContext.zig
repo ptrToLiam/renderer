@@ -4,6 +4,7 @@ instance_proxy: vk.InstanceProxy,
 physical_device: vk.PhysicalDevice,
 device: vk.DeviceWrapper,
 device_proxy: vk.DeviceProxy,
+device_ts_period: f32,
 queue: vk.Queue,
 command_pool: vk.CommandPool,
 upload_fence: vk.Fence,
@@ -119,6 +120,8 @@ pub fn init_device(
     );
     ctx.device_proxy = .init(device, &ctx.device);
     ctx.queue = ctx.device_proxy.getDeviceQueue(queue_family_index, 0);
+    ctx.device_ts_period = ctx.instance_proxy
+      .getPhysicalDeviceProperties(physical_device).limits.timestamp_period;
 
     ctx.command_pool = try ctx.device_proxy.createCommandPool(
       &.{

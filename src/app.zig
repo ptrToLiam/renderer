@@ -67,6 +67,7 @@ pub fn app(env: std.process.Environ) void {
     },
   );
   defer surface.release();
+  connection.lock_pointer(&surface, null);
 
   const connection_init_end_us = time.us();
   const connection_init_us = connection_init_end_us - connection_init_start_us;
@@ -91,7 +92,7 @@ pub fn app(env: std.process.Environ) void {
   const query_pool = vk_ctx.device_proxy.createQueryPool(
     &.{
       .query_type = .timestamp,
-      .query_count = 32,
+      .query_count = 2,
     },
     null,
   ) catch @panic("Unable to Create Query Pool!");
@@ -197,10 +198,6 @@ pub fn app(env: std.process.Environ) void {
   ) catch @panic("Failed to create draw_fence!");
   defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
 
-  //---------------------------------------------------------------------------
-  // Command buffer pre-recording
-  //---------------------------------------------------------------------------
-
   var cmds: [2]vk.CommandBuffer = undefined;
   vk_ctx.device_proxy.allocateCommandBuffers(
     &.{
@@ -213,8 +210,24 @@ pub fn app(env: std.process.Environ) void {
   const compute_cmd = cmds[0];
   const blit_cmd = cmds[1];
 
+  //---------------------------------------------------------------------------
+  // Command buffer pre-recording
+  //---------------------------------------------------------------------------
+
   vk_ctx.device_proxy.beginCommandBuffer(compute_cmd, &.{})
     catch @panic("Failed to begin compute command pre-record!");
+  vk_ctx.device_proxy.cmdResetQueryPool(
+    compute_cmd,
+    query_pool,
+    0,
+    2,
+  );
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    compute_cmd,
+    .{ .top_of_pipe_bit = true },
+    query_pool,
+    0,
+  );
   vk_ctx.device_proxy.cmdBindPipeline(
     compute_cmd,
     .compute,
@@ -260,6 +273,12 @@ pub fn app(env: std.process.Environ) void {
       },
     },
   );
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    compute_cmd,
+    .{ .bottom_of_pipe_bit = true },
+    query_pool,
+    1,
+  );
   vk_ctx.device_proxy.endCommandBuffer(compute_cmd)
     catch @panic("Failed to complete compute command pre-record!");
 
@@ -303,6 +322,7 @@ pub fn app(env: std.process.Environ) void {
   var shader_want_reload = false;
   var want_exit = false;
 
+  var mouse_pos: math.Vec2f32 = .{ .x = 0, .y = 0 };
 
   var bg_r: f32 = undefined;
   var bg_g: f32 = undefined;
@@ -318,6 +338,7 @@ pub fn app(env: std.process.Environ) void {
     input_packet.frame_idx = u32_(frame_idx & 0xffffffff);
     input_packet.cpu_time_hi = u32_(frame_time_start >> 32);
     input_packet.cpu_time_lo = u32_(frame_time_start & 0xffffffff);
+    defer { input_packet.mouse_x = 0; input_packet.mouse_y = 0; }
 
     var frame_scratch = Thread.Context.get_scratch(1, .{arena}).?;
     defer frame_scratch.end();
@@ -358,6 +379,7 @@ pub fn app(env: std.process.Environ) void {
             input_packet.key_arr_lo = u32_(input_packet_key_cur & 0xffffffff);
           }
           if (ev.key == exit_key) want_exit = true;
+          if (ev.key == .esc) connection.toggle_pointer_lock(&surface, null);
         },
         .release => {
           const key_base = ev.key.toBase();
@@ -375,7 +397,19 @@ pub fn app(env: std.process.Environ) void {
             input_packet.key_arr_lo = u32_(input_packet_key_cur & 0xffffffff);
           }
         },
-        .mouse_scroll, .mouse_move => {
+        .mouse_move => {
+          defer mouse_pos = ev.pos;
+          const input_mouse_x = if (!(ev.delta.x == 0))
+            ev.delta.x
+          else 0;
+          const input_mouse_y = if (!(ev.delta.y == 0))
+            ev.delta.y
+          else 0;
+
+          input_packet.mouse_x += input_mouse_x;
+          input_packet.mouse_y += input_mouse_y;
+        },
+        .mouse_scroll => {
           // TODO: app-level input handling
         },
         else => {
@@ -496,6 +530,24 @@ pub fn app(env: std.process.Environ) void {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
+      var vk_timestamps: [2]f32 = undefined;
+      if (vk_ctx.device_proxy.getQueryPoolResults(
+            query_pool,
+            0,
+            2,
+            2 * @sizeOf(f32),
+            &vk_timestamps,
+            4,
+            .{ .@"64_bit" = true },
+          ) catch unreachable == .success)
+      {
+        // const gpu_ticks_elapsed = vk_timestamps[1] - vk_timestamps[0];
+        // const gpu_ns_elapsed = gpu_ticks_elapsed * vk_ctx.device_ts_period;
+        // log.debug(
+        //   "FRAME#{}|GPU_TIMESTAMPS::{{Ticks[{x}-{x}], NS={}}}",
+        //   .{ frame_idx, vk_timestamps[0], vk_timestamps[1], gpu_ns_elapsed }
+        // );
+      }
 
       // reconstruct swapchain if needed
       if (swapchain.pending_resize) |new_dims| {

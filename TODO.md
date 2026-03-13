@@ -1,13 +1,12 @@
 # TODAY
 
-# MAYBE
-
-- [ ] Pre-Recorded VkCmdBuf?
-- [ ] VkUniformBuffer
-  - Host-visible & coherent
-  - CPU Write Start of Frame:
-    - Time
-    - User Input Data
-    - Camera
-    - Etc.
-
+- [x] Mouse Input
+  - [x] General Mouse Input
+  - [x] Lock Pointer
+  - [x] Relative Motion
+- [ ] Basic Profiling
+  - Vk Timestamp Querying
+- [ ] Instancing
+- [ ] Physics / Collisions (?)
+  - Found a paper:
+    might read -> try implement

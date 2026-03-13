@@ -1,6 +1,7 @@
 /// Needed for wayland and X11... Unsure yet as to Win32/Cocoa
 pub const Connection = struct {
   handle: Handle,
+  pointer_locked: bool = false, // TODO: Put this somewhere else... probably
 
   /// Open client connection to graphics server
   pub fn open(arena: *Arena, env: os.Environ) Connection {
@@ -61,20 +62,34 @@ pub const Connection = struct {
     );
   }
 
-  /// Create Vulkan Logical Device
-  pub fn create_vk_logical_device(
-    conn: *Connection,
-    vki: vk.InstanceProxy,
-    pdev: vk.PhysicalDevice,
-    required_extensions: []const [*:0]const u8,
-  ) struct { vk.Device, u32 } {
-    return conn.handle.create_vk_logical_device(
-      vki,
-      pdev,
-      required_extensions,
-    );
+  /// Lock Pointer Within Window
+  pub fn lock_pointer(
+    noalias conn: *Connection,
+    noalias surface: *const Surface,
+    region: ?math.Vec4i32,
+  ) void {
+    conn.handle.lock_pointer(surface.handle, region);
+    conn.pointer_locked = true;
   }
 
+  /// Unlock Pointer From Window
+  pub fn unlock_pointer(conn: *Connection) void {
+    conn.handle.unlock_pointer();
+    conn.pointer_locked = false;
+  }
+
+  /// Toggle Pointer Lock State
+  pub fn toggle_pointer_lock(
+    noalias conn: *Connection,
+    noalias surface: *const Surface,
+    region: ?math.Vec4i32,
+  ) void {
+    if (conn.pointer_locked)
+      conn.unlock_pointer()
+    else conn.lock_pointer(surface, region);
+  }
+
+  /// Flush Outgoing Messages
   pub fn flush(conn: *Connection) !void {
     return try conn.handle.flush();
   }
@@ -274,7 +289,7 @@ pub const Key = enum (u32) {
       else => .invalid,
     };
   }
-  
+
   pub fn toBase(key: Key) Key {
     return switch (key) {
       .shift_l => .shift,

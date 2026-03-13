@@ -148,8 +148,8 @@ pub const Connection = struct {
       linux_dmabuf: bool = false,
       wl_shm: bool = false,
       xdg_decoration_manager: bool = false,
-
-      __reserved_bits: u2 = 0,
+      pointer_constraints: bool = false,
+      relative_pointer_manager: bool = false,
 
       pub fn match(a: @This(), b: @This()) bool {
         return transmute(u8, a) == transmute(u8, b);
@@ -161,6 +161,8 @@ pub const Connection = struct {
         .xdg_wm_base = true,
         .linux_dmabuf = true,
         .xdg_decoration_manager = true,
+        .pointer_constraints = true,
+        .relative_pointer_manager = true,
       };
     };
 
@@ -220,6 +222,22 @@ pub const Connection = struct {
               registry_global.version,
             );
             globals_bound.xdg_decoration_manager = true;
+          } else if (std.mem.eql(u8, RelativePointerManager.Name, registry_global.interface)) {
+            connection.client_state.relative_pointer_manager = connection.client_state.registry.bind(
+              &conn_proxy,
+              registry_global.name,
+              RelativePointerManager,
+              registry_global.version,
+            );
+            globals_bound.relative_pointer_manager = true;
+          } else if (std.mem.eql(u8, PointerConstraints.Name, registry_global.interface)) {
+            connection.client_state.pointer_constraints = connection.client_state.registry.bind(
+              &conn_proxy,
+              registry_global.name,
+              PointerConstraints,
+              registry_global.version,
+            );
+            globals_bound.pointer_constraints = true;
           }
         },
         .wl_display_error => |display_error| {
@@ -423,6 +441,16 @@ pub const Connection = struct {
           };
           current_event = scroll_event;
         },
+        .zwp_relative_pointer_v1_relative_motion => |relative_motion| {
+          const relative_motion_event = arena.create(platform.Event);
+          relative_motion_event.* = .{
+            .timestamp_us = time.us(),
+            .type = .mouse_move,
+            .delta = .{ .x = relative_motion.dx, .y = relative_motion.dy },
+            .surface_handle = surface.*,
+          };
+          current_event = relative_motion_event;
+        },
         .wl_buffer_release => {
           const swapchain_image_release_event = arena.create(platform.Event);
           swapchain_image_release_event.* = .{
@@ -616,6 +644,11 @@ pub const Connection = struct {
           if (seat_capabilities.pointer) {
             conn.client_state.pointer =
               conn.client_state.seat.get_pointer(&conn_proxy);
+            conn.client_state.relative_pointer =
+              conn.client_state.relative_pointer_manager.get_relative_pointer(
+                &conn_proxy,
+                conn.client_state.pointer,
+              );
           }
         },
         .wl_seat_name => |wl_seat_name| {
@@ -672,6 +705,35 @@ pub const Connection = struct {
       .xdg_decoration = xdg_decoration,
       .is_ready = false,
     };
+  }
+
+  pub fn lock_pointer(
+    noalias conn: *Connection,
+    surface: Surface,
+    region: ?math.Vec4i32,
+  ) void {
+    var conn_proxy = conn.proxy();
+
+    if (region != null) {
+      log.warn("Region-locking pointer not implemented", .{});
+    }
+    conn.client_state.locked_pointer =
+      conn.client_state.pointer_constraints.lock_pointer(
+        &conn_proxy,
+        surface.wl_surface,
+        conn.client_state.pointer,
+        .fromInt(0),
+        .persistent,
+      );
+  }
+
+  pub fn unlock_pointer(
+    conn: *Connection,
+  ) void {
+    var conn_proxy = conn.proxy();
+
+    conn.client_state.locked_pointer.?.destroy(&conn_proxy);
+    conn.client_state.locked_pointer = null;
   }
 
   pub fn select_vk_physical_device(
@@ -1770,6 +1832,8 @@ pub const ClientState = struct {
   xdg_wm_base: XdgWmBase,
   linux_dmabuf: LinuxDmabuf,
   xdg_decoration_manager: XdgDecorationManager,
+  pointer_constraints: PointerConstraints,
+  relative_pointer_manager: RelativePointerManager,
 
   // Wayland Objects
   object_pool: ObjectPool,
@@ -1777,6 +1841,8 @@ pub const ClientState = struct {
   // Runtime Input Information
   keyboard: Keyboard,
   pointer: Pointer,
+  locked_pointer: ?LockedPointer = null,
+  relative_pointer: RelativePointer,
   keymap: []const u8 = &.{},
   xkb_ctx: *Xkb.Context = undefined,
   xkb_state: *Xkb.State = undefined,
@@ -1983,18 +2049,24 @@ pub const XdgToplevel = wl_protocols.xdg_toplevel;
 pub const WaylandShmPool = wl_protocols.wl_shm_pool;
 pub const LinuxDmabufFeedback = wl_protocols.zwp_linux_dmabuf_feedback_v1;
 
-// Global Aliases
-pub const Shm = wl_protocols.wl_shm;
-pub const Seat = wl_protocols.wl_seat;
 pub const Display = wl_protocols.wl_display;
 pub const Pointer = wl_protocols.wl_pointer;
 pub const Keyboard = wl_protocols.wl_keyboard;
 pub const Registry = wl_protocols.wl_registry;
-pub const Compositor = wl_protocols.wl_compositor;
-pub const XdgWmBase = wl_protocols.xdg_wm_base;
-pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
 pub const XdgDecoration = wl_protocols.zxdg_toplevel_decoration_v1;
+pub const RelativePointer = wl_protocols.zwp_relative_pointer_v1;
+pub const ConfinedPointer = wl_protocols.zwp_confined_pointer_v1;
+pub const LockedPointer = wl_protocols.zwp_locked_pointer_v1;
+
+// Registry Global Aliases
+pub const Shm = wl_protocols.wl_shm;
+pub const Seat = wl_protocols.wl_seat;
+pub const XdgWmBase = wl_protocols.xdg_wm_base;
+pub const Compositor = wl_protocols.wl_compositor;
+pub const LinuxDmabuf = wl_protocols.zwp_linux_dmabuf_v1;
 pub const XdgDecorationManager = wl_protocols.zxdg_decoration_manager_v1;
+pub const PointerConstraints = wl_protocols.zwp_pointer_constraints_v1;
+pub const RelativePointerManager = wl_protocols.zwp_relative_pointer_manager_v1;
 
 
 // Wayland Base Type Aliases

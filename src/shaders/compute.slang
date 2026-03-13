@@ -304,7 +304,7 @@ void compMain(
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
   F3 ro = scene[fidx].camera.position;
 
-  F3 ground_color = F3(0.8, 0.8, 0.8);
+  F3 ground_color = F3(0.2, 0.8, 0.8);
 
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
@@ -400,11 +400,17 @@ void compMain(
     cam_displace += (mov *       up) * F1_((keyboard >> KEY_SPACE)&1);
     cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
 
-    pitch_displace +=  mov * F1_((keyboard >> KEY_UP)&1);
-    pitch_displace += -mov * F1_((keyboard >> KEY_DOWN)&1);
+    // pitch_displace +=  mov * F1_((keyboard >> KEY_UP)&1);
+    // pitch_displace += -mov * F1_((keyboard >> KEY_DOWN)&1);
+    // yaw_displace +=  mov * F1_((keyboard >> KEY_LEFT)&1);
+    // yaw_displace += -mov * F1_((keyboard >> KEY_RIGHT)&1);
 
-    yaw_displace +=  mov * F1_((keyboard >> KEY_LEFT)&1);
-    yaw_displace += -mov * F1_((keyboard >> KEY_RIGHT)&1);
+    pitch_displace -= (input[pidx].mouse_y / 6000);
+    pitch_displace -= (input[pidx].mouse_y / 6000);
+
+    yaw_displace -= (input[pidx].mouse_x / 6000);
+    yaw_displace -= (input[pidx].mouse_x / 6000);
+
 
     scene[nfidx].camera.position = campos + cam_displace;
     scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
