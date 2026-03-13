@@ -395,7 +395,61 @@ pub fn app(env: std.process.Environ) void {
           vk_ctx.device_proxy,
           "./src/shaders/comp.spv",
         ) catch unreachable;
+
         log.info("Reloaded Compute Shader!", .{});
+
+        vk_ctx.device_proxy.resetCommandBuffer(compute_cmd, .{})
+          catch @panic("Failed to to reset compute command buffer");
+        vk_ctx.device_proxy.beginCommandBuffer(compute_cmd, &.{})
+          catch @panic("Failed to begin compute command re-record!");
+        vk_ctx.device_proxy.cmdBindPipeline(
+          compute_cmd,
+          .compute,
+          compute_pipeline.pipeline,
+        );
+        vk_ctx.device_proxy.cmdBindDescriptorSets(
+          compute_cmd,
+          .compute,
+          compute_pipeline.layout,
+          0,
+          1,
+          @ptrCast(&descriptor_set.set),
+          0,
+          null,
+        );
+        vk_ctx.device_proxy.cmdDispatch(
+          compute_cmd,
+          (render_image.width + 15) / 16,
+          (render_image.height + 15) / 16,
+          1,
+        );
+        vk_ctx.device_proxy.cmdPipelineBarrier(
+          compute_cmd,
+          .{ .compute_shader_bit = true },
+          .{ .transfer_bit = true },
+          .{}, 0, null, 0, null, 1,
+          &.{
+            .{
+              .src_access_mask = .{ .shader_write_bit = true },
+              .dst_access_mask = .{ .transfer_read_bit = true },
+              .old_layout = .general,
+              .new_layout = .general,
+              .image = render_image.image,
+              .subresource_range = .{
+                .aspect_mask = .{ .color_bit = true },
+                .base_mip_level = 0,
+                .level_count = 1,
+                .base_array_layer = 0,
+                .layer_count = 1,
+              },
+              .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+              .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            },
+          },
+        );
+        vk_ctx.device_proxy.endCommandBuffer(compute_cmd)
+          catch @panic("Failed to complete compute command re-record!");
+        log.info("Compute Command Buffer Re-Recorded!", .{});
       } else {
         const shader_stat_new = cwd.statFile(
           stdio,
