@@ -1,8 +1,15 @@
+//----------------------------------------------------------------------------
+// Configuration
+//----------------------------------------------------------------------------
+#define RAYMARCH_SDF 0
+// #define RAYMARCH_SDF 1
+
 //-----------------------------------------------------------------------------
 // Type & Cast Macros
 //-----------------------------------------------------------------------------
 
-#define S static
+#define I_ [ForceInline]
+#define S_ static
 
 #define F1 float
 #define F2 float2
@@ -105,12 +112,6 @@
 
 //-----------------------------------------------------------------------------
 
-struct Globals {
-  F3 color;
-  F1 time;
-  F2 resolution;
-};
-
 struct Camera {
   F3 position;
   F1 yaw;
@@ -163,26 +164,23 @@ struct InputPacket {
 //-----------------------------------------------------------------------------
 
 [[vk::binding(1,0)]]
-ConstantBuffer<Globals> globals;
-
-[[vk::binding(2,0)]]
 RWStructuredBuffer<GpuScene> scene;
 
-[[vk::binding(3,0)]]
+[[vk::binding(2,0)]]
 ConstantBuffer<InputPacket[2]> input;
 
 //-----------------------------------------------------------------------------
 
-F1 sdf_Box(F3 p, F3 center, F3 size) {
+I_ F1 sdf_Box(F3 p, F3 center, F3 size) {
   F3 q = abs(p - center) - size;
   return length(max(q, 0.0)) + min(max(q.x, max(q.y,q.z)), 0.0);
 }
 
-F1 sdf_Sphere(F3 p, F3 center, F1 r) {
+I_ F1 sdf_Sphere(F3 p, F3 center, F1 r) {
   return length(p - center) - r;
 }
 
-F2 coord_to_uv(F2 coord, I1 width, I1 height) {
+I_ F2 coord_to_uv(F2 coord, I1 width, I1 height) {
   F1 aspect_ratio = F1_(width) / F1_(height);
   F2 normalized_coords = ((coord / F2(F1_(width), F1_(height))) * 2 ) - 1;
   normalized_coords.y *= -1;
@@ -225,7 +223,7 @@ F1 smin(F1 a, F1 b, F1 k) {
 //-----------------------------------------------------------------------------
 // Input Packet Processing
 //-----------------------------------------------------------------------------
-bool input_packet_valid(I1 idx) {
+I_ bool input_packet_valid(I1 idx) {
   I1 hash = 0x55555555;
 
   hash ^= asuint(input[idx].mouse_x);
@@ -241,7 +239,7 @@ bool input_packet_valid(I1 idx) {
 }
 //-----------------------------------------------------------------------------
 
-S const I1 marchMaxSteps = 128;
+S_ const I1 marchMaxSteps = 128;
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -277,11 +275,12 @@ void compMain(
     if (p0_valid) pidx = 0;
     if (p1_valid) pidx = 1;
   }
+  InputPacket ip = input[pidx];
 
   L1 cpu_t = (L1_(input[pidx].cpu_time_hi) << 32) |
               L1_(input[pidx].cpu_time_lo);
 
-  I1 fidx = (input[pidx].frame_idx) & 1;
+  I1 fidx = (ip.frame_idx) & 1;
   I1 nfidx = (fidx + 1) & 1;
   F1 time = F1_(cpu_t) / F1_(US_PER_S);
 
@@ -290,9 +289,9 @@ void compMain(
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
 
-  F3 camera = scene[fidx].camera.position;
-  F1 yaw = scene[fidx].camera.yaw;
-  F1 pitch = scene[fidx].camera.pitch;
+  Camera camera = scene[fidx].camera;
+  F1 yaw = camera.yaw;
+  F1 pitch = camera.pitch;
   F3 forward = normalize(F3(
     cos(pitch) * sin(yaw),
     sin(pitch),
@@ -302,42 +301,44 @@ void compMain(
   F3 right = normalize(cross(forward, F3(0, 1, 0)));
   F3 up = cross(right, forward);
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
-  F3 ro = scene[fidx].camera.position;
+  F3 ro = camera.position;
 
-  F3 ground_color = F3(0.2, 0.2, 0.8);
+  F3 ground_color = F3(0.1, 0.2, 0.1);
 
-  F4 bg_color = F4(
-    lerp(F3(0.6, 0.7, 0.9),
-    F3(1.0, 1.0, 1.0),
-    clamp(rd.y * 2.0, 0.0, 1.0)),
-    1.0,
-  );
+  // F4 bg_color = F4(lerp(F3(0.6, 0.7, 0.9),
+  //                  F3(1.0, 1.0, 1.0),
+  //                  clamp(rd.y * 2.0, 0.0, 1.0)),
+  //                  1.0);
+  F4 bg_color = F4(mandelbrot_color(uv, time), 1);
+  F4 color = 0;
 
   //---------------------------------------------------------------------------
-
+#if RAYMARCH_SDF
   //---------------------------------------------------------------------------
   // SDF Scene Ray March
   //---------------------------------------------------------------------------
 
-  F4 color = bg_color;
   F3 sdf_color = F3(0);
   F1 t = 0.0;
-  for (I1 i=0;i<marchMaxSteps;++i) {
-    SdfResult res = sdf_scene(ro + rd * t, fidx, ground_color);
+  for (I1 i=0; i<marchMaxSteps; ++i) {
+    SdfResult res = sdf_scene(ro + rd*t, fidx, ground_color);
     if (res.dist < 0.001) { sdf_color = res.color; break; }
     t += res.dist;
     if (t > 128) { t = -1.0; break; }
   }
 
   if (t>0) {
-    F3 hit = ro + rd * t;
+    F3 hit = ro + rd*t;
 
     // Normal Calculation
-    F1 e = 0.001; // error step?
+    F1 e = 0.001;
     F3 normal = normalize(F3(
-      sdf_scene(hit + F3(e,0,0), fidx, ground_color).dist - sdf_scene(hit - F3(e,0,0), fidx, ground_color).dist,
-      sdf_scene(hit + F3(0,e,0), fidx, ground_color).dist - sdf_scene(hit - F3(0,e,0), fidx, ground_color).dist,
-      sdf_scene(hit + F3(0,0,e), fidx, ground_color).dist - sdf_scene(hit - F3(0,0,e), fidx, ground_color).dist,
+      sdf_scene(hit + F3(e,0,0), fidx, ground_color).dist
+       - sdf_scene(hit - F3(e,0,0), fidx, ground_color).dist,
+      sdf_scene(hit + F3(0,e,0), fidx, ground_color).dist
+       - sdf_scene(hit - F3(0,e,0), fidx, ground_color).dist,
+      sdf_scene(hit + F3(0,0,e), fidx, ground_color).dist
+       - sdf_scene(hit - F3(0,0,e), fidx, ground_color).dist,
     ));
 
     F3 light = normalize(F3(0.5, 1, -1));
@@ -346,11 +347,11 @@ void compMain(
 
     // Shadow Calculation
     F1 shadow = 1.0;
-    F3 shadow_ro = hit + normal * 0.01;
+    F3 shadow_ro = hit + normal*0.01;
     F3 shadow_rd = light;
     F1 st = 0.0;
     for (I1 i=0;i<marchMaxSteps/2;++i) {
-      F1 d = sdf_scene(shadow_ro + shadow_rd * st, fidx, ground_color).dist;
+      F1 d = sdf_scene(shadow_ro + shadow_rd*st, fidx, ground_color).dist;
       if (d < 0.001) { shadow = 0.0; break; }
       st += d;
       if (st > 10.0) { break; }
@@ -360,19 +361,79 @@ void compMain(
     F1 ao = 0.0;
     F1 ao_step = 0.1;
     for (I1 i=1;i<4;++i) {
-      F1 d = sdf_scene(hit + normal * ao_step * F1_(i), fidx, ground_color).dist;
-      ao += max(0.0, ao_step * F1_(i) - d);
+      F1 d = sdf_scene(hit+normal * ao_step*F1_(i), fidx, ground_color).dist;
+      ao += max(0.0, ao_step*F1_(i) - d);
     }
-    ao = 1.0 - clamp(ao * 2, 0, 1);
+    ao = 1.0 - clamp(ao*2, 0, 1);
 
     F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
-    color = F4( spec + ((diffuse * shadow + ambient * ao) * sdf_color), 1);
+    color = F4(spec+((diffuse*shadow + ambient*ao)*sdf_color), 1);
   }
 
   //---------------------------------------------------------------------------
 
+#else
+
+  F3 s = F3(0.3, 0.3, 1);
+  F1 r = 0.3;
+  F3 sdf_color = F3(0);
+  F1 t = 0.0;
+  for (I1 i=0; i<marchMaxSteps; ++i) {
+    F1 d = fScene(ro + rd*t);
+    if (d < 0.001) { sdf_color = F3(0.6, 0.8, 0.8); break; }
+    t += d;
+    if (t > 128) { t = -1.0; break; }
+  }
+
+  if (t>0) {
+    F3 hit = ro + rd*t;
+
+    // Normal Calculation
+    F1 e = 0.001;
+    F3 normal = normalize(F3(
+      fScene(hit + F3(e,0,0))
+       - fScene(hit - F3(e,0,0)),
+      fScene(hit + F3(0,e,0))
+       - fScene(hit - F3(0,e,0)),
+      fScene(hit + F3(0,0,e))
+       - fScene(hit - F3(0,0,e)),
+    ));
+
+    F3 light = normalize(F3(0.5, 1, -1));
+    F1 diffuse = max(dot(normal, light), 0.0);
+    F1 ambient = 0.5;
+
+    // Shadow Calculation
+    F1 shadow = 1.0;
+    F3 shadow_ro = hit + normal*0.01;
+    F3 shadow_rd = light;
+    F1 st = 0.0;
+    for (I1 i=0;i<marchMaxSteps/2;++i) {
+      F1 d = fScene(shadow_ro + shadow_rd*st);
+      if (d < 0.001) { shadow = 0.0; break; }
+      st += d;
+      if (st > 10.0) { break; }
+    }
+
+    // Ambient Occlusion
+    F1 ao = 0.0;
+    F1 ao_step = 0.1;
+    for (I1 i=1;i<4;++i) {
+      F1 d = fScene(hit+normal * ao_step*F1_(i));
+      ao += max(0.0, ao_step*F1_(i) - d);
+    }
+    ao = 1.0 - clamp(ao*2, 0, 1);
+
+    F1 spec = pow(max(dot(reflect(-light, normal), -rd), 0.0), 20.0);
+    color = F4(spec+((diffuse*shadow + ambient*ao)*sdf_color), 1);
+  }
+
+#endif
+
   //---------------------------------------------------------------------------
   // Write Scene Forward & Apply User Input
+  //---------------------------------------------------------------------------
+
   //---------------------------------------------------------------------------
 
   if (all(groupId == I3(0)) && all(threadId == I3(0))) {
@@ -381,43 +442,35 @@ void compMain(
     scene[nfidx].sphere.center =
       scene[fidx].sphere.center + F3(0.008*sin(time), 0.0001*sin(time), 0.0002*sin(time));
 
-    F3 campos = scene[fidx].camera.position;
-    F1 pitch = scene[fidx].camera.pitch;
-    F1 yaw = scene[fidx].camera.yaw;
+    F3 campos = camera.position;
+    F1 pitch = camera.pitch;
+    F1 yaw = camera.yaw;
     F1 mov = 0.02;
 
-    L1 keyboard = (L1_(input[pidx].key_arr_hi)<<32)
-                     | input[pidx].key_arr_lo;
+    L1 keyboard = (L1_(ip.key_arr_hi)<<32)
+                     | ip.key_arr_lo;
 
     F3 cam_displace = F3(0);
     F1 pitch_displace = 0;
     F1 yaw_displace = 0;
 
-    cam_displace += (mov *  forward) * F1_((keyboard >> KEY_W)&1);
     cam_displace += (mov * -forward) * F1_((keyboard >> KEY_S)&1);
-    cam_displace += (mov *    right) * F1_((keyboard >> KEY_D)&1);
+    cam_displace += (mov *  forward) * F1_((keyboard >> KEY_W)&1);
     cam_displace += (mov *   -right) * F1_((keyboard >> KEY_A)&1);
-    cam_displace += (mov *       up) * F1_((keyboard >> KEY_SPACE)&1);
+    cam_displace += (mov *    right) * F1_((keyboard >> KEY_D)&1);
     cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
+    cam_displace += (mov *       up) * F1_(((keyboard >> KEY_SPACE)&1)
+                                          |((keyboard >> KEY_ENTER)&1));
 
-    // pitch_displace +=  mov * F1_((keyboard >> KEY_UP)&1);
-    // pitch_displace += -mov * F1_((keyboard >> KEY_DOWN)&1);
-    // yaw_displace +=  mov * F1_((keyboard >> KEY_LEFT)&1);
-    // yaw_displace += -mov * F1_((keyboard >> KEY_RIGHT)&1);
+    pitch_displace -= (ip.mouse_y / 1200);
 
-    pitch_displace -= (input[pidx].mouse_y / 6000);
-    pitch_displace -= (input[pidx].mouse_y / 6000);
-
-    yaw_displace -= (input[pidx].mouse_x / 6000);
-    yaw_displace -= (input[pidx].mouse_x / 6000);
+    yaw_displace -= (ip.mouse_x / 1200);
 
 
     scene[nfidx].camera.position = campos + cam_displace;
     scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
     scene[nfidx].camera.yaw = yaw + yaw_displace;
   }
-
-  //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
   // Final Output
@@ -428,7 +481,47 @@ void compMain(
   //---------------------------------------------------------------------------
 }
 
-S const I1 kMaxIter = 1024;
+F1 fScene(F3 p) {
+  F1 ball = fSphere(p, F3(0.2), 0.3);
+  F1 box = fBox(rot3D(p, F3(0,1,0), 0.3), F3(1, -1, 1), F3(0.2));
+  F1 col = fCylinder(p, F3(-1, 1, -1), F3(1, -1, 1), 0.4);
+  F1 boco = min(col, box);
+  F1 coba = max(boco, -ball);
+
+  F3 pt = p;
+  pt.x = fmod(p.x, 2.0) - 1;
+  F1 ptb = fSphere(pt, F3(0), 0.2);
+  pt.x = fmod(p.x, 2.0) + 1;
+  F1 pta = fSphere(pt, F3(0), 0.2);
+
+  F3 sp = p * F3(2,1,1);
+  F1 sba = fSphere(sp, F3(0.3), 0.3) / 2;
+  return min(min(min(coba, ptb), pta),sba);
+}
+
+I_ F1 fSphere(F3 p, F3 c, F1 r) {
+  return length(p - c) - r;
+}
+
+I_ F1 fBox(F3 p, F3 c, F3 size) {
+  F3 q = abs(p - c) - size;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y,q.z)), 0.0);
+}
+
+I_ F1 fCylinder(F3 p, F3 a, F3 b, F1 r) {
+  F3  ba = b - a;
+  F3  pa = p - a;
+  F1 baba = dot(ba,ba);
+  F1 paba = dot(pa,ba);
+  F1 x = length(pa*baba-ba*paba) - r*baba;
+  F1 y = abs(paba-baba*0.5)-baba*0.5;
+  F1 x2 = x*x;
+  F1 y2 = y*y*baba;
+  F1 d = (max(x,y)<0.0)?-min(x2,y2):(((x>0.0)?x2:0.0)+((y>0.0)?y2:0.0));
+  return sign(d)*sqrt(abs(d))/baba;
+}
+
+S_ const I1 kMaxIter = 1024;
 I1 mandelbrot(inout F2 z, F1 time) {
   const F2 c = z;
   for (I1 i = 0; i < kMaxIter; i++) {
@@ -440,12 +533,12 @@ I1 mandelbrot(inout F2 z, F1 time) {
   return kMaxIter;
 }
 
-F3 mandelbrot_color(F2 uv){
-  I1 i = mandelbrot(uv, globals.time);
+F3 mandelbrot_color(F2 uv, F1 time){
+  I1 i = mandelbrot(uv, time);
   F3 color = F3(0.0);
   if (i != kMaxIter) {
-    color = 0.5 + 0.5 * sin(i + globals.time + F3(0, 0.5, 1)
-                              -log2(log2(dot(uv, uv))));
+    color = 0.5 + 0.5 * sin(i + time + F3(0, 0.5, 1)
+                            -log2(log2(dot(uv, uv))));
   }
   return color;
 }

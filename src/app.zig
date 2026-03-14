@@ -99,20 +99,6 @@ pub fn app(env: std.process.Environ) void {
   defer vk_ctx.device_proxy.destroyQueryPool(query_pool, null);
   _ = &query_pool;
 
-  const globals_buffer = vk_ctx.alloc_buffer(
-    @sizeOf(ShaderGlobals),
-    .{ .uniform_buffer_bit = true },
-    .{ .host_visible_bit = true, .host_coherent_bit = true },
-  ) catch @panic("Unable to alloc host-visible globals buffer");
-  defer vk_ctx.destroy_buffer(globals_buffer);
-
-  const globals_mapped = vk_ctx.device_proxy.mapMemory(
-    globals_buffer.memory,
-    0,
-    @sizeOf(ShaderGlobals),
-    .{},
-  ) catch @panic("Unable to map host-visible globals buffer");
-
   const img_fmt: gfx.Format = .rgba32;
   // prepare render image
   const render_image = vk_ctx.alloc_image(
@@ -187,7 +173,6 @@ pub fn app(env: std.process.Environ) void {
     vk_ctx.device_proxy,
     compute_pipeline.dsl,
     render_image.view,
-    globals_buffer,
     scene_buffer,
     input_buffer,
   ) catch unreachable;
@@ -296,13 +281,9 @@ pub fn app(env: std.process.Environ) void {
         .press => {
           const key_base = ev.key.toBase();
           if (u32_(key_base) < 64) {
-            log.debug(
-              "PRESS={{ .key={} (0x{x}) }}",
-              .{ key_base, u64_(key_base) },
-            );
             var input_packet_key_cur =
-              (u64_(input_packet.key_arr_hi) << 32) |
-              input_packet.key_arr_lo;
+              (u64_(input_packet.key_arr_hi) << 32)
+                  | input_packet.key_arr_lo;
 
             input_packet_key_cur |= (u64_(1) << cast(u6, u32_(key_base)));
             input_packet.key_arr_hi = u32_(input_packet_key_cur >> 32);
@@ -314,13 +295,9 @@ pub fn app(env: std.process.Environ) void {
         .release => {
           const key_base = ev.key.toBase();
           if (u32_(key_base) < 64) {
-            log.debug(
-              "RELEASE={{ .key={} (0x{x}) }}",
-              .{ key_base, u64_(key_base) },
-            );
             var input_packet_key_cur =
-              (u64_(input_packet.key_arr_hi) << 32) |
-              input_packet.key_arr_lo;
+              (u64_(input_packet.key_arr_hi) << 32)
+                  | input_packet.key_arr_lo;
 
             input_packet_key_cur &= ~(u64_(1) << cast(u6, u32_(key_base)));
             input_packet.key_arr_hi = u32_(input_packet_key_cur >> 32);
@@ -381,15 +358,6 @@ pub fn app(env: std.process.Environ) void {
 
     input_packet.write_hash();
 
-    const shader_globals: ShaderGlobals = .{
-        .color = .{ bg_r, bg_g, bg_b, },
-        .time = f32_(f64_(time.us()) / time.us_per_s),
-    };
-    @memcpy(
-      transmute([*]u8, globals_mapped.?)[0..@sizeOf(ShaderGlobals)],
-      transmute([*]const u8, &shader_globals)[0..@sizeOf(ShaderGlobals)],
-    );
-
     // 2-packet ringbuffer, mask idx
     const masked_gpu_write = gpu_input_write & (input_buffer.size - 1);
     @memcpy(
@@ -404,29 +372,24 @@ pub fn app(env: std.process.Environ) void {
     // Draw Logic
     {
       _ = vk_ctx.device_proxy.waitForFences(
-        1,
-        @ptrCast(&draw_fence),
-        .true,
-        math.maxInt(u32),
-      ) catch |err| {
+        1, @ptrCast(&draw_fence), .true,
+        math.maxInt(u32)) catch |err|
+      {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
+
       var vk_timestamps: [2]u64 = undefined;
       if (vk_ctx.device_proxy.getQueryPoolResults(
-            query_pool,
-            0,
-            2,
-            2 * @sizeOf(u64),
-            &vk_timestamps,
-            @sizeOf(u64),
-            .{ .@"64_bit" = true },
-          ) catch unreachable == .success)
+        query_pool, 0, 2, 2 * @sizeOf(u64),
+        &vk_timestamps, @sizeOf(u64),
+        .{ .@"64_bit" = true }) catch unreachable == .success)
       {
-        const gpu_ticks_elapsed = vk_timestamps[1] - vk_timestamps[0];
-        const gpu_ns_elapsed = @as(f64, @floatFromInt(gpu_ticks_elapsed)) * vk_ctx.device_ts_period;
-        log.debug(
-          "FRAME#{}|ComputeShaderTime={}us",
+        const gpu_ticks_elapsed = vk_timestamps[ComputeDispatchTimestampEndIdx]
+                                - vk_timestamps[ComputeDispatchTimestampBeginIdx];
+        const gpu_ns_elapsed = f64_(gpu_ticks_elapsed) * vk_ctx.device_ts_period;
+        log.info(
+          "FRAME#{}|ComputeShaderTime :: {}us",
           .{ frame_idx-%1, gpu_ns_elapsed / time.ns_per_us },
         );
       }
@@ -492,27 +455,22 @@ pub fn app(env: std.process.Environ) void {
       first_attach = false;
     }
     const frame_elapsed_us = frame_time_end - frame_time_start;
+    log.info("FRAME#{}|CpuMainLoopTime   :: {}us",
+            .{ frame_idx, frame_elapsed_us });
     if (frame_elapsed_us < time_target) {
       Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
     }
   }
 
   _ = vk_ctx.device_proxy.waitForFences(
-    1,
-    @ptrCast(&draw_fence),
-    .true,
-    math.maxInt(u32),
-  ) catch |err| {
+    1, @ptrCast(&draw_fence), .true,
+    math.maxInt(u32)) catch |err|
+  {
     log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
     @panic("Failed to wait for fences");
   };
 }
 
-fn update() void {
-}
-
-fn draw() void {
-}
 inline fn record_compute_cmd(
   vk_ctx: *const VkContext,
   cmd: vk.CommandBuffer,
@@ -526,7 +484,7 @@ inline fn record_compute_cmd(
     cmd,
     .{ .compute_shader_bit = true },
     query_pool,
-    0,
+    ComputeDispatchTimestampBeginIdx,
   );
   vk_ctx.device_proxy.cmdBindPipeline(
     cmd,
@@ -575,12 +533,12 @@ inline fn record_compute_cmd(
     cmd,
     .{ .compute_shader_bit = true },
     query_pool,
-    1,
+    ComputeDispatchTimestampEndIdx,
   );
   try vk_ctx.device_proxy.endCommandBuffer(cmd);
 }
 
-fn record_blit_cmd(
+inline fn record_blit_cmd(
   noalias vk_ctx: *const VkContext,
   cmd: vk.CommandBuffer,
   src: VkContext.Image,
@@ -644,44 +602,33 @@ fn record_blit_cmd(
   try vk_ctx.device_proxy.endCommandBuffer(cmd);
 }
 
-const DescriptorSet = struct {
-  pool: vk.DescriptorPool,
-  set: vk.DescriptorSet,
-};
-
-fn createDescriptorSet(
+inline fn createDescriptorSet(
   device: vk.DeviceProxy,
   dsl: vk.DescriptorSetLayout,
   render_image_view: vk.ImageView,
-  globals_buffer: VkContext.Buffer,
   scene_buffer: VkContext.Buffer,
   input_buffer: VkContext.Buffer,
 ) !DescriptorSet {
   const pool = try device.createDescriptorPool(
-    &.{
-      .max_sets = 1,
-      .pool_size_count = 3,
+    &.{ .max_sets = 1, .pool_size_count = 3,
       .p_pool_sizes = &.{
         .{ .type = .storage_image, .descriptor_count = 1 },
-        .{ .type = .uniform_buffer, .descriptor_count = 2 },
         .{ .type = .storage_buffer, .descriptor_count = 1 },
-      },
-    },
-    null,
+        .{ .type = .uniform_buffer, .descriptor_count = 1 },
+    }}, null,
   );
   errdefer device.destroyDescriptorPool(pool, null);
 
   var set: vk.DescriptorSet = undefined;
   try device.allocateDescriptorSets(&.{
-      .descriptor_pool = pool,
-      .descriptor_set_count = 1,
-      .p_set_layouts = &.{dsl},
+    .descriptor_pool = pool,
+    .descriptor_set_count = 1,
+    .p_set_layouts = &.{dsl},
   }, @ptrCast(&set));
 
   // Write the storage image binding
   device.updateDescriptorSets(
-    4,
-    &.{
+    3, &.{
       .{
         .dst_set = set,
         .dst_binding = 0,
@@ -703,22 +650,6 @@ fn createDescriptorSet(
         .dst_binding = 1,
         .dst_array_element = 0,
         .descriptor_count = 1,
-        .descriptor_type = .uniform_buffer,
-        .p_texel_buffer_view = &.{},
-        .p_image_info = &.{},
-        .p_buffer_info = &.{
-          .{
-            .offset = 0,
-            .buffer = globals_buffer.buffer,
-            .range = globals_buffer.size,
-          },
-        },
-      },
-      .{
-        .dst_set = set,
-        .dst_binding = 2,
-        .dst_array_element = 0,
-        .descriptor_count = 1,
         .descriptor_type = .storage_buffer,
         .p_texel_buffer_view = &.{},
         .p_image_info = &.{},
@@ -732,7 +663,7 @@ fn createDescriptorSet(
       },
       .{
         .dst_set = set,
-        .dst_binding = 3,
+        .dst_binding = 2,
         .dst_array_element = 0,
         .descriptor_count = 1,
         .descriptor_type = .uniform_buffer,
@@ -746,20 +677,11 @@ fn createDescriptorSet(
           },
         },
       },
-    },
-    0,
-    null,
-  );
+  }, 0, null);
   return .{ .pool = pool, .set = set };
 }
 
-const ComputePipeline = struct {
-  pipeline: vk.Pipeline,
-  layout: vk.PipelineLayout,
-  dsl: vk.DescriptorSetLayout,
-};
-
-fn createComputePipeline(
+inline fn createComputePipeline(
   io: Io,
   device: vk.DeviceProxy,
   shader_filename: []const u8,
@@ -770,56 +692,37 @@ fn createComputePipeline(
   const shader_code = transmute(
     []const u32,
     cwd.readFileAlloc(
-      io,
-      shader_filename,
+      io, shader_filename,
       scratch.arena.allocator(),
       .unlimited,
-    ) catch unreachable,
-  );
+    ) catch unreachable);
 
   const dsl = try device.createDescriptorSetLayout(
-    &.{
-      .binding_count = 4,
-      .p_bindings = &.{
-        .{
-          .binding = 0,
-          .descriptor_type = .storage_image,
-          .descriptor_count = 1,
-          .stage_flags = .{ .compute_bit = true },
-        },
-        .{
-          .binding = 1,
-          .descriptor_type = .uniform_buffer,
-          .descriptor_count = 1,
-          .stage_flags = .{ .compute_bit = true },
-        },
-        .{
-          .binding = 2,
-          .descriptor_type = .storage_buffer,
-          .descriptor_count = 1,
-          .stage_flags = .{ .compute_bit = true },
-        },
-        .{
-          .binding = 3,
-          .descriptor_type = .uniform_buffer,
-          .descriptor_count = 1,
-          .stage_flags = .{ .compute_bit = true },
-        },
+    &.{ .binding_count = 4, .p_bindings = &.{
+      .{
+        .binding = 0, .descriptor_type = .storage_image,
+        .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
       },
-    },
-    null,
-  );
+      .{
+        .binding = 1, .descriptor_type = .uniform_buffer,
+        .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
+      },
+      .{
+        .binding = 2, .descriptor_type = .storage_buffer,
+        .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
+      },
+      .{
+        .binding = 3, .descriptor_type = .uniform_buffer,
+        .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
+      },
+    }}, null);
   errdefer device.destroyDescriptorSetLayout(dsl, null);
 
   const layout = try device.createPipelineLayout(
     &.{
-      .set_layout_count = 1,
-      .p_set_layouts = &.{dsl},
-      .push_constant_range_count = 0,
-      .p_push_constant_ranges = null,
-    },
-    null,
-  );
+      .set_layout_count = 1, .p_set_layouts = &.{dsl},
+      .push_constant_range_count = 0, .p_push_constant_ranges = null,
+    }, null);
   errdefer device.destroyPipelineLayout(layout, null);
 
   const shader_module = try device.createShaderModule(&.{
@@ -830,22 +733,15 @@ fn createComputePipeline(
 
   var pipeline: vk.Pipeline = undefined;
   _ = try device.createComputePipelines(
-    .null_handle,
-    1,
-    &.{
+    .null_handle, 1, &.{
       .{
         .stage = .{
           .stage = .{ .compute_bit = true },
-          .module = shader_module,
-          .p_name = "compMain",
+          .module = shader_module, .p_name = "compMain",
         },
-        .layout = layout,
-        .base_pipeline_index = -1,
+        .layout = layout, .base_pipeline_index = -1,
       },
-    },
-    null,
-    @ptrCast(&pipeline),
-  );
+    }, null, @ptrCast(&pipeline));
 
   return .{
     .pipeline = pipeline,
@@ -854,30 +750,38 @@ fn createComputePipeline(
   };
 }
 
-fn createShaderModule(
+inline fn createShaderModule(
   dev: vk.DeviceProxy,
   code: []const u32,
 ) vk.ShaderModule {
-  const createInfo: vk.ShaderModuleCreateInfo = .{
-    .flags = .{},
-    .code_size = code.len * 4,
-    .p_code = code.ptr,
-  };
-
   const shader_module = dev.createShaderModule(
-    &createInfo,
-    null,
-  ) catch unreachable;
+    &.{
+      .flags = .{},
+      .code_size = code.len * @sizeOf(u32),
+      .p_code = code.ptr,
+    }, null) catch unreachable;
   return shader_module;
 }
+
+const DescriptorSet = struct {
+  pool: vk.DescriptorPool,
+  set: vk.DescriptorSet,
+};
+
+const ComputePipeline = struct {
+  pipeline: vk.Pipeline,
+  layout: vk.PipelineLayout,
+  dsl: vk.DescriptorSetLayout,
+};
+
+const ComputeDispatchTimestampBeginIdx = 0;
+const ComputeDispatchTimestampEndIdx = 1;
+const BlitCmdTimestampBeginIdx = 2;
+const BlitCmdTimestampEndIdx = 3;
+
 //-----------------------------------------------------------------------------
 // Shader-Side Structs
 //-----------------------------------------------------------------------------
-
-const ShaderGlobals = extern struct {
-  color: [3]f32,
-  time: f32,
-};
 
 const InputPacket = extern struct {
   packet_hash: u32,
