@@ -129,6 +129,13 @@ struct Sphere {
   F1 radius;
 };
 
+struct SdfEdit {
+  F3 position; // center position
+  I1 tag; // what primitive to apply
+  F3 extent; // F3 size or F3.x radius
+  I1 op; // add, subtract, union, intersect?
+};
+
 struct SdfResult {
   F1 dist;
   F3 color;
