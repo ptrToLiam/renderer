@@ -92,7 +92,7 @@ pub fn app(env: std.process.Environ) void {
   const query_pool = vk_ctx.device_proxy.createQueryPool(
     &.{
       .query_type = .timestamp,
-      .query_count = 2,
+      .query_count = 32,
     },
     null,
   ) catch @panic("Unable to Create Query Pool!");
@@ -210,79 +210,9 @@ pub fn app(env: std.process.Environ) void {
   const compute_cmd = cmds[0];
   const blit_cmd = cmds[1];
 
-  //---------------------------------------------------------------------------
-  // Command buffer pre-recording
-  //---------------------------------------------------------------------------
-
-  vk_ctx.device_proxy.beginCommandBuffer(compute_cmd, &.{})
-    catch @panic("Failed to begin compute command pre-record!");
-  vk_ctx.device_proxy.cmdResetQueryPool(
-    compute_cmd,
-    query_pool,
-    0,
-    2,
-  );
-  vk_ctx.device_proxy.cmdWriteTimestamp(
-    compute_cmd,
-    .{ .top_of_pipe_bit = true },
-    query_pool,
-    0,
-  );
-  vk_ctx.device_proxy.cmdBindPipeline(
-    compute_cmd,
-    .compute,
-    compute_pipeline.pipeline,
-  );
-  vk_ctx.device_proxy.cmdBindDescriptorSets(
-    compute_cmd,
-    .compute,
-    compute_pipeline.layout,
-    0,
-    1,
-    @ptrCast(&descriptor_set.set),
-    0,
-    null,
-  );
-  vk_ctx.device_proxy.cmdDispatch(
-    compute_cmd,
-    (render_image.width + 15) / 16,
-    (render_image.height + 15) / 16,
-    1,
-  );
-  vk_ctx.device_proxy.cmdPipelineBarrier(
-    compute_cmd,
-    .{ .compute_shader_bit = true },
-    .{ .transfer_bit = true },
-    .{}, 0, null, 0, null, 1,
-    &.{
-      .{
-        .src_access_mask = .{ .shader_write_bit = true },
-        .dst_access_mask = .{ .transfer_read_bit = true },
-        .old_layout = .general,
-        .new_layout = .general,
-        .image = render_image.image,
-        .subresource_range = .{
-          .aspect_mask = .{ .color_bit = true },
-          .base_mip_level = 0,
-          .level_count = 1,
-          .base_array_layer = 0,
-          .layer_count = 1,
-        },
-        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      },
-    },
-  );
-  vk_ctx.device_proxy.cmdWriteTimestamp(
-    compute_cmd,
-    .{ .bottom_of_pipe_bit = true },
-    query_pool,
-    1,
-  );
-  vk_ctx.device_proxy.endCommandBuffer(compute_cmd)
-    catch @panic("Failed to complete compute command pre-record!");
-
-  //---------------------------------------------------------------------------
+  record_compute_cmd(&vk_ctx, compute_cmd, compute_pipeline,
+                    descriptor_set, render_image, query_pool)
+                    catch @panic("Compute CmdBuf Record Failed!");
 
   //---------------------------------------------------------------------------
   // Initial GPU Scene Upload
@@ -432,57 +362,9 @@ pub fn app(env: std.process.Environ) void {
 
         log.info("Reloaded Compute Shader!", .{});
 
-        vk_ctx.device_proxy.resetCommandBuffer(compute_cmd, .{})
-          catch @panic("Failed to to reset compute command buffer");
-        vk_ctx.device_proxy.beginCommandBuffer(compute_cmd, &.{})
-          catch @panic("Failed to begin compute command re-record!");
-        vk_ctx.device_proxy.cmdBindPipeline(
-          compute_cmd,
-          .compute,
-          compute_pipeline.pipeline,
-        );
-        vk_ctx.device_proxy.cmdBindDescriptorSets(
-          compute_cmd,
-          .compute,
-          compute_pipeline.layout,
-          0,
-          1,
-          @ptrCast(&descriptor_set.set),
-          0,
-          null,
-        );
-        vk_ctx.device_proxy.cmdDispatch(
-          compute_cmd,
-          (render_image.width + 15) / 16,
-          (render_image.height + 15) / 16,
-          1,
-        );
-        vk_ctx.device_proxy.cmdPipelineBarrier(
-          compute_cmd,
-          .{ .compute_shader_bit = true },
-          .{ .transfer_bit = true },
-          .{}, 0, null, 0, null, 1,
-          &.{
-            .{
-              .src_access_mask = .{ .shader_write_bit = true },
-              .dst_access_mask = .{ .transfer_read_bit = true },
-              .old_layout = .general,
-              .new_layout = .general,
-              .image = render_image.image,
-              .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-              },
-              .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-              .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            },
-          },
-        );
-        vk_ctx.device_proxy.endCommandBuffer(compute_cmd)
-          catch @panic("Failed to complete compute command re-record!");
+        record_compute_cmd(&vk_ctx, compute_cmd, compute_pipeline,
+                          descriptor_set, render_image, query_pool)
+                          catch @panic("Compute CmdBuf Record Failed!");
         log.info("Compute Command Buffer Re-Recorded!", .{});
       } else {
         const shader_stat_new = cwd.statFile(
@@ -530,23 +412,23 @@ pub fn app(env: std.process.Environ) void {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
-      var vk_timestamps: [2]f32 = undefined;
+      var vk_timestamps: [2]u64 = undefined;
       if (vk_ctx.device_proxy.getQueryPoolResults(
             query_pool,
             0,
             2,
-            2 * @sizeOf(f32),
+            2 * @sizeOf(u64),
             &vk_timestamps,
-            4,
+            @sizeOf(u64),
             .{ .@"64_bit" = true },
           ) catch unreachable == .success)
       {
-        // const gpu_ticks_elapsed = vk_timestamps[1] - vk_timestamps[0];
-        // const gpu_ns_elapsed = gpu_ticks_elapsed * vk_ctx.device_ts_period;
-        // log.debug(
-        //   "FRAME#{}|GPU_TIMESTAMPS::{{Ticks[{x}-{x}], NS={}}}",
-        //   .{ frame_idx, vk_timestamps[0], vk_timestamps[1], gpu_ns_elapsed }
-        // );
+        const gpu_ticks_elapsed = vk_timestamps[1] - vk_timestamps[0];
+        const gpu_ns_elapsed = @as(f64, @floatFromInt(gpu_ticks_elapsed)) * vk_ctx.device_ts_period;
+        log.debug(
+          "FRAME#{}|ComputeShaderTime={}us",
+          .{ frame_idx-%1, gpu_ns_elapsed / time.ns_per_us },
+        );
       }
 
       // reconstruct swapchain if needed
@@ -577,6 +459,11 @@ pub fn app(env: std.process.Environ) void {
           @panic("Fence reset failed");
         };
 
+        vk_ctx.device_proxy.resetQueryPool(
+          query_pool,
+          0,
+          2,
+        );
         vk_ctx.device_proxy.queueSubmit(
           vk_ctx.queue,
           1,
@@ -625,6 +512,72 @@ fn update() void {
 }
 
 fn draw() void {
+}
+inline fn record_compute_cmd(
+  vk_ctx: *const VkContext,
+  cmd: vk.CommandBuffer,
+  pipeline: ComputePipeline,
+  descriptor_set: DescriptorSet,
+  render_image: VkContext.Image,
+  query_pool: vk.QueryPool,
+) !void {
+  try vk_ctx.device_proxy.beginCommandBuffer(cmd, &.{});
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    0,
+  );
+  vk_ctx.device_proxy.cmdBindPipeline(
+    cmd,
+    .compute,
+    pipeline.pipeline,
+  );
+  vk_ctx.device_proxy.cmdBindDescriptorSets(
+    cmd,
+    .compute,
+    pipeline.layout,
+    0,
+    1,
+    @ptrCast(&descriptor_set.set),
+    0,
+    null,
+  );
+  vk_ctx.device_proxy.cmdDispatch(
+    cmd,
+    (render_image.width + 15) / 16,
+    (render_image.height + 15) / 16,
+    1,
+  );
+  vk_ctx.device_proxy.cmdPipelineBarrier(
+    cmd,
+    .{ .compute_shader_bit = true },
+    .{ .transfer_bit = true },
+    .{}, 0, null, 0, null, 1,
+    &.{.{
+      .src_access_mask = .{ .shader_write_bit = true },
+      .dst_access_mask = .{ .transfer_read_bit = true },
+      .old_layout = .general,
+      .new_layout = .general,
+      .image = render_image.image,
+      .subresource_range = .{
+        .aspect_mask = .{ .color_bit = true },
+        .base_mip_level = 0,
+        .level_count = 1,
+        .base_array_layer = 0,
+        .layer_count = 1,
+      },
+      .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+      .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+    }},
+  );
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    1,
+  );
+  try vk_ctx.device_proxy.endCommandBuffer(cmd);
 }
 
 fn record_blit_cmd(
@@ -691,6 +644,11 @@ fn record_blit_cmd(
   try vk_ctx.device_proxy.endCommandBuffer(cmd);
 }
 
+const DescriptorSet = struct {
+  pool: vk.DescriptorPool,
+  set: vk.DescriptorSet,
+};
+
 fn createDescriptorSet(
   device: vk.DeviceProxy,
   dsl: vk.DescriptorSetLayout,
@@ -698,7 +656,7 @@ fn createDescriptorSet(
   globals_buffer: VkContext.Buffer,
   scene_buffer: VkContext.Buffer,
   input_buffer: VkContext.Buffer,
-) !struct { pool: vk.DescriptorPool, set: vk.DescriptorSet } {
+) !DescriptorSet {
   const pool = try device.createDescriptorPool(
     &.{
       .max_sets = 1,

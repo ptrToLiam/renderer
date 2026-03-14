@@ -196,7 +196,7 @@ SdfResult sdf_scene(F3 point, I1 fidx, F3 ground_color) {
   F1 sphere_dist =
     sdf_Sphere( point, scene[fidx].sphere.center, scene[fidx].sphere.radius);
   F1 box_dist = sdf_Box(point, scene[fidx].box.center, scene[fidx].box.size);
-  F2 sm = smin_col(sphere_dist, box_dist, 0.4); // smin = blended edge
+  F2 sm = smin_col(sphere_dist, box_dist, 0.2); // smin = blended edge
   F3 shape_color =
     lerp(scene[fidx].sphere.color.rgb, scene[fidx].box.color.rgb, sm.y);
 
@@ -304,7 +304,7 @@ void compMain(
   F3 rd = normalize(uv.x * right + uv.y * up + 1.5 * forward);
   F3 ro = scene[fidx].camera.position;
 
-  F3 ground_color = F3(0.2, 0.8, 0.8);
+  F3 ground_color = F3(0.2, 0.2, 0.8);
 
   F4 bg_color = F4(
     lerp(F3(0.6, 0.7, 0.9),
