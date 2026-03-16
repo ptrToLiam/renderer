@@ -3,6 +3,17 @@
 A file for general notes and thoughts related to this project that may not
 necessarily belong in a `TODO` yet.
 
+## RETURNING CONTEXT
+
+- SPLIT INTO UPDATE & RENDER PASSES
+- UPDATE WITH Threads(128,1,1)
+- RENDER WITH Threads(16,16,1)
+- Physics in UPDATE
+- Entities Buffer Separate from World (?)
+- Parallelized physics
+- SDF Collision Solver
+- Tetrahedral normal sampling
+
 ## Instanced Rendering
 
 Render N instances of O.
@@ -24,7 +35,7 @@ SDF collision detection - evaluate sdf_scene(entity_pos) < entity_radius
 
 SDF collision normal - finite differences on sdf_scene at contact point
   (same code as surface normal calculation, already implemented)
-  
+
 Inter-Entity Collisions - naive O(N²), GPU uniform grid for broad phase
 
 ## Mouse Input

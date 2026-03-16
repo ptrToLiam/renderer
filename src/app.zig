@@ -204,21 +204,42 @@ pub fn app(env: std.process.Environ) void {
   //---------------------------------------------------------------------------
 
   const initial_scene: GpuScene = .{
-    .sphere = .{
-      .color = .{ 0.3, 0.6, 0.8, 1.0 },
-      .center = .{ 0, 0, 0 },
-      .radius = 0.3,
-    },
-    .box = .{
-      .color = .{ 0.8, 0.2, 0.8, 1.0 },
-      .center = .{ 0.5, 0.0, 0.0 },
-      .size = .{ 0.2, 0.4, 0.1 },
-    },
     .camera = .{
       .position = .{ 0, 1.3, -3 },
       .yaw = 0,
       .pitch = -0.3,
     },
+    .edit_count = 2,
+    .hovered = 0,
+    .selected = 0,
+    .edits = .{
+      SdfEdit{
+        .position = .{ 0.5, 0.5, 0.5 },
+        .tag = 0,
+        .extent = .{ 0.3, 0, 0 },
+        .op = 0,
+      },
+      SdfEdit{
+        .position = .{ 0.3, 1.0, 0.3 },
+        .tag = 1,
+        .extent = .{ 0.3, 0.3, 0.3 },
+        .op = 0,
+      },
+    } ++ @as([510]SdfEdit, @splat(undefined)),
+    .physics = .{
+      PhysicsState{
+        .pos_prev = .{ 0.5, 0.5, 0.5 },
+        .mass = 1,
+        .velocity = .{ 0, 0.1, 0 },
+        .restitution = 0.8,
+      },
+      PhysicsState{
+        .pos_prev = .{ 0.3, 1.0, 0.3 },
+        .mass = 1,
+        .velocity = .{ 0, 0.1, 0 },
+        .restitution = 0.1,
+      },
+    } ++ @as([510]PhysicsState, @splat(undefined)),
   };
 
   vk_ctx.upload_buffer(GpuScene, &initial_scene, scene_buffer)
@@ -812,26 +833,54 @@ const InputPacket = extern struct {
   }
 };
 
-const GpuScene = extern struct {
-  sphere: Sphere,
-  box: Box,
-  camera: Camera,
+
+// Note: Tag/Op can be combined into 2 u16s later, if in need of
+//       adding more data into the fields.
+// -LM
+const SdfEdit = extern struct {
+  position: [3]f32,
+  tag: u32,
+  extent: [3]f32,
+  op: u32,
 };
+
+const PhysicsState = extern struct {
+  pos_prev: [3]f32 align(16),
+  mass: f32,
+  velocity: [3]f32 align(16),
+  restitution: f32,
+};
+
+const GpuScene = extern struct {
+  camera: Camera,
+  edit_count: u32,
+  hovered: u32,
+  selected: u32,
+  prev_time: u64 = 0,
+  edits: [512]SdfEdit align(16),
+  physics: [512]PhysicsState align(16),
+};
+
+// const GpuSceneOld = extern struct {
+//   camera: Camera,
+//   sphere: Sphere,
+//   box: Box,
+// };
 
 const Sphere = extern struct {
   color: [4]f32,
-  center: [3]f32,
+  center: [3]f32 align(16),
   radius: f32,
 };
 
 const Box = extern struct {
   color: [4]f32,
-  center: [3]f32   align (16),
-  size: [3]f32     align (16),
+  center: [3]f32 align(16),
+  size: [3]f32 align(16),
 };
 
 const Camera = extern struct {
-  position: [3]f32 align (16),
+  position: [3]f32 align(16),
   yaw:      f32,
   pitch:    f32,
 };
