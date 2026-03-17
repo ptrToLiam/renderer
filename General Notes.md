@@ -5,11 +5,6 @@ necessarily belong in a `TODO` yet.
 
 ## RETURNING CONTEXT
 
-- SPLIT INTO UPDATE & RENDER PASSES
-- UPDATE WITH Threads(128,1,1)
-- RENDER WITH Threads(16,16,1)
-- Physics in UPDATE
-- Entities Buffer Separate from World (?)
 - Parallelized physics
 - SDF Collision Solver
 - Tetrahedral normal sampling

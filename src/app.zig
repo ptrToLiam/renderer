@@ -36,10 +36,6 @@ pub fn app(env: std.process.Environ) void {
 
   const vk_instance_init_end = time.us();
   const vk_instance_init_us = vk_instance_init_end - vk_instance_init_start;
-  log.info(
-    "vulkan instance initialized in {d}us ({d}ms)!",
-    .{ vk_instance_init_us, vk_instance_init_us / time.us_per_ms },
-  );
 
   //---------------------------------------------------------------------------
 
@@ -57,15 +53,11 @@ pub fn app(env: std.process.Environ) void {
   defer connection.close();
 
   var surface = connection.acquire_surface(
-    arena,
-    .{
-      .title = app_name,
-      .class = app_class,
-      .width = initial_width,
-      .height = initial_height,
+    arena, .{
+      .title = app_name, .class = app_class,
+      .width = initial_width, .height = initial_height,
       .flags = .{ .resize = true },
-    },
-  );
+    });
   defer surface.release();
   connection.lock_pointer(&surface, null);
 
@@ -74,17 +66,16 @@ pub fn app(env: std.process.Environ) void {
 
   //---------------------------------------------------------------------------
 
-  log.info(
-    "platform connection initialized in {d}us ({d:.2}ms)!",
-    .{ connection_init_us, base.f64_(connection_init_us) / base.f64_(time.us_per_ms) },
-  );
+
+ const tsa = time.us();
+ const dev = connection.select_vk_physical_device(
+      vk_ctx.instance_proxy,
+      &vk_required_device_extensions);
+  const tsb = time.us();
 
   // initialize vk device
   vk_ctx.init_device(
-    connection.select_vk_physical_device(
-      vk_ctx.instance_proxy,
-      &vk_required_device_extensions,
-    ),
+    dev,
     &vk_required_device_extensions,
     .{ .reset_command_buffer_bit = true },
   ) catch @panic("Unable to Initialize Vulkan Device!");
@@ -255,6 +246,17 @@ pub fn app(env: std.process.Environ) void {
 
 
   const setup_time_full = time.us();
+
+  log.info(
+    "vulkan instance initialized in {d}us ({d}ms)!",
+    .{ vk_instance_init_us, vk_instance_init_us / time.us_per_ms },
+  );
+  log.info(
+    "platform connection initialized in {d}us ({d:.2}ms)!",
+    .{ connection_init_us, base.f64_(connection_init_us) / base.f64_(time.us_per_ms) },
+  );
+  log.info("time to select physical device :: {d:.2}ms", .{ base.f64_((tsb-tsa)/time.us_per_ms)});
+  log.info("vk context init time :: {d:.2}ms", .{ base.f64_((setup_time_full - tsb)/time.us_per_ms) });
   log.info(
     "Full Setup Time :: {}us ({}ms)",
     .{ setup_time_full, setup_time_full / time.us_per_ms },
@@ -411,20 +413,38 @@ pub fn app(env: std.process.Environ) void {
       vk_ctx.device_proxy.resetEvent(scene_ready_event)
         catch @panic("Failed to reset scene_ready_event!");
 
-      var vk_timestamps: [2]u64 = undefined;
+      var vk_timestamps: [8]u64 = undefined;
       if (vk_ctx.device_proxy.getQueryPoolResults(
-        query_pool, 0, 2, 2 * @sizeOf(u64),
+        query_pool, 0, 8, 8 * @sizeOf(u64),
         &vk_timestamps, @sizeOf(u64),
         .{ .@"64_bit" = true }) catch unreachable == .success)
       {
-        const gpu_ticks_elapsed = vk_timestamps[ComputeDispatchTimestampEndIdx]
-                                - vk_timestamps[ComputeDispatchTimestampBeginIdx];
-        const gpu_ns_elapsed = f64_(gpu_ticks_elapsed) * vk_ctx.device_ts_period;
-        _ = &gpu_ns_elapsed;
-        // log.info(
-        //   "FRAME#{}|ComputeShaderTime :: {}us",
-        //   .{ frame_idx-%1, gpu_ns_elapsed / time.ns_per_us },
-        // );
+        const gpu_update_ticks = vk_timestamps[ComputeUpdateDispatchTimestampEndIdx]
+                               - vk_timestamps[ComputeUpdateDispatchTimestampBeginIdx];
+        const gpu_render_ticks = vk_timestamps[ComputeRenderDispatchTimestampEndIdx]
+                               - vk_timestamps[ComputeRenderDispatchTimestampBeginIdx];
+        const gpu_blit_ticks   = vk_timestamps[BlitCmdTimestampEndIdx]
+                               - vk_timestamps[BlitCmdTimestampBeginIdx];
+        const gpu_total_ticks  = vk_timestamps[ComputeDispatchTimestampEndIdx]
+                               - vk_timestamps[ComputeDispatchTimestampBeginIdx];
+
+        const gpu_update_ns = f64_(gpu_update_ticks) * vk_ctx.device_ts_period;
+        const gpu_render_ns = f64_(gpu_render_ticks) * vk_ctx.device_ts_period;
+        const gpu_blit_ns   = f64_(gpu_blit_ticks)   * vk_ctx.device_ts_period;
+        const gpu_total_ns  = f64_(gpu_total_ticks)  * vk_ctx.device_ts_period;
+        if (true) {
+          log.info(
+            "F={:6}|U={:6.2}us|R={:6.2}us|B={:6.2}us|TOTAL={:6.2}us|",
+            .{ frame_idx-%1, gpu_update_ns / time.ns_per_us,
+            gpu_render_ns / time.ns_per_us, gpu_blit_ns / time.ns_per_us,
+            gpu_total_ns / time.ns_per_us },
+          );
+        } else {
+          _ = &gpu_update_ns;
+          _ = &gpu_render_ns;
+          _ = &gpu_blit_ns;
+          _ = &gpu_total_ns;
+        }
       }
 
       // reconstruct swapchain if needed
@@ -444,6 +464,7 @@ pub fn app(env: std.process.Environ) void {
           render_image,
           swapchain_image.*,
           color_subresource,
+          query_pool,
         ) catch @panic("Blit command recording failed!");
 
         // sync
@@ -522,20 +543,37 @@ inline fn record_compute_cmd(
     ComputeDispatchTimestampBeginIdx,
   );
    // --- UPDATE PASS ---
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    ComputeUpdateDispatchTimestampBeginIdx,
+  );
   vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.update);
   vk_ctx.device_proxy.cmdBindDescriptorSets(
     cmd, .compute, pipeline.layout, 0, 1,
     @ptrCast(&descriptor_set.set), 0, null,
   );
-  vk_ctx.device_proxy.cmdDispatch(cmd, 1, 1, 1);
+  vk_ctx.device_proxy.cmdDispatch(cmd, 128, 1, 1);
 
   // signal event when update writes are done
   vk_ctx.device_proxy.cmdSetEvent(
     cmd, scene_ready_event,
     .{ .compute_shader_bit = true },
   );
-
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    ComputeUpdateDispatchTimestampEndIdx,
+  );
   // --- RENDER PASS ---
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    ComputeRenderDispatchTimestampBeginIdx,
+  );
   vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.render);
   vk_ctx.device_proxy.cmdBindDescriptorSets(
     cmd, .compute, pipeline.layout, 0, 1,
@@ -562,25 +600,27 @@ inline fn record_compute_cmd(
   );
 
   // barrier render image for blit
-  vk_ctx.device_proxy.cmdPipelineBarrier(
-    cmd, .{ .compute_shader_bit = true },
-    .{ .transfer_bit = true },
-    .{}, 0, null, 0, null, 1,
-    &.{.{
-      .src_access_mask = .{ .shader_write_bit = true },
-      .dst_access_mask = .{ .transfer_read_bit = true },
-      .old_layout = .general,
-      .new_layout = .general,
-      .image = render_image.image,
-      .subresource_range = .{
-        .aspect_mask = .{ .color_bit = true },
-        .base_mip_level = 0, .level_count = 1,
-        .base_array_layer = 0, .layer_count = 1,
-      },
-      .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-    }},
-  );
+  if (false) {
+    vk_ctx.device_proxy.cmdPipelineBarrier(
+      cmd, .{ .compute_shader_bit = true },
+      .{ .transfer_bit = true },
+      .{}, 0, null, 0, null, 1,
+      &.{.{
+        .src_access_mask = .{ .shader_write_bit = true },
+        .dst_access_mask = .{ .transfer_read_bit = true },
+        .old_layout = .general,
+        .new_layout = .general,
+        .image = render_image.image,
+        .subresource_range = .{
+          .aspect_mask = .{ .color_bit = true },
+          .base_mip_level = 0, .level_count = 1,
+          .base_array_layer = 0, .layer_count = 1,
+        },
+        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+      }},
+    );
+  }
 
   vk_ctx.device_proxy.cmdDispatch(
     cmd,
@@ -588,7 +628,12 @@ inline fn record_compute_cmd(
     (render_image.height + 15) / 16,
     1,
   );
-
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    ComputeRenderDispatchTimestampEndIdx,
+  );
   vk_ctx.device_proxy.cmdWriteTimestamp(
     cmd,
     .{ .compute_shader_bit = true },
@@ -604,12 +649,18 @@ inline fn record_blit_cmd(
   src: VkContext.Image,
   dst: VkContext.Image,
   subresource: vk.ImageSubresourceLayers,
+  query_pool: vk.QueryPool,
 ) !void {
   try vk_ctx.device_proxy.beginCommandBuffer(
     cmd,
     &.{},
   );
-
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    BlitCmdTimestampBeginIdx,
+  );
   vk_ctx.device_proxy.cmdBlitImage(
       cmd,
       src.image,
@@ -658,7 +709,12 @@ inline fn record_blit_cmd(
       }
     },
   );
-
+  vk_ctx.device_proxy.cmdWriteTimestamp(
+    cmd,
+    .{ .compute_shader_bit = true },
+    query_pool,
+    BlitCmdTimestampEndIdx,
+  );
   try vk_ctx.device_proxy.endCommandBuffer(cmd);
 }
 
@@ -843,9 +899,13 @@ const ComputePipeline = struct {
 };
 
 const ComputeDispatchTimestampBeginIdx = 0;
-const ComputeDispatchTimestampEndIdx = 1;
-const BlitCmdTimestampBeginIdx = 2;
-const BlitCmdTimestampEndIdx = 3;
+const ComputeUpdateDispatchTimestampBeginIdx = 1;
+const ComputeUpdateDispatchTimestampEndIdx = 2;
+const ComputeRenderDispatchTimestampBeginIdx = 3;
+const ComputeRenderDispatchTimestampEndIdx = 4;
+const ComputeDispatchTimestampEndIdx = 5;
+const BlitCmdTimestampBeginIdx = 6;
+const BlitCmdTimestampEndIdx = 7;
 
 //-----------------------------------------------------------------------------
 // Shader-Side Structs

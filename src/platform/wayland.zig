@@ -255,11 +255,6 @@ pub const Connection = struct {
       }
     }
 
-    if (globals_bound.match(.desired))
-      log.info("succesfully bound desired globals!", .{})
-    else
-      log.info("failed to bind all desired globals!", .{});
-
     //-------------------------------------------------------------------------
 
     return connection;
@@ -321,14 +316,14 @@ pub const Connection = struct {
         },
         .wl_seat_capabilities => |wl_seat_capabilities| {
           const seat_capabilities = wl_seat_capabilities.capabilities;
-          log.debug(
-            "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
-            .{
-              if (seat_capabilities.pointer) "true" else "false",
-              if (seat_capabilities.touch) "true" else "false",
-              if (seat_capabilities.keyboard) "true" else "false",
-            },
-          );
+          // log.debug(
+          //   "setting wl_seat_capabilities :: {{ pointer: {s}, touch: {s}, keyboard: {s} }}",
+          //   .{
+          //     if (seat_capabilities.pointer) "true" else "false",
+          //     if (seat_capabilities.touch) "true" else "false",
+          //     if (seat_capabilities.keyboard) "true" else "false",
+          //   },
+          // );
           conn.client_state.seat_info.capabilities = seat_capabilities;
         },
         .wl_seat_name => |wl_seat_name| {
@@ -633,10 +628,10 @@ pub const Connection = struct {
         .wl_seat_capabilities => |wl_seat_capabilities| {
           const seat_capabilities = wl_seat_capabilities.capabilities;
           conn.client_state.seat_info.capabilities = seat_capabilities;
-          log.debug(
-            "wl_seat_capabilities :: {{ keyboard: {}, pointer: {} }}",
-            .{ seat_capabilities.keyboard, seat_capabilities.pointer },
-          );
+          // log.debug(
+          //   "wl_seat_capabilities :: {{ keyboard: {}, pointer: {} }}",
+          //   .{ seat_capabilities.keyboard, seat_capabilities.pointer },
+          // );
           if (seat_capabilities.keyboard) {
             conn.client_state.keyboard =
               conn.client_state.seat.get_keyboard(&conn_proxy);
@@ -899,8 +894,8 @@ pub const Connection = struct {
       }
     }
 
-    if (candidate.pdev != .null_handle)
-      log.info("Selected GPU :: {s}", .{ candidate.props.device_name });
+    // if (candidate.pdev != .null_handle)
+    //   log.info("Selected GPU :: {s}", .{ candidate.props.device_name });
 
     return candidate.pdev;
   }

@@ -4,3 +4,5 @@
 .focus-config
 
 tmp.*
+
+*/*/*.spv

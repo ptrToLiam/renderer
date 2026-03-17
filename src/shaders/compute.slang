@@ -234,6 +234,28 @@ F1 fScene(F3 p, I1 i) {
   return min(fd, t);
 }
 
+F1 fSceneSkip(F3 p, I1 i, I1 skip) {
+  I1 ecnt = scene[i].edit_count;
+  F1 fd = max(p.y + 0.5, length(p.xz) - 8.0);
+  F1 t = fd;
+  for (I1 s=0; s<ecnt; s++) {
+    if (s == skip) { continue; }
+    SdfEdit edt = scene[i].edits[s];
+    F1 d;
+    switch (edt.tag) {
+      case PRIM_SPHERE: { d = fSphere(p, edt.position, edt.extent.x); break; }
+      case PRIM_CUBOID: { d = fBox(p, edt.position, edt.extent); break; }
+    }
+    switch (edt.op) {
+      case OP_ADD:   { t = min(d,t); break; }
+      case OP_SUB:   { t = max(t, -d); break; }
+      case OP_BLEND: { t = smin(d,t,8); break; }
+    }
+  }
+  return min(fd, t);
+}
+
+
 //-----------------------------------------------------------------------------
 // Input Packet Processing
 //-----------------------------------------------------------------------------
@@ -323,7 +345,8 @@ void compRender(
   F3 ground_color = F3(0.1, 0.2, 0.1);
 
   // F4 bg_color = F4(mandelbrot_color(uv, time), 1);
-  F4 color = 0;
+  F4 color = F4(0, 0.02, 0.1, 1);
+  // F4 color = F4(mandelbrot_color(uv, time), 1);
 
   //---------------------------------------------------------------------------
 
@@ -384,75 +407,6 @@ void compRender(
   //---------------------------------------------------------------------------
 
   //---------------------------------------------------------------------------
-  // Write Scene Forward & Apply User Input
-  //---------------------------------------------------------------------------
-
-  if (all(groupId == I3(0)) && all(threadId == I3(0))) {
-    // Input Check & Apply
-    L1 keyboard = (L1_(ip.key_arr_hi)<<32)
-                     | ip.key_arr_lo;
-
-    F3 cam_displace = F3(0);
-    F1 pitch_displace = 0;
-    F1 yaw_displace = 0;
-    F1 mov = 0.02;
-
-    cam_displace += (mov * -forward) * F1_((keyboard >> KEY_S)&1);
-    cam_displace += (mov *  forward) * F1_((keyboard >> KEY_W)&1);
-    cam_displace += (mov *   -right) * F1_((keyboard >> KEY_A)&1);
-    cam_displace += (mov *    right) * F1_((keyboard >> KEY_D)&1);
-    cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
-    cam_displace += (mov *       up) * F1_(((keyboard >> KEY_SPACE)&1)
-                                          |((keyboard >> KEY_ENTER)&1));
-
-    pitch_displace -= (ip.mouse_y / 1200);
-    yaw_displace   -= (ip.mouse_x / 1200);
-
-    // Write Forward
-    F3 campos = camera.position;
-    F1 pitch = camera.pitch;
-    F1 yaw = camera.yaw;
-
-    I1 edit_count = scene[fidx].edit_count;
-    for (I1 i=0; i<edit_count; i++) {
-      SdfEdit edit = scene[fidx].edits[i];
-      PhysicsState physics = scene[fidx].physics[i];
-
-      F3 accel = F3(0, -9.8, 0) / physics.mass;
-
-      F3 pos_new = edit.position + physics.velocity * dt + 0.5 * accel * dt * dt;
-      F3 vel_new = physics.velocity + accel * dt;
-      F1 r = edit.extent.x;
-
-      F1 d = fScene(pos_new, fidx) - r;
-      if (d < 0) {
-        F3 n = sdfNormal(pos_new, fidx);
-        pos_new -= d * n;
-        F1 vn = dot(vel_new, n);
-        if (vn < 0)
-            vel_new -= (1.0 + physics.restitution) * vn * n;
-        F3 vt = vel_new - dot(vel_new,n)*n;
-        vel_new -= vt * 0.2;
-      }
-
-      edit.position = pos_new;
-      physics.pos_prev = edit.position;
-
-      physics.velocity = (length(vel_new) < 0.001) ? F3(0) : vel_new;
-      scene[nfidx].edits[i] = edit;
-      scene[nfidx].physics[i] = physics;
-    }
-
-    scene[nfidx].prev_time = cpu_t;
-    scene[nfidx].camera.position = campos + cam_displace;
-    scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
-    scene[nfidx].camera.yaw = yaw + yaw_displace;
-    scene[nfidx].edit_count = edit_count;
-    scene[nfidx].hovered = scene[fidx].hovered;
-    scene[nfidx].selected = scene[fidx].selected;
-  }
-
-  //---------------------------------------------------------------------------
   // Final Output
   //---------------------------------------------------------------------------
 
@@ -461,13 +415,15 @@ void compRender(
   //---------------------------------------------------------------------------
 }
 
-F3 sdfNormal(F3 p, I1 fidx) {
+I_ F3 sdfNormal(F3 p, I1 fidx) {
   F1 e = 0.001;
-  return normalize(F3(
-    fScene(p + F3(e,0,0), fidx) - fScene(p - F3(e,0,0), fidx),
-    fScene(p + F3(0,e,0), fidx) - fScene(p - F3(0,e,0), fidx),
-    fScene(p + F3(0,0,e), fidx) - fScene(p - F3(0,0,e), fidx)
-  ));
+  F2 k = F2(1, -1);
+  return normalize(
+    k.xyy * fScene(p + k.xyy * e, fidx) +
+    k.yyx * fScene(p + k.yyx * e, fidx) +
+    k.yxy * fScene(p + k.yxy * e, fidx) +
+    k.xxx * fScene(p + k.xxx * e, fidx)
+  );
 }
 
 I_ F1 fSphere(F3 p, F3 c, F1 r) {
@@ -526,5 +482,112 @@ void compUpdate(
   I3 threadId: SV_DispatchThreadID,
   I3 groupId:  SV_GroupThreadID,
 ) {
-// 
+  //---------------------------------------------------------------------------
+  // Input Packet Selection
+  //---------------------------------------------------------------------------
+
+  bool p0_valid = input_packet_valid(0);
+  bool p1_valid = input_packet_valid(1);
+
+  I1 pidx = 0;
+  if (p0_valid && p1_valid) {
+    L1 t0 = (L1_(input[0].cpu_time_hi) << 32) |
+             L1_(input[0].cpu_time_lo);
+    L1 t1 = (L1_(input[1].cpu_time_hi) << 32) |
+             L1_(input[1].cpu_time_lo);
+    pidx = (t0 >= t1) ? 0 : 1;
+  } else {
+    if (p0_valid) pidx = 0;
+    if (p1_valid) pidx = 1;
+  }
+  InputPacket ip = input[pidx];
+
+  L1 cpu_t = (L1_(input[pidx].cpu_time_hi) << 32) |
+              L1_(input[pidx].cpu_time_lo);
+
+  I1 fidx = (ip.frame_idx) & 1;
+  I1 nfidx = (fidx + 1) & 1;
+  F1 time = F1_(cpu_t) / F1_(US_PER_S);
+
+  F1 dt = clamp(F1_(cpu_t - scene[fidx].prev_time) / F1_(US_PER_S), 0.0, 0.008);
+
+  //---------------------------------------------------------------------------
+  Camera camera = scene[fidx].camera;
+  F1 yaw = camera.yaw;
+  F1 pitch = camera.pitch;
+  F3 forward = normalize(F3(
+    cos(pitch) * sin(yaw),
+    sin(pitch),
+    cos(pitch) * cos(yaw),
+  ));
+
+  F3 right = normalize(cross(forward, F3(0, 1, 0)));
+  F3 up = cross(right, forward);
+
+  I1 edit_count = scene[fidx].edit_count;
+  if (threadId.x < edit_count) {
+    I1 i = threadId.x;
+    SdfEdit edit = scene[fidx].edits[i];
+    PhysicsState physics = scene[fidx].physics[i];
+    if (edit.tag == PRIM_SPHERE)
+    {
+      F3 accel = F3(0, -9.8, 0) / physics.mass;
+
+      F3 pos_new = edit.position + physics.velocity * dt + 0.5 * accel * dt * dt;
+      F3 vel_new = physics.velocity + accel * dt;
+      F1 r = edit.extent.x;
+
+      F1 d = fSceneSkip(pos_new, fidx, i) - r;
+      if (d < 0) {
+        F3 n = sdfNormal(pos_new, fidx);
+        pos_new -= d * n;
+        F1 vn = dot(vel_new, n);
+        if (vn < 0)
+            vel_new -= (1.0 + physics.restitution) * vn * n;
+        F3 vt = vel_new - dot(vel_new,n)*n;
+        vel_new -= vt * 0.2;
+      }
+
+      edit.position = pos_new;
+      physics.pos_prev = edit.position;
+
+      physics.velocity = (length(vel_new) < 0.001) ? F3(0) : vel_new;
+    }
+    scene[nfidx].physics[i] = physics;
+    scene[nfidx].edits[i] = edit;
+  }
+
+  if (threadId.x == 0) {
+    L1 keyboard = (L1_(ip.key_arr_hi)<<32)
+                     | ip.key_arr_lo;
+
+    F3 cam_displace = F3(0);
+    F1 pitch_displace = 0;
+    F1 yaw_displace = 0;
+    F1 mov = 0.02;
+
+    cam_displace += (mov * -forward) * F1_((keyboard >> KEY_S)&1);
+    cam_displace += (mov *  forward) * F1_((keyboard >> KEY_W)&1);
+    cam_displace += (mov *   -right) * F1_((keyboard >> KEY_A)&1);
+    cam_displace += (mov *    right) * F1_((keyboard >> KEY_D)&1);
+    cam_displace += (mov *      -up) * F1_((keyboard >> KEY_SHIFT)&1);
+    cam_displace += (mov *       up) * F1_(((keyboard >> KEY_SPACE)&1)
+                                          |((keyboard >> KEY_ENTER)&1));
+
+    pitch_displace -= (ip.mouse_y / 1200);
+    yaw_displace   -= (ip.mouse_x / 1200);
+
+    // Write Forward
+    F3 campos = camera.position;
+    F1 pitch = camera.pitch;
+    F1 yaw = camera.yaw;
+
+    scene[nfidx].prev_time = cpu_t;
+    scene[nfidx].camera.position = campos + cam_displace;
+    scene[nfidx].camera.pitch = clamp(pitch + pitch_displace, -1.5, 1.5);
+    scene[nfidx].camera.yaw = yaw + yaw_displace;
+    scene[nfidx].edit_count = edit_count;
+    scene[nfidx].hovered = scene[fidx].hovered;
+    scene[nfidx].selected = scene[fidx].selected;
+  }
 }
