@@ -184,6 +184,10 @@ pub fn app(env: std.process.Environ) void {
   ) catch @panic("Failed to create draw_fence!");
   defer vk_ctx.device_proxy.destroyFence(draw_fence, null);
 
+  const scene_ready_event = vk_ctx.device_proxy.createEvent(&.{}, null)
+    catch @panic("Failed to create scene_ready_event!");
+  defer vk_ctx.device_proxy.destroyEvent(scene_ready_event, null);
+
   var cmds: [2]vk.CommandBuffer = undefined;
   vk_ctx.device_proxy.allocateCommandBuffers(
     &.{
@@ -197,7 +201,8 @@ pub fn app(env: std.process.Environ) void {
   const blit_cmd = cmds[1];
 
   record_compute_cmd(&vk_ctx, compute_cmd, compute_pipeline,
-                    descriptor_set, render_image, query_pool)
+                    descriptor_set, render_image, scene_buffer,
+                    scene_ready_event, query_pool)
                     catch @panic("Compute CmdBuf Record Failed!");
 
   //---------------------------------------------------------------------------
@@ -363,8 +368,10 @@ pub fn app(env: std.process.Environ) void {
         log.info("Reloaded Compute Shader!", .{});
 
         record_compute_cmd(&vk_ctx, compute_cmd, compute_pipeline,
-                          descriptor_set, render_image, query_pool)
-                          catch @panic("Compute CmdBuf Record Failed!");
+                    descriptor_set, render_image, scene_buffer,
+                    scene_ready_event, query_pool)
+                    catch @panic("Compute CmdBuf Record Failed!");
+
         log.info("Compute Command Buffer Re-Recorded!", .{});
       } else {
         const shader_stat_new = cwd.statFile(
@@ -401,6 +408,8 @@ pub fn app(env: std.process.Environ) void {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
         @panic("Failed to wait for fences");
       };
+      vk_ctx.device_proxy.resetEvent(scene_ready_event)
+        catch @panic("Failed to reset scene_ready_event!");
 
       var vk_timestamps: [2]u64 = undefined;
       if (vk_ctx.device_proxy.getQueryPoolResults(
@@ -411,10 +420,11 @@ pub fn app(env: std.process.Environ) void {
         const gpu_ticks_elapsed = vk_timestamps[ComputeDispatchTimestampEndIdx]
                                 - vk_timestamps[ComputeDispatchTimestampBeginIdx];
         const gpu_ns_elapsed = f64_(gpu_ticks_elapsed) * vk_ctx.device_ts_period;
-        log.info(
-          "FRAME#{}|ComputeShaderTime :: {}us",
-          .{ frame_idx-%1, gpu_ns_elapsed / time.ns_per_us },
-        );
+        _ = &gpu_ns_elapsed;
+        // log.info(
+        //   "FRAME#{}|ComputeShaderTime :: {}us",
+        //   .{ frame_idx-%1, gpu_ns_elapsed / time.ns_per_us },
+        // );
       }
 
       // reconstruct swapchain if needed
@@ -478,8 +488,8 @@ pub fn app(env: std.process.Environ) void {
       first_attach = false;
     }
     const frame_elapsed_us = frame_time_end - frame_time_start;
-    log.info("FRAME#{}|CpuMainLoopTime   :: {}us",
-            .{ frame_idx, frame_elapsed_us });
+    // log.info("FRAME#{}|CpuMainLoopTime   :: {}us",
+    //         .{ frame_idx, frame_elapsed_us });
     if (frame_elapsed_us < time_target) {
       Thread.sleep((time_target - frame_elapsed_us) * time.ns_per_us);
     }
@@ -500,6 +510,8 @@ inline fn record_compute_cmd(
   pipeline: ComputePipeline,
   descriptor_set: DescriptorSet,
   render_image: VkContext.Image,
+  scene_buffer: VkContext.Buffer,
+  scene_ready_event: vk.Event,
   query_pool: vk.QueryPool,
 ) !void {
   try vk_ctx.device_proxy.beginCommandBuffer(cmd, &.{});
@@ -509,21 +521,47 @@ inline fn record_compute_cmd(
     query_pool,
     ComputeDispatchTimestampBeginIdx,
   );
-  vk_ctx.device_proxy.cmdBindPipeline(
-    cmd,
-    .compute,
-    pipeline.render,
-  );
+   // --- UPDATE PASS ---
+  vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.update);
   vk_ctx.device_proxy.cmdBindDescriptorSets(
     cmd, .compute, pipeline.layout, 0, 1,
-    @ptrCast(&descriptor_set.set), 0, null);
-
-  vk_ctx.device_proxy.cmdDispatch(
-    cmd,
-    (render_image.width + 15) / 16,
-    (render_image.height + 15) / 16,
-    1,
+    @ptrCast(&descriptor_set.set), 0, null,
   );
+  vk_ctx.device_proxy.cmdDispatch(cmd, 1, 1, 1);
+
+  // signal event when update writes are done
+  vk_ctx.device_proxy.cmdSetEvent(
+    cmd, scene_ready_event,
+    .{ .compute_shader_bit = true },
+  );
+
+  // --- RENDER PASS ---
+  vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.render);
+  vk_ctx.device_proxy.cmdBindDescriptorSets(
+    cmd, .compute, pipeline.layout, 0, 1,
+    @ptrCast(&descriptor_set.set), 0, null,
+  );
+
+  // wait for scene to be ready before reading
+  vk_ctx.device_proxy.cmdWaitEvents(
+    cmd,
+    1, @ptrCast(&scene_ready_event),
+    .{ .compute_shader_bit = true },
+    .{ .compute_shader_bit = true },
+    0, null,
+    1, &.{.{
+      .src_access_mask = .{ .shader_write_bit = true },
+      .dst_access_mask = .{ .shader_read_bit = true },
+      .buffer = scene_buffer.buffer,
+      .offset = 0,
+      .size = vk.WHOLE_SIZE,
+      .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+      .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+    }},
+    0, null,
+  );
+
+  // barrier render image for blit
   vk_ctx.device_proxy.cmdPipelineBarrier(
     cmd, .{ .compute_shader_bit = true },
     .{ .transfer_bit = true },
@@ -536,15 +574,21 @@ inline fn record_compute_cmd(
       .image = render_image.image,
       .subresource_range = .{
         .aspect_mask = .{ .color_bit = true },
-        .base_mip_level = 0,
-        .level_count = 1,
-        .base_array_layer = 0,
-        .layer_count = 1,
+        .base_mip_level = 0, .level_count = 1,
+        .base_array_layer = 0, .layer_count = 1,
       },
       .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
       .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
     }},
   );
+
+  vk_ctx.device_proxy.cmdDispatch(
+    cmd,
+    (render_image.width + 15) / 16,
+    (render_image.height + 15) / 16,
+    1,
+  );
+
   vk_ctx.device_proxy.cmdWriteTimestamp(
     cmd,
     .{ .compute_shader_bit = true },
@@ -628,7 +672,7 @@ inline fn createDescriptorSet(
   const pool = try device.createDescriptorPool(
     &.{ .max_sets = 1, .pool_size_count = 3,
       .p_pool_sizes = &.{
-        .{ .type = .storage_image, .descriptor_count = 1 },
+        .{ .type = .storage_image,  .descriptor_count = 1 },
         .{ .type = .storage_buffer, .descriptor_count = 1 },
         .{ .type = .uniform_buffer, .descriptor_count = 1 },
     }}, null,
@@ -714,21 +758,17 @@ inline fn createComputePipeline(
     ) catch unreachable);
 
   const dsl = try device.createDescriptorSetLayout(
-    &.{ .binding_count = 4, .p_bindings = &.{
+    &.{ .binding_count = 3, .p_bindings = &.{
       .{
         .binding = 0, .descriptor_type = .storage_image,
         .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
       },
       .{
-        .binding = 1, .descriptor_type = .uniform_buffer,
+        .binding = 2, .descriptor_type = .uniform_buffer,
         .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
       },
       .{
-        .binding = 2, .descriptor_type = .storage_buffer,
-        .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
-      },
-      .{
-        .binding = 3, .descriptor_type = .uniform_buffer,
+        .binding = 1, .descriptor_type = .storage_buffer,
         .descriptor_count = 1, .stage_flags = .{ .compute_bit = true },
       },
     }}, null);
