@@ -136,7 +136,8 @@ pub fn app(env: std.process.Environ) void {
     vk_ctx.device_proxy,
     "./src/shaders/comp.spv",
   ) catch unreachable;
-  defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
+  defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.update, null);
+  defer vk_ctx.device_proxy.destroyPipeline(compute_pipeline.render, null);
 
   const scene_buffer = vk_ctx.alloc_buffer(
     @sizeOf(GpuScene) * 2,
@@ -351,7 +352,8 @@ pub fn app(env: std.process.Environ) void {
       if (shader_want_reload) {
         shader_want_reload = false;
         vk_ctx.device_proxy.deviceWaitIdle() catch unreachable;
-        vk_ctx.device_proxy.destroyPipeline(compute_pipeline.pipeline, null);
+        vk_ctx.device_proxy.destroyPipeline(compute_pipeline.update, null);
+        vk_ctx.device_proxy.destroyPipeline(compute_pipeline.render, null);
         compute_pipeline = createComputePipeline(
           stdio,
           vk_ctx.device_proxy,
@@ -510,18 +512,12 @@ inline fn record_compute_cmd(
   vk_ctx.device_proxy.cmdBindPipeline(
     cmd,
     .compute,
-    pipeline.pipeline,
+    pipeline.render,
   );
   vk_ctx.device_proxy.cmdBindDescriptorSets(
-    cmd,
-    .compute,
-    pipeline.layout,
-    0,
-    1,
-    @ptrCast(&descriptor_set.set),
-    0,
-    null,
-  );
+    cmd, .compute, pipeline.layout, 0, 1,
+    @ptrCast(&descriptor_set.set), 0, null);
+
   vk_ctx.device_proxy.cmdDispatch(
     cmd,
     (render_image.width + 15) / 16,
@@ -529,8 +525,7 @@ inline fn record_compute_cmd(
     1,
   );
   vk_ctx.device_proxy.cmdPipelineBarrier(
-    cmd,
-    .{ .compute_shader_bit = true },
+    cmd, .{ .compute_shader_bit = true },
     .{ .transfer_bit = true },
     .{}, 0, null, 0, null, 1,
     &.{.{
@@ -752,20 +747,31 @@ inline fn createComputePipeline(
   }, null);
   defer device.destroyShaderModule(shader_module, null);
 
-  var pipeline: vk.Pipeline = undefined;
+  var pipelines = [_]vk.Pipeline{
+    undefined,
+    undefined,
+  };
   _ = try device.createComputePipelines(
-    .null_handle, 1, &.{
+    .null_handle, 2, &.{
       .{
-        .stage = .{
+       .stage = .{
           .stage = .{ .compute_bit = true },
-          .module = shader_module, .p_name = "compMain",
+          .module = shader_module, .p_name = "compUpdate",
         },
         .layout = layout, .base_pipeline_index = -1,
       },
-    }, null, @ptrCast(&pipeline));
+      .{
+        .stage = .{
+          .stage = .{ .compute_bit = true },
+          .module = shader_module, .p_name = "compRender",
+        },
+        .layout = layout, .base_pipeline_index = -1,
+      },
+    }, null, &pipelines);
 
   return .{
-    .pipeline = pipeline,
+    .update = pipelines[0],
+    .render = pipelines[1],
     .layout = layout,
     .dsl = dsl,
   };
@@ -790,7 +796,8 @@ const DescriptorSet = struct {
 };
 
 const ComputePipeline = struct {
-  pipeline: vk.Pipeline,
+  update: vk.Pipeline,
+  render: vk.Pipeline,
   layout: vk.PipelineLayout,
   dsl: vk.DescriptorSetLayout,
 };

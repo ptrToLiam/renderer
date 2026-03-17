@@ -259,7 +259,7 @@ S_ const I1 marchMaxSteps = 128;
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void compMain(
+void compRender(
   I3 threadId: SV_DispatchThreadID,
   I3 groupId:  SV_GroupThreadID,
   uniform RWTexture2D<F4> outputImage,
@@ -406,7 +406,7 @@ void compMain(
                                           |((keyboard >> KEY_ENTER)&1));
 
     pitch_displace -= (ip.mouse_y / 1200);
-    yaw_displace -= (ip.mouse_x / 1200);
+    yaw_displace   -= (ip.mouse_x / 1200);
 
     // Write Forward
     F3 campos = camera.position;
@@ -461,6 +461,15 @@ void compMain(
   //---------------------------------------------------------------------------
 }
 
+F3 sdfNormal(F3 p, I1 fidx) {
+  F1 e = 0.001;
+  return normalize(F3(
+    fScene(p + F3(e,0,0), fidx) - fScene(p - F3(e,0,0), fidx),
+    fScene(p + F3(0,e,0), fidx) - fScene(p - F3(0,e,0), fidx),
+    fScene(p + F3(0,0,e), fidx) - fScene(p - F3(0,0,e), fidx)
+  ));
+}
+
 I_ F1 fSphere(F3 p, F3 c, F1 r) {
   return length(p - c) - r;
 }
@@ -509,4 +518,13 @@ F3 rot3D(F3 point, F3 axis, F1 angle) {
   return lerp(dot(axis, point) * axis, point, cos(angle))
          + cross(axis, point) * sin(angle);
 }
+//-----------------------------------------------------------------------------
 
+[shader("compute")]
+[numthreads(128,1,1)]
+void compUpdate(
+  I3 threadId: SV_DispatchThreadID,
+  I3 groupId:  SV_GroupThreadID,
+) {
+// 
+}
