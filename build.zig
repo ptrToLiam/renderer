@@ -130,7 +130,10 @@ pub fn build(b: *std.Build) void {
     "-emit-spirv-directly",
     "-fvk-use-entrypoint-name",
     "-entry",
-    "compMain",
+    "compUpdate",
+    "-fvk-use-entrypoint-name",
+    "-entry",
+    "compRender",
     "-o",
     "src/shaders/comp.spv",
   });

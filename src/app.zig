@@ -503,7 +503,7 @@ pub fn app(env: std.process.Environ) void {
     if (first_attach) {
       @branchHint(.cold);
       log.info(
-        "Time to first frame presentation :: {}us ({}ms) !",
+        "Time to first frame attach :: {}us ({}ms) !",
         .{ frame_time_end, frame_time_end / time.us_per_ms },
       );
       first_attach = false;

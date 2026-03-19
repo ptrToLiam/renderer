@@ -894,9 +894,6 @@ pub const Connection = struct {
       }
     }
 
-    // if (candidate.pdev != .null_handle)
-    //   log.info("Selected GPU :: {s}", .{ candidate.props.device_name });
-
     return candidate.pdev;
   }
 
