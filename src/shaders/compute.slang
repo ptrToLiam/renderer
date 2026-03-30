@@ -314,20 +314,13 @@ void compRender(
     if (p1_valid) pidx = 1;
   }
   InputPacket ip = input[pidx];
-
-  L1 cpu_t = (L1_(input[pidx].cpu_time_hi) << 32) |
-              L1_(input[pidx].cpu_time_lo);
-
   I1 fidx = (ip.frame_idx) & 1;
-  I1 nfidx = (fidx + 1) & 1;
-  F1 time = F1_(cpu_t) / F1_(US_PER_S);
 
   //---------------------------------------------------------------------------
 
   // UV Resolution
   F2 uv = coord_to_uv(F2(threadId.x, threadId.y), width, height);
 
-  F1 dt = clamp(F1_(cpu_t - scene[fidx].prev_time) / F1_(US_PER_S), 0.0, 0.008);
   Camera camera = scene[fidx].camera;
   F1 yaw = camera.yaw;
   F1 pitch = camera.pitch;
@@ -344,19 +337,16 @@ void compRender(
 
   F3 ground_color = F3(0.1, 0.2, 0.1);
 
-  // F4 bg_color = F4(mandelbrot_color(uv, time), 1);
   F4 color = F4(0, 0.02, 0.1, 1);
   // F4 color = F4(mandelbrot_color(uv, time), 1);
 
   //---------------------------------------------------------------------------
 
-  F3 s = F3(0.3, 0.3, 1);
-  F1 r = 0.3;
   F3 sdf_color = F3(0);
   F1 t = 0.0;
   for (I1 i=0; i<marchMaxSteps; ++i) {
     F1 d = fScene(ro + rd*t, fidx);
-    if (d < 0.001) { sdf_color = F3(0.6, 0.8, 0.8); break; }
+    if (d < 0.001) { sdf_color = F3(0.4); break; }
     t += d;
     if (t > 128) { t = -1.0; break; }
   }
@@ -365,15 +355,7 @@ void compRender(
     F3 hit = ro + rd*t;
 
     // Normal Calculation
-    F1 e = 0.001;
-    F3 normal = normalize(F3(
-      fScene(hit + F3(e,0,0), fidx)
-       - fScene(hit - F3(e,0,0), fidx),
-      fScene(hit + F3(0,e,0), fidx)
-       - fScene(hit - F3(0,e,0), fidx),
-      fScene(hit + F3(0,0,e), fidx)
-       - fScene(hit - F3(0,0,e), fidx),
-    ));
+    F3 normal = sdfNormal(hit, fidx);
 
     F3 light = normalize(F3(0.5, 1, -1));
     F1 diffuse = max(dot(normal, light), 0.0);

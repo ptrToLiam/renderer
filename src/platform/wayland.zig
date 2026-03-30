@@ -24,7 +24,7 @@ pub const Connection = struct {
     // Allocate & Initialize Ring Buffers
     //-------------------------------------------------------------------------
 
-    Xkb.load_lib() catch @panic("failed to load libxkbcommon.so!");
+    Xkb.load_lib(env) catch @panic("failed to load libxkbcommon.so!");
 
     // Allocating 3 pages -- 1 each for standard in/out, 1/2 each for fd in/out
     var ringbuffers: [4]RingBuffer = undefined;
@@ -1284,16 +1284,16 @@ pub const Connection = struct {
     };
 
     var written: usize = 0;
-    var rc: isize = -1;
+    var rc = transmute(usize, @as(isize, -1));
     var errno: linux.E = .AGAIN;
-    read: while (rc < 0 and (errno == .AGAIN or errno == .INTR)) {
+    read: while (transmute(isize, rc) < 0 and (errno == .AGAIN or errno == .INTR)) {
       const val = linux.sendmsg(
         conn.fd,
         &msg,
         0,
       );
 
-      rc = transmute(isize, val);
+      rc = val;
 
       if (rc < 0) {
         errno = linux.errno(rc);
@@ -2088,8 +2088,8 @@ pub const Xkb = struct {
   const GetKeymapPfn = *fn (?*anyopaque) callconv(.c) ?*anyopaque;
   const GetOneSymPfn = *fn (*anyopaque, u32) callconv(.c) u32;
 
-  pub fn load_lib() !void {
-    handle = try std.DynLib.open("libxkbcommon.so.0");
+  pub fn load_lib(env: os.Environ) !void {
+    handle = try os.lib(env, "libxkbcommon.so.0");
 
     context_new_fn = handle.lookup(
       ContextNewPfn,

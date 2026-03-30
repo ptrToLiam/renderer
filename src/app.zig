@@ -24,6 +24,7 @@ pub fn app(env: std.process.Environ) void {
 
   var vk_ctx: VkContext = undefined;
   vk_ctx.init_instance(
+    env,
     &.{
       .name = app_name,
       .app_version = vk.makeApiVersion(0, 1, 0, 0),
@@ -598,30 +599,6 @@ inline fn record_compute_cmd(
     }},
     0, null,
   );
-
-  // barrier render image for blit
-  if (false) {
-    vk_ctx.device_proxy.cmdPipelineBarrier(
-      cmd, .{ .compute_shader_bit = true },
-      .{ .transfer_bit = true },
-      .{}, 0, null, 0, null, 1,
-      &.{.{
-        .src_access_mask = .{ .shader_write_bit = true },
-        .dst_access_mask = .{ .transfer_read_bit = true },
-        .old_layout = .general,
-        .new_layout = .general,
-        .image = render_image.image,
-        .subresource_range = .{
-          .aspect_mask = .{ .color_bit = true },
-          .base_mip_level = 0, .level_count = 1,
-          .base_array_layer = 0, .layer_count = 1,
-        },
-        .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-      }},
-    );
-  }
-
   vk_ctx.device_proxy.cmdDispatch(
     cmd,
     (render_image.width + 15) / 16,

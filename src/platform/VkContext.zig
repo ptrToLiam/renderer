@@ -11,9 +11,10 @@ upload_fence: vk.Fence,
 
 pub fn init_instance(
   noalias ctx: *VkContext,
+  env: os.Environ,
   noalias app_info: *const AppInfo,
 ) InstanceInitError!void {
-  if (libvk_handle == null) try load_lib();
+  if (libvk_handle == null) try load_lib(env);
   ctx.base_wrapper = .load(get_instance_proc_addr.?);
 
   const vk_app_info: vk.ApplicationInfo = .{
@@ -141,12 +142,13 @@ pub fn init_device(
 
 pub fn init(
   noalias ctx: *VkContext,
+  env: os.Environ,
   noalias app_info: *const AppInfo,
   physical_device: vk.PhysicalDevice,
   noalias required_extensions: []const [*:0]const u8,
   command_pool_create_flags: vk.CommandPoolCreateFlags,
 ) !void {
-  try ctx.init_instance(app_info);
+  try ctx.init_instance(env, app_info);
   try ctx.init_device(
     physical_device,
     required_extensions,
@@ -410,8 +412,8 @@ pub fn destroy(ctx: *const VkContext) void {
   defer ctx.device_proxy.destroyFence(ctx.upload_fence, null);
 }
 
-pub fn load_lib() LoadLibError!void {
-  libvk_handle = try std.DynLib.open(dynlib_name);
+pub fn load_lib(env: os.Environ) LoadLibError!void {
+  libvk_handle = try os.lib(env, dynlib_name);
   get_instance_proc_addr = libvk_handle.?.lookup(
     vk.PfnGetInstanceProcAddr,
     "vkGetInstanceProcAddr",
