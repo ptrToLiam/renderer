@@ -952,32 +952,12 @@ pub const Connection = struct {
   }
 
   pub fn load_events(conn: *Connection) void {
-    const read = conn.in.mask(conn.in.read);
-    const write = conn.in.mask(conn.in.write);
-
     //-------------------------------------------------------------------------
     // Prepare IOV Buffer(s) For Read
     //-------------------------------------------------------------------------
 
     var iov: [2]linux.iovec = undefined;
-    var iov_len: usize = 1;
-    if (write < read) {
-      const iov_buf = conn.in.buf[write..read];
-      iov[0].base = iov_buf.ptr;
-      iov[0].len = iov_buf.len;
-    } else if (read == 0) {
-      const iov_buf = conn.in.buf[write..];
-      iov[0].base = iov_buf.ptr;
-      iov[0].len = iov_buf.len;
-    } else {
-      const iov_buf_0 = conn.in.buf[write..];
-      iov[0].base = iov_buf_0.ptr;
-      iov[0].len = iov_buf_0.len;
-      const iov_buf_1 = conn.in.buf[0..read];
-      iov[1].base = iov_buf_1.ptr;
-      iov[1].len = iov_buf_1.len;
-      iov_len = 2;
-    }
+    const iov_len = conn.in.prep_iovecs_in(&iov);
 
     //-------------------------------------------------------------------------
 
@@ -1034,7 +1014,7 @@ pub const Connection = struct {
     while (cmsg_iter.next()) |cmsg_header| {
       if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM_RIGHTS) {
         const fd = cmsg_header.data(c_int).*;
-        conn.fd_in.put(std.mem.asBytes(&fd));
+        conn.fd_in.putBytes(std.mem.asBytes(&fd));
       }
     }
 
@@ -1060,31 +1040,8 @@ pub const Connection = struct {
         .op = 0,
         .len = 0,
       };
-      var header_bytes = std.mem.asBytes(&header);
       const header_read_idx = conn.in.mask(conn.in.read);
-      const header_contiguous_bytes = conn.in.buf[header_read_idx..];
-
-      // Current header bytes wrap around to start of buffer
-      if (header_bytes.len > header_contiguous_bytes.len) {
-        const remainder = header_bytes.len - header_contiguous_bytes.len;
-
-        // copy contiguous bytes
-        @memcpy(
-          header_bytes[0..header_contiguous_bytes.len],
-          header_contiguous_bytes,
-        );
-
-        // copy remaining bytes
-        @memcpy(
-          header_bytes[header_contiguous_bytes.len..],
-          conn.in.buf[0..remainder],
-        );
-      } else {
-        @memcpy(
-          header_bytes,
-          header_contiguous_bytes[0..header_bytes.len],
-        );
-      }
+      conn.in.getNBytesFrom(header_read_idx,8,std.mem.asBytes(&header));
 
       //-----------------------------------------------------------------------
 
@@ -1101,7 +1058,6 @@ pub const Connection = struct {
 
       const data_len = header.len - @sizeOf(WireEventHeader);
       const data_read_idx = conn.in.mask(conn.in.read);
-      const data_contiguous_bytes = conn.in.buf[data_read_idx..];
 
       defer conn.in.read -%= u32_(@sizeOf(WireEventHeader));
 
@@ -1110,25 +1066,8 @@ pub const Connection = struct {
       const scratch_arena = scratch.arena;
       defer scratch.end();
 
-      var data_bytes = scratch_arena.push(u8, data_len);
-
-      // Current data bytes wrap around to start of buffer
-      if (data_len > data_contiguous_bytes.len) {
-        const remainder = data_len - data_contiguous_bytes.len;
-        @memcpy(
-          data_bytes[0..data_contiguous_bytes.len],
-          data_contiguous_bytes,
-        );
-        @memcpy(
-          data_bytes[data_contiguous_bytes.len..],
-          conn.in.buf[0..remainder],
-        );
-      } else {
-        @memcpy(
-          data_bytes,
-          data_contiguous_bytes[0..data_bytes.len]
-        );
-      }
+      const data_bytes = scratch_arena.push(u8, data_len);
+      conn.in.getNBytesFrom(data_read_idx, data_len, data_bytes);
 
       const relevant_object = conn.client_state.object_pool.get(header.id);
       const wayland_event = relevant_object.message_decode(
@@ -1160,72 +1099,24 @@ pub const Connection = struct {
        .op = 0,
        .len = 0,
      };
-     var header_bytes = std.mem.asBytes(&header);
      const header_read_idx = conn.in.mask(conn.in.read);
-     const header_contiguous_bytes = conn.in.buf[header_read_idx..];
-
-     // Current header bytes wrap around to start of buffer
-     if (header_bytes.len > header_contiguous_bytes.len) {
-       const remainder = header_bytes.len - header_contiguous_bytes.len;
-
-       // copy contiguous bytes
-       @memcpy(
-         header_bytes[0..header_contiguous_bytes.len],
-         header_contiguous_bytes,
-       );
-
-       // copy remaining bytes
-       @memcpy(
-         header_bytes[header_contiguous_bytes.len..],
-         conn.in.buf[0..remainder],
-       );
-     } else {
-       @memcpy(
-         header_bytes,
-         header_contiguous_bytes[0..header_bytes.len],
-       );
-     }
+     conn.in.getNBytesFrom(header_read_idx,8,std.mem.asBytes(&header));
      conn.in.read +%= header.len;
   }
 
   pub fn flush(conn: *Connection) !void {
-    const out_read_start = conn.out.read;
-    const out_read = conn.out.mask(conn.out.read);
-    const out_write = conn.out.mask(conn.out.write);
+    // const out_read_start = conn.out.read;
 
     //-------------------------------------------------------------------------
     // Prepare outgoing iovecs
     //-------------------------------------------------------------------------
 
     var iov: [2]linux.iovec = undefined;
-    var iov_len: usize = 1;
+    const iov_len = if (conn.out.read != conn.out.write)
+      conn.out.prep_iovecs_out(&iov) else 0;
 
-    if (conn.out.read == conn.out.write) {
-      iov_len = 0;
-    } else if (out_read < out_write) {
-      const iov_buf = conn.out.buf[out_read..out_write];
-      iov[0].base = iov_buf.ptr;
-      iov[0].len = iov_buf.len;
-      conn.out.read +%= u32_(iov_buf.len);
-    } else if (out_write == 0) {
-      const iov_buf = conn.out.buf[out_read..];
-      iov[0].base = iov_buf.ptr;
-      iov[0].len = iov_buf.len;
-      conn.out.read +%= u32_(iov_buf.len);
-    } else {
-      const iov_buf_0 = conn.out.buf[out_read..];
-      iov[0].base = iov_buf_0.ptr;
-      iov[0].len = iov_buf_0.len;
-
-      const iov_buf_1 = conn.out.buf[0..out_write];
-      iov[1].base = iov_buf_1.ptr;
-      iov[1].len = iov_buf_1.len;
-      iov_len = 2;
-
-      conn.out.read +%= u32_(iov_buf_0.len + iov_buf_1.len);
-    }
-
-    const bytes_to_write = conn.out.read - out_read_start;
+    const bytes_to_write = conn.out.write - conn.out.read;
+    defer conn.out.read +%= bytes_to_write;
 
     //-------------------------------------------------------------------------
 
@@ -1242,15 +1133,8 @@ pub const Connection = struct {
 
     while (!conn.fd_out.empty()) {
       const fd_out_read = conn.fd_out.mask(conn.fd_out.read);
-      const contiguous_bytes = conn.fd_out.buf[fd_out_read..];
-
       var fd_out: c_int = -1;
-      var fd_out_bytes = std.mem.asBytes(&fd_out);
-
-      @memcpy(
-        fd_out_bytes[0..][0..c_int_size],
-        contiguous_bytes[0..c_int_size],
-      );
+      conn.fd_out.getNBytesFrom(fd_out_read,4,std.mem.asBytes(&fd_out));
 
       const control_msg: fd_cmsg_t = .init(
         posix.SOL.SOCKET,
@@ -1426,12 +1310,12 @@ pub const Connection = struct {
       .op = op,
       .len = msg_len,
     };
-    connection.out.put(std.mem.asBytes(&header));
+    connection.out.putBytes(std.mem.asBytes(&header));
 
     for (args) |arg_opt| {
       if (arg_opt) |arg| arg: switch (arg) {
         .uint, .new_id, .object => |uint_arg| {
-          connection.out.put(std.mem.asBytes(&uint_arg));
+          connection.out.putBytes(std.mem.asBytes(&uint_arg));
         },
         .int => |int_arg| {
           continue :arg .{ .uint = transmute(u32, int_arg) };
@@ -1454,16 +1338,16 @@ pub const Connection = struct {
           const len = u32_(array_arg.len);
           const padding_bytes_needed = (write_len - @sizeOf(u32)) - len;
 
-          connection.out.put(std.mem.asBytes(&len));
-          connection.out.put(array_arg);
-          connection.out.put(padding_bytes[0..padding_bytes_needed]);
+          connection.out.putBytes(std.mem.asBytes(&len));
+          connection.out.putBytes(array_arg);
+          connection.out.putBytes(padding_bytes[0..padding_bytes_needed]);
         },
         .fd => |fd_arg| {
-          connection.fd_out.put(std.mem.asBytes(&fd_arg));
+          connection.fd_out.putBytes(std.mem.asBytes(&fd_arg));
         },
       } else {
         const null_value: u32 = 0;
-        connection.out.put(std.mem.asBytes(&null_value));
+        connection.out.putBytes(std.mem.asBytes(&null_value));
       }
     }
   }

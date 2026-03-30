@@ -54,35 +54,91 @@ pub const RingBuffer = struct {
     return idx & u32_(rb.buf.len - 1);
   }
 
-  pub fn put(rb: *RingBuffer, bytes: []const u8) void {
+  pub fn putBytes(rb: *RingBuffer, bytes: []const u8) void {
     const write_idx = rb.mask(rb.write);
     defer rb.write +%= u32_(bytes.len);
 
-    if (rb.buf[write_idx..].len > bytes.len) {
-      @memcpy(
-        rb.buf[write_idx..][0..bytes.len],
-        bytes,
-      );
-    } else {
-      const dst1 = rb.buf[write_idx..];
-      @memcpy(
-        dst1,
-        bytes[0..dst1.len],
-      );
+    const contiguous_bytes = rb.buf[write_idx..];
+    const copy0_len = @min(contiguous_bytes.len, bytes.len);
+    const copy1_len = bytes.len - copy0_len;
 
-      const remainder = bytes.len - dst1.len;
-      @memcpy(
-        rb.buf[0..remainder],
-        bytes[dst1.len..][0..remainder],
-      );
+    @memcpy(contiguous_bytes[0..copy0_len], bytes[0..copy0_len]);
+    @memcpy(rb.buf[0..copy1_len], bytes[copy0_len..]);
+  }
+
+  pub fn getNBytesFrom(rb: *RingBuffer, pos: u32, count: usize, out: []u8) void {
+    const start = rb.mask(pos);
+
+    const contiguous_bytes = rb.buf[start..];
+    const copy0_len = @min(count, contiguous_bytes.len);
+    const copy1_len = count - copy0_len;
+
+    @memcpy(out[0..copy0_len], contiguous_bytes[0..copy0_len]);
+    @memcpy(out[copy0_len..], rb.buf[0..copy1_len]);
+  }
+
+  pub fn prep_iovecs_out(
+    noalias rb: *RingBuffer,
+    iov: *[2]os.linux.iovec,
+  ) usize {
+    const tail = rb.mask(rb.read);
+    const head = rb.mask(rb.write);
+    var iov_len: usize = 1;
+
+    if (tail < head) {
+      const iov_buf = rb.buf[tail..head];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else if (head == 0) {
+      const iov_buf = rb.buf[tail..];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else {
+      const iov_buf_0 = rb.buf[tail..];
+      iov[0].base = iov_buf_0.ptr;
+      iov[0].len = iov_buf_0.len;
+
+      const iov_buf_1 = rb.buf[0..head];
+      iov[1].base = iov_buf_1.ptr;
+      iov[1].len = iov_buf_1.len;
+      iov_len = 2;
     }
+
+    return iov_len;
+  }
+
+  pub fn prep_iovecs_in(
+    noalias rb: *RingBuffer,
+    iov: *[2]os.linux.iovec,
+  ) usize {
+    const tail = rb.mask(rb.read);
+    const head = rb.mask(rb.write);
+    var iov_len: usize = 1;
+
+    if (tail > head) {
+      const iov_buf = rb.buf[head..tail];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else if (tail == 0) {
+      const iov_buf = rb.buf[head..];
+      iov[0].base = iov_buf.ptr;
+      iov[0].len = iov_buf.len;
+    } else {
+      const iov_buf_0 = rb.buf[head..];
+      iov[0].base = iov_buf_0.ptr;
+      iov[0].len = iov_buf_0.len;
+
+      const iov_buf_1 = rb.buf[0..tail];
+      iov[1].base = iov_buf_1.ptr;
+      iov[1].len = iov_buf_1.len;
+      iov_len = 2;
+    }
+
+    return iov_len;
   }
 
   const MAX_SIZE = math.maxInt(u31);
 };
-
-test "Ringbuffer" {
-}
 
 pub const ShiftBuffer = struct {
   buf: []u8,
