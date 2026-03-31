@@ -80,14 +80,14 @@ pub const Connection = struct {
     };
 
     const socket_fd = i32_(linux.socket(
-      posix.AF.UNIX,
-      posix.SOCK.STREAM | posix.SOCK.CLOEXEC | 0,
+      linux.AF.UNIX,
+      linux.SOCK.STREAM | linux.SOCK.CLOEXEC,
       0,
     ));
 
     const socket_addr = socket_addr: {
-      var addr: posix.sockaddr.un = .{
-        .family = posix.AF.UNIX,
+      var addr: linux.sockaddr.un = .{
+        .family = linux.AF.UNIX,
         .path = @splat(0),
       };
 
@@ -277,7 +277,7 @@ pub const Connection = struct {
     //-------------------------------------------------------------------------
 
     // Disconnect from compositor
-    posix.close(conn.fd);
+    _ = linux.close(conn.fd);
   }
 
   /// Construct DLL queue of available platform events from received wayland events
@@ -1012,7 +1012,7 @@ pub const Connection = struct {
 
     var cmsg_iter = linux.cmsghdr.iter(cmsg_buf[0..msg.controllen]);
     while (cmsg_iter.next()) |cmsg_header| {
-      if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM_RIGHTS) {
+      if (cmsg_header.level == linux.SOL.SOCKET and cmsg_header.type == linux.SCM.RIGHTS) {
         const fd = cmsg_header.data(c_int).*;
         conn.fd_in.putBytes(std.mem.asBytes(&fd));
       }
@@ -1137,8 +1137,8 @@ pub const Connection = struct {
       conn.fd_out.getNBytesFrom(fd_out_read,4,std.mem.asBytes(&fd_out));
 
       const control_msg: fd_cmsg_t = .init(
-        posix.SOL.SOCKET,
-        linux.SCM_RIGHTS,
+        linux.SOL.SOCKET,
+        linux.SCM.RIGHTS,
         fd_out,
       );
 
@@ -4743,7 +4743,6 @@ const time = base.time;
 const math = base.math;
 
 const linux = os.linux;
-const posix = os.posix;
 
 const os = @import("os");
 const base = @import("base");

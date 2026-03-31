@@ -248,6 +248,7 @@ pub const ftruncate = linux.ftruncate;
 pub const connect = linux.connect;
 pub const statx = linux.statx;
 pub const ioctl = linux.ioctl;
+pub const sockaddr = linux.sockaddr;
 pub const errno = std.posix.errno;
 
 // Type aliases
@@ -263,15 +264,15 @@ pub const E = linux.E;
 pub const PR = linux.PR;
 pub const MS = linux.MS;
 pub const AT = linux.AT;
+pub const AF = linux.AF;
 pub const MSG = linux.MSG;
 pub const MAP = linux.MAP;
+pub const SCM = linux.SCM;
 pub const SOL = linux.SOL;
+pub const SOCK = linux.SOCK;
 pub const PROT = linux.PROT;
 pub const MADV = linux.MADV;
 pub const SEEK = linux.SEEK;
-
-pub const SCM_RIGHTS = 0x01;
-pub const SCM_CREDENTIALS = 0x02;
 
 const linux = std.os.linux;
 
