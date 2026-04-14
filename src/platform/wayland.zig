@@ -761,7 +761,7 @@ pub const Connection = struct {
     var scratch = Thread.Context.get_scratch(0, .{}).?;
     defer scratch.end();
 
-    var pdev_options = scratch.arena.push(vk.PhysicalDevice, pdev_count);
+    const pdev_options = scratch.arena.push(vk.PhysicalDevice, pdev_count);
 
     _ = vki.enumeratePhysicalDevices(
       &pdev_count,

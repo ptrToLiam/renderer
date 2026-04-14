@@ -240,6 +240,7 @@ pub const nanosleep = linux.nanosleep;
 pub const pread = linux.pread;
 pub const read = linux.read;
 pub const close = linux.close;
+pub const clock_gettime = linux.clock_gettime;
 pub const msync = linux.msync;
 pub const lseek = linux.lseek;
 pub const open = linux.open;

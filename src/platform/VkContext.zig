@@ -358,8 +358,7 @@ pub fn upload_buffer(
   );
   defer ctx.device_proxy.freeCommandBuffers(
     ctx.command_pool,
-    1,
-    @ptrCast(&cmd),
+    &.{cmd},
   );
 
   try ctx.device_proxy.beginCommandBuffer(
@@ -370,17 +369,15 @@ pub fn upload_buffer(
     cmd,
     staging.buffer,
     dst.buffer,
-    1,
     &.{
       .{ .src_offset = 0, .dst_offset = 0, .size = @sizeOf(T) },
     },
   );
   try ctx.device_proxy.endCommandBuffer(cmd);
 
-  try ctx.device_proxy.resetFences(1, @ptrCast(&ctx.upload_fence));
+  try ctx.device_proxy.resetFences(&.{ctx.upload_fence});
   try ctx.device_proxy.queueSubmit(
     ctx.queue,
-    1,
     &.{
       .{
         .command_buffer_count = 1,
@@ -390,8 +387,7 @@ pub fn upload_buffer(
     ctx.upload_fence,
   );
   _ = try ctx.device_proxy.waitForFences(
-    1,
-    @ptrCast(&ctx.upload_fence),
+    &.{ctx.upload_fence},
     .true,
     math.maxInt(u64),
   );

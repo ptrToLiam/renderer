@@ -4,9 +4,9 @@
     .fingerprint = 0x2fb3d0ee51b0adc5, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.0-dev.1222+5fb36d260",
     .dependencies = .{
-        .vulkan_zig = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/0f95d5d861892ae3382e926ecb7b30f412e2e8d6.tar.gz",
-            .hash = "vulkan-0.0.0-r7Ytxz5JAwCpaw-HUTAWqOirdjsXGGNArUHIf7s7rhBP",
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig#3adbeefbc833c12656791d304b37a6315b357745",
+            .hash = "vulkan-0.0.0-r7YtxyBsAwD35FvkFhT2xruTNdCByD3TtGw44XWtfun8",
         },
         .wayland_protocol_codegen = .{
             .url = "git+https://github.com/ptrToLiam/wayland-protocol-codegen#7fbd0518fe5f2826f80bb1205066fdbdf61688c9",

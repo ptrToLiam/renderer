@@ -16,12 +16,13 @@ pub fn us_to_ms(micros: u64) u64 {
 
 fn timestamp_ns() u64 {
   const ns: u64 = ts: {switch (builtin.os.tag) {
-    .windows, .uefi, .wasi => {
-      break :ts (time.Instant.now() catch unreachable).timestamp;
+    .linux => {
+      var ts: os.linux.timespec = undefined;
+      _ = os.linux.clock_gettime(.MONOTONIC, &ts);
+      break :ts cast(u64, (ts.sec * time.ns_per_s) + ts.nsec);
     },
     else => {
-      const ts = (time.Instant.now() catch unreachable).timestamp;
-      break :ts cast(u64, (ts.sec * time.ns_per_s) + ts.nsec);
+      @compileError("TODO: Implement timestamp_ns for target");
     },
   }};
   return ns;
@@ -66,5 +67,6 @@ const transmute = casts.transmute;
 const base = @import("base.zig");
 const casts = @import("casts.zig");
 
+const os = @import("os");
 const time = @import("std").time;
 const builtin = @import("builtin");

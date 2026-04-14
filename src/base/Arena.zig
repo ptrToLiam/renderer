@@ -225,7 +225,7 @@ pub fn _push_impl(arena: *Arena, size: usize, @"align": usize) []u8 {
   return result;
 }
 
-pub const Temp = packed struct {
+pub const Temp = struct {
   arena: *Arena,
   pos: usize,
 

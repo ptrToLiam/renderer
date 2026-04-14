@@ -170,7 +170,7 @@ pub fn app(env: std.process.Environ) void {
     input_buffer,
   ) catch unreachable;
 
-  var draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
+  const draw_fence: vk.Fence = vk_ctx.device_proxy.createFence(
     &.{ .flags = .{ .signaled_bit = true } },
     null,
   ) catch @panic("Failed to create draw_fence!");
@@ -405,7 +405,7 @@ pub fn app(env: std.process.Environ) void {
     // Draw Logic
     {
       _ = vk_ctx.device_proxy.waitForFences(
-        1, @ptrCast(&draw_fence), .true,
+        &.{draw_fence}, .true,
         math.maxInt(u32)) catch |err|
       {
         log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
@@ -470,8 +470,7 @@ pub fn app(env: std.process.Environ) void {
 
         // sync
         vk_ctx.device_proxy.resetFences(
-          1,
-          @ptrCast(&draw_fence),
+          &.{draw_fence},
         ) catch |err| {
           log.err("Fence reset failed :: {s}", .{@errorName(err)});
           @panic("Fence reset failed");
@@ -484,7 +483,6 @@ pub fn app(env: std.process.Environ) void {
         );
         vk_ctx.device_proxy.queueSubmit(
           vk_ctx.queue,
-          1,
           &.{
             .{
               .command_buffer_count = 2,
@@ -518,7 +516,7 @@ pub fn app(env: std.process.Environ) void {
   }
 
   _ = vk_ctx.device_proxy.waitForFences(
-    1, @ptrCast(&draw_fence), .true,
+    &.{draw_fence}, .true,
     math.maxInt(u32)) catch |err|
   {
     log.err("Failed to wait for fence on entry :: {s}", .{@errorName(err)});
@@ -552,8 +550,8 @@ inline fn record_compute_cmd(
   );
   vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.update);
   vk_ctx.device_proxy.cmdBindDescriptorSets(
-    cmd, .compute, pipeline.layout, 0, 1,
-    @ptrCast(&descriptor_set.set), 0, null,
+    cmd, .compute, pipeline.layout, 0,
+    &.{descriptor_set.set}, null,
   );
   vk_ctx.device_proxy.cmdDispatch(cmd, 128, 1, 1);
 
@@ -577,18 +575,18 @@ inline fn record_compute_cmd(
   );
   vk_ctx.device_proxy.cmdBindPipeline(cmd, .compute, pipeline.render);
   vk_ctx.device_proxy.cmdBindDescriptorSets(
-    cmd, .compute, pipeline.layout, 0, 1,
-    @ptrCast(&descriptor_set.set), 0, null,
+    cmd, .compute, pipeline.layout, 0,
+    @ptrCast(&descriptor_set.set), null,
   );
 
   // wait for scene to be ready before reading
   vk_ctx.device_proxy.cmdWaitEvents(
     cmd,
-    1, @ptrCast(&scene_ready_event),
+    &.{scene_ready_event},
     .{ .compute_shader_bit = true },
     .{ .compute_shader_bit = true },
-    0, null,
-    1, &.{.{
+    &.{},
+    &.{.{
       .src_access_mask = .{ .shader_write_bit = true },
       .dst_access_mask = .{ .shader_read_bit = true },
       .buffer = scene_buffer.buffer,
@@ -597,7 +595,7 @@ inline fn record_compute_cmd(
       .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
       .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
     }},
-    0, null,
+    null,
   );
   vk_ctx.device_proxy.cmdDispatch(
     cmd,
@@ -644,7 +642,6 @@ inline fn record_blit_cmd(
       .general,
       dst.image,
       .general,
-      1,
       &.{
         .{
           .src_offsets = .{
@@ -666,7 +663,7 @@ inline fn record_blit_cmd(
     cmd,
     .{ .transfer_bit = true },
     .{ .bottom_of_pipe_bit = true },
-    .{}, 0, null, 0, null, 1,
+    .{},&.{},&.{},
     &.{
       .{
         .src_access_mask = .{ .transfer_write_bit = true },
@@ -721,7 +718,7 @@ inline fn createDescriptorSet(
 
   // Write the storage image binding
   device.updateDescriptorSets(
-    3, &.{
+    &.{
       .{
         .dst_set = set,
         .dst_binding = 0,
@@ -770,7 +767,7 @@ inline fn createDescriptorSet(
           },
         },
       },
-  }, 0, null);
+  }, null);
   return .{ .pool = pool, .set = set };
 }
 
@@ -825,7 +822,7 @@ inline fn createComputePipeline(
     undefined,
   };
   _ = try device.createComputePipelines(
-    .null_handle, 2, &.{
+    .null_handle, &.{
       .{
        .stage = .{
           .stage = .{ .compute_bit = true },

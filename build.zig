@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
     "Add a custom rpath for loading dynamic libraries (i.e., libvulkan.so.1) on linux",
   );
 
-  const vulkan = b.dependency("vulkan_zig", .{
+  const vulkan = b.dependency("vulkan", .{
     .registry = b.path("src/vulkan-registry/vk.xml"),
   }).module("vulkan-zig");
 
