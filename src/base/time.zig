@@ -1,6 +1,6 @@
 /// Microsecond timestamp
 pub fn microTimestamp() u64 {
-  return timestamp_ns() / time.ns_per_us;
+  return timestamp_ns() / ns_per_us;
 }
 
 /// Microseconds since program start
@@ -11,15 +11,15 @@ pub fn us() u64 {
 }
 
 pub fn us_to_ms(micros: u64) u64 {
-  return micros / time.us_per_ms;
+  return micros / us_per_ms;
 }
 
 fn timestamp_ns() u64 {
-  const ns: u64 = ts: {switch (builtin.os.tag) {
+  const ns: u64 = ts: {switch (os.Target.tag) {
     .linux => {
       var ts: os.linux.timespec = undefined;
       _ = os.linux.clock_gettime(.MONOTONIC, &ts);
-      break :ts cast(u64, (ts.sec * time.ns_per_s) + ts.nsec);
+      break :ts cast(u64, (ts.sec * ns_per_s) + ts.nsec);
     },
     else => {
       @compileError("TODO: Implement timestamp_ns for target");
@@ -68,5 +68,3 @@ const base = @import("base.zig");
 const casts = @import("casts.zig");
 
 const os = @import("os");
-const time = @import("std").time;
-const builtin = @import("builtin");
