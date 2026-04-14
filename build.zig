@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
     b.path("src/wayland-protocols/pointer-constraints-unstable-v1.xml"),
   };
 
-  const wayland_protocols = b.dependency("wayland_protocol_codegen", .{
+  const wayland_protocols = b.dependency("wl_protocol_codegen", .{
     .protocols = &wayland_protocol_specifications,
   }).module("wayland-protocols");
 

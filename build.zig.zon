@@ -4,13 +4,13 @@
     .fingerprint = 0x2fb3d0ee51b0adc5, // Changing this has security and trust implications.
     .minimum_zig_version = "0.15.0-dev.1222+5fb36d260",
     .dependencies = .{
+        .wl_protocol_codegen = .{
+            .url = "git+https://github.com/ptrtoliam/wl-protocol-codegen#aec9ff7d23a833f2cc23f7dbe317501dd6b510d3",
+            .hash = "wl_protocol_codegen-0.1.0-vEA_tzIoAQBfYQiZ8rA6Hj0wh1GTZW7iJ-RMfNsK-eYH",
+        },
         .vulkan = .{
             .url = "git+https://github.com/Snektron/vulkan-zig#3adbeefbc833c12656791d304b37a6315b357745",
             .hash = "vulkan-0.0.0-r7YtxyBsAwD35FvkFhT2xruTNdCByD3TtGw44XWtfun8",
-        },
-        .wayland_protocol_codegen = .{
-            .url = "git+https://github.com/ptrToLiam/wayland-protocol-codegen#7fbd0518fe5f2826f80bb1205066fdbdf61688c9",
-            .hash = "wayland_protocol_codegen-0.0.0-Qh8GvO8bAQB6Vb783fZe2lR_AE-gzrwrSEhN_PpDyZDL",
         },
     },
     .paths = .{
