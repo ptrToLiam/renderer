@@ -32,7 +32,7 @@
             vulkan-tools-lunarg
             vulkan-validation-layers
             vulkan-extension-layer
-            #zig.packages.${system}."master-2026-02-03"
+            zig.packages.${system}."0.16.0"
           ];
           shellHook = ''
             RPATH="${pkgs.vulkan-loader}/lib:${pkgs.libxkbcommon}/lib"
