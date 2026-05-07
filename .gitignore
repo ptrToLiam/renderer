@@ -1,8 +1,12 @@
 /zig-out/
 /.zig-cache/
+/.ark/
+
+.ark_ignore
+.ark_config
 
 .focus-config
 
-tmp.*
+*tmp*
 
 */*/*.spv
